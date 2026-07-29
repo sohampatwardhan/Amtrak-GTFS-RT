@@ -36,9 +36,8 @@
 ```gitignore
 /target
 /out
-Cargo.lock
 ```
-(Binary crate, but we ignore `Cargo.lock` only until we containerize; keep it simple for now.)
+(This is a binary crate, so `Cargo.lock` **is** committed — it pins the exact resolved versions, which matters given the shared-type version constraint.)
 
 - [ ] **Step 2: Create `Cargo.toml`**
 
