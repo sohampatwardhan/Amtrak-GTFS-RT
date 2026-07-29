@@ -1,0 +1,18 @@
+[package]
+name = "amtrak-gtfs-rt-service"
+version = "0.1.0"
+edition = "2021"
+license = "AGPL-3.0"
+description = "Serves live GTFS-Realtime feeds for Amtrak"
+
+[dependencies]
+amtrak-gtfs-rt = { git = "https://github.com/catenarytransit/amtrak-gtfs-rt" }
+gtfs-structures = "0.46.1"
+gtfs-realtime = "0.2.0"
+prost = "0.14"
+reqwest = "0.13"
+async-trait = "0.1"
+axum = "0.8"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "sync", "fs", "signal"] }
+tracing = "0.1"
+tracing-subscriber = "0.3"
