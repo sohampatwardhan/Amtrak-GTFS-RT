@@ -12,7 +12,10 @@
 
 - **Rust toolchain:** stable ≥ 1.85 (the `amtrak-gtfs-rt` dependency is edition 2024). Every task assumes this.
 - **License:** `AGPL-3.0` (required — we depend on catenary's AGPL-3.0 crate over a network service). `Cargo.toml` `license = "AGPL-3.0"`; repo `LICENSE` file present.
-- **Shared-type version pinning:** the following crates MUST resolve to a single version shared with the `amtrak-gtfs-rt` dependency, or the `reqwest::Client`, `gtfs_structures::Gtfs`, and `gtfs_realtime::FeedMessage` types will not unify across the crate boundary: `reqwest`, `gtfs-structures = "0.46.1"`, `gtfs-realtime = "0.2.0"`, `prost = "0.14"`. Verify with `cargo tree -d` (must show **no** duplicate versions of these four crates).
+- **Shared-type version pinning:** the types that cross the boundary to catenary's crate must unify.
+  - `gtfs-structures = "0.46.1"`, `gtfs-realtime = "0.2.0"`, `prost = "0.14"` MUST each resolve to a **single version** (they carry `Gtfs`, `FeedMessage`, and the protobuf `Message` impl). Verify with `cargo tree -d` — it must show **no** duplicate of these three.
+  - `reqwest` MUST match the version catenary's `amtrak-gtfs-rt` uses (currently **0.13**), because the `reqwest::Client` we build is passed into `fetch_amtrak_gtfs_rt(&Gtfs, &reqwest::Client)`. Our `Cargo.toml` pins `reqwest = "0.13"`.
+  - **A second `reqwest` (0.12.x) WILL appear in the tree** — `gtfs-structures 0.46.1` depends on it transitively. This duplicate is **expected and acceptable**: that 0.12 copy is internal to `gtfs-structures` and never crosses our boundary as a `Client`. Do not try to eliminate it (it is impossible without forking catenary). Only the three crates above must be single-version.
 - **Static feed URL:** `https://content.amtrak.com/content/gtfs/GTFS.zip` (default; overridable via `AMTRAK_STATIC_URL`).
 - **Output filenames (exact):** `trip-updates.pb`, `vehicle-positions.pb`, `alerts.pb`, `static.zip`. RT `.pb` content-type `application/protobuf`; zip content-type `application/zip`.
 - **All writes atomic:** temp file + rename, never a partial file a consumer could read.
@@ -87,9 +90,9 @@ mod tests {
 Run: `cargo build`
 Expected: compiles (first build downloads the git dep; may take a minute).
 
-Run: `cargo tree -d | grep -E "^(reqwest|gtfs-structures|gtfs-realtime|prost)" || echo "NO DUPLICATES"`
-Expected: prints `NO DUPLICATES`.
-If a duplicate appears (e.g. our `reqwest = "0.13"` doesn't match catenary's actual version), open the git dep's `Cargo.toml` via the path printed by `cargo metadata` and change our version in `Cargo.toml` to match its exact major.minor, then rebuild until `cargo tree -d` is clean for all four crates.
+Run: `cargo tree -d | grep -E "^(gtfs-structures|gtfs-realtime|prost) v" || echo "NO DUPLICATES"`
+Expected: prints `NO DUPLICATES` (these three must be single-version).
+A duplicate `reqwest` (0.12.x from `gtfs-structures` alongside 0.13.x from catenary + us) is **expected** — see Global Constraints — so it is deliberately excluded from this check. What matters is that our `reqwest` version matches catenary's: confirm with `cargo tree -i "reqwest@0.13.4"` that the `amtrak-gtfs-rt` git dep sits above the same 0.13.x our crate depends on. If `gtfs-structures`/`gtfs-realtime`/`prost` show a duplicate, align our pin to catenary's version via `cargo metadata` and rebuild until clean.
 
 - [ ] **Step 6: Run the stub test**
 
