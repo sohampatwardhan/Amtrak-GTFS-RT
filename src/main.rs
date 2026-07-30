@@ -1,5 +1,6 @@
 mod config;
 mod sources;
+mod static_gtfs;
 mod writer;
 
 fn main() {
