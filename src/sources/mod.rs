@@ -14,6 +14,7 @@ pub struct RtBatch {
 }
 
 impl RtBatch {
+    #[cfg(test)]
     pub fn empty() -> RtBatch {
         RtBatch {
             trip_updates: FeedMessage::default(),

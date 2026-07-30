@@ -1,5 +1,3 @@
-use std::collections::HashMap;
-
 #[derive(Clone, Debug)]
 pub struct Config {
     pub static_url: String,
@@ -51,6 +49,7 @@ fn parse_u64<F: Fn(&str) -> Option<String>>(get: &F, key: &str, default: u64) ->
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::HashMap;
 
     fn map(pairs: &[(&str, &str)]) -> impl Fn(&str) -> Option<String> {
         let m: HashMap<String, String> =
