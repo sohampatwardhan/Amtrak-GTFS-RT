@@ -142,7 +142,7 @@ pub struct Config {
 mod tests {
     use super::*;
 
-    fn map(pairs: &[(&str, &str)]) -> impl Fn(&str) -> Option<String> + '_ {
+    fn map(pairs: &[(&str, &str)]) -> impl Fn(&str) -> Option<String> {
         let m: HashMap<String, String> =
             pairs.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect();
         move |k: &str| m.get(k).cloned()
@@ -182,7 +182,7 @@ mod tests {
 
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `cargo test --lib config`
+Run: `cargo test config`
 Expected: FAIL — `from_map` not found.
 
 - [ ] **Step 3: Implement `Config`**
@@ -233,7 +233,7 @@ Add `mod config;` to the top of `src/main.rs`.
 
 - [ ] **Step 4: Run tests to verify they pass**
 
-Run: `cargo test --lib config`
+Run: `cargo test config`
 Expected: PASS (3 tests).
 
 - [ ] **Step 5: Commit**
@@ -289,7 +289,7 @@ mod tests {
 
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `cargo test --lib writer`
+Run: `cargo test writer`
 Expected: FAIL — `write_atomic` not found.
 
 - [ ] **Step 3: Implement `write_atomic`**
@@ -313,7 +313,7 @@ Add `mod writer;` to `src/main.rs`.
 
 - [ ] **Step 4: Run tests to verify they pass**
 
-Run: `cargo test --lib writer`
+Run: `cargo test writer`
 Expected: PASS (2 tests).
 
 - [ ] **Step 5: Commit**
@@ -384,7 +384,7 @@ mod tests {
 
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `cargo test --lib sources`
+Run: `cargo test sources`
 Expected: FAIL — `RtBatch`, `mock`, etc. not found.
 
 - [ ] **Step 3: Implement the seam**
@@ -475,7 +475,7 @@ Add `mod sources;` to `src/main.rs`.
 
 - [ ] **Step 4: Run tests to verify they pass**
 
-Run: `cargo test --lib sources`
+Run: `cargo test sources`
 Expected: PASS (4 tests).
 
 - [ ] **Step 5: Commit**
@@ -520,7 +520,7 @@ mod tests {
     }
 
     // Live test: hits Amtrak's real endpoints. Run explicitly with:
-    //   cargo test --lib sources::amtrak -- --ignored --nocapture
+    //   cargo test sources::amtrak -- --ignored --nocapture
     #[tokio::test]
     #[ignore]
     async fn live_fetch_returns_batch() {
@@ -538,7 +538,7 @@ mod tests {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cargo test --lib sources::amtrak::tests::source_is_named_amtrak`
+Run: `cargo test sources::amtrak::tests::source_is_named_amtrak`
 Expected: FAIL — `AmtrakSource` not found.
 
 - [ ] **Step 3: Implement `AmtrakSource`**
@@ -586,11 +586,11 @@ Add `pub mod amtrak;` to `src/sources/mod.rs` (below the trait definition, befor
 
 - [ ] **Step 4: Run tests to verify they pass**
 
-Run: `cargo test --lib sources::amtrak::tests::source_is_named_amtrak`
+Run: `cargo test sources::amtrak::tests::source_is_named_amtrak`
 Expected: PASS.
 
 Then the live integration check:
-Run: `cargo test --lib sources::amtrak -- --ignored --nocapture`
+Run: `cargo test sources::amtrak -- --ignored --nocapture`
 Expected: PASS — confirms the catenary crate, decryption, and static binding all work end-to-end against the real endpoints. (If it fails due to a transient Amtrak outage, retry; if it fails to compile due to a `reqwest::Client` type mismatch, revisit Task 1 Step 5 version alignment.)
 
 - [ ] **Step 5: Commit**
@@ -650,7 +650,7 @@ mod tests {
     }
 
     // Live test: downloads Amtrak's real GTFS.zip (~19 MB).
-    //   cargo test --lib static_gtfs -- --ignored --nocapture
+    //   cargo test static_gtfs -- --ignored --nocapture
     #[tokio::test]
     #[ignore]
     async fn live_load_static_feed() {
@@ -663,7 +663,7 @@ mod tests {
 
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `cargo test --lib static_gtfs`
+Run: `cargo test static_gtfs`
 Expected: FAIL — `SharedStore` not found.
 
 - [ ] **Step 3: Implement the store and loaders**
@@ -755,11 +755,11 @@ Add `mod static_gtfs;` to `src/main.rs`.
 
 - [ ] **Step 4: Run tests to verify they pass**
 
-Run: `cargo test --lib static_gtfs`
+Run: `cargo test static_gtfs`
 Expected: PASS (2 non-ignored tests).
 
 Optional live check:
-Run: `cargo test --lib static_gtfs -- --ignored --nocapture`
+Run: `cargo test static_gtfs -- --ignored --nocapture`
 Expected: PASS — downloads and parses the real feed.
 
 - [ ] **Step 5: Commit**
@@ -869,7 +869,7 @@ mod tests {
 
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `cargo test --lib orchestrator`
+Run: `cargo test orchestrator`
 Expected: FAIL — `select_batch` / `write_feeds` not found.
 
 - [ ] **Step 3: Implement the orchestrator**
@@ -967,7 +967,7 @@ Add `mod orchestrator;` to `src/main.rs`.
 
 - [ ] **Step 4: Run tests to verify they pass**
 
-Run: `cargo test --lib orchestrator`
+Run: `cargo test orchestrator`
 Expected: PASS (5 tests).
 
 - [ ] **Step 5: Commit**
@@ -1041,7 +1041,7 @@ mod tests {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cargo test --lib serve`
+Run: `cargo test serve`
 Expected: FAIL — `router` not found.
 
 - [ ] **Step 3: Implement the server**
@@ -1099,7 +1099,7 @@ Add `mod serve;` to `src/main.rs`.
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `cargo test --lib serve`
+Run: `cargo test serve`
 Expected: PASS.
 
 - [ ] **Step 5: Commit**
