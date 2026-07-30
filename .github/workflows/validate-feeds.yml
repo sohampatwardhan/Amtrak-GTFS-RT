@@ -1,0 +1,71 @@
+name: Validate feeds
+
+# Spec-compliance gate: generates real feeds and runs MobilityData's GTFS and
+# GTFS-Realtime validators against them, failing on any ERROR code not recorded
+# in validation/baseline.json.
+#
+# This is deliberately NOT part of the pull-request CI: it fetches live data
+# from Amtrak, so an upstream outage would otherwise block unrelated PRs. It
+# runs on a schedule, on pushes that touch the pipeline, and on demand.
+
+on:
+  schedule:
+    # 09:17 UTC daily — off the hour to avoid the scheduler's busiest minutes.
+    - cron: "17 9 * * *"
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "src/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "scripts/validate-feeds.sh"
+      - "validation/baseline.json"
+      - ".github/workflows/validate-feeds.yml"
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  validate:
+    name: GTFS + GTFS-RT validators
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Set up Java 17
+        # Both validators require Java 17 (the RT validator's README saying 11 is stale).
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Cache validator jars
+        uses: actions/cache@v4
+        with:
+          path: .validator-cache
+          # Keyed on the script, which pins both validator versions.
+          key: validators-${{ hashFiles('scripts/validate-feeds.sh') }}
+
+      - name: Cache Maven repository
+        uses: actions/cache@v4
+        with:
+          path: ~/.m2/repository
+          key: maven-${{ hashFiles('scripts/validate-feeds.sh') }}
+          restore-keys: maven-
+
+      - name: Run validation gate
+        run: ./scripts/validate-feeds.sh
+
+      - name: Upload validation reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: validation-reports
+          path: validation-reports/
+          retention-days: 14

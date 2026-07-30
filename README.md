@@ -1,5 +1,8 @@
 # Amtrak GTFS-RT
 
+[![CI](https://github.com/sohampatwardhan/Amtrak-GTFS-RT/actions/workflows/ci.yml/badge.svg)](https://github.com/sohampatwardhan/Amtrak-GTFS-RT/actions/workflows/ci.yml)
+[![Validate feeds](https://github.com/sohampatwardhan/Amtrak-GTFS-RT/actions/workflows/validate-feeds.yml/badge.svg)](https://github.com/sohampatwardhan/Amtrak-GTFS-RT/actions/workflows/validate-feeds.yml)
+
 A small Rust service that produces **live GTFS-Realtime feeds for Amtrak** — TripUpdates,
 VehiclePositions, and Alerts — plus the static GTFS they bind to, for use in third-party
 transit apps (Transit, Transitland, OpenTripPlanner).
@@ -103,12 +106,48 @@ cargo test                      # unit + integration (offline)
 cargo test -- --include-ignored # also runs live tests against Amtrak's endpoints
 ```
 
-The feeds are verified two ways: RT protobuf round-trips through the decoder, and a
-live end-to-end test fetches real Amtrak data and asserts non-empty, statically-bound
-output. For a full spec-compliance gate — not yet wired up — run
-[MobilityData's GTFS-Realtime Validator](https://github.com/MobilityData/gtfs-realtime-validator)
-against the served `.pb` URLs and
-[gtfs-validator](https://github.com/MobilityData/gtfs-validator) against `static.zip`.
+The feeds are verified two ways in the suite: RT protobuf round-trips through the
+decoder, and a live end-to-end test fetches real Amtrak data and asserts non-empty,
+statically-bound output.
+
+## Validation gate
+
+Spec compliance is enforced separately by
+[MobilityData's gtfs-validator](https://github.com/MobilityData/gtfs-validator) and
+[gtfs-realtime-validator](https://github.com/MobilityData/gtfs-realtime-validator),
+run against feeds generated from live data:
+
+```bash
+./scripts/validate-feeds.sh
+```
+
+The script generates feeds (or reuses `out/`), fetches and pins both validators,
+validates each RT feed type in its own directory, and prints every notice by
+severity. Reports land in `validation-reports/`. It needs Java 17 and Maven, and
+falls back to Docker automatically if they aren't installed.
+
+**How the gate decides.** It fails when a validator reports an ERROR code that is
+not listed in [`validation/baseline.json`](validation/baseline.json). Occurrence
+*counts* are not gated — they track how many trains are running and vary
+legitimately between runs, whereas a new error *code* is a real regression.
+
+The baseline currently records eleven known RT error codes, most of them inherited
+from upstream (trips and stations that appear in live data but not in Amtrak's
+published schedule) and two that are fixable here (`E039` `is_deleted` on a
+FULL_DATASET feed, `E049` unpopulated header incrementality). Each entry is
+annotated with its cause; they are debt to burn down, not permanent exemptions.
+Amtrak's static GTFS currently produces **zero** ERROR notices, so the static side
+is gated at zero.
+
+CI runs this nightly, on pushes that touch the pipeline, and on demand — not on
+pull requests, since an Amtrak outage would otherwise block unrelated work.
+
+### Known issue
+
+`trip-updates.pb` and `vehicle-positions.pb` are currently byte-identical: the
+upstream transform emits unified entities carrying both `trip_update` and `vehicle`,
+and both feeds are served from that same message. Consumers of either endpoint get
+correct data, but each feed carries payload the consumer ignores.
 
 ## Changelog
 
