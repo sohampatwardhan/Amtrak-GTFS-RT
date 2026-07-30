@@ -1,4 +1,5 @@
 mod config;
+mod writer;
 
 fn main() {
     println!("amtrak-gtfs-rt-service");
