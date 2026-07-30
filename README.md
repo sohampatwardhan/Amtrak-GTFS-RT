@@ -27,15 +27,36 @@ confirm the realtime and static feeds match.
 
 ## Running
 
+Requires a current stable Rust toolchain (the `amtrak-gtfs-rt` dependency uses
+edition 2024; developed against 1.96).
+
 ```bash
 cargo run
 ```
 
-Then, e.g.:
+On startup the service downloads the static GTFS, then begins polling. Within one
+poll interval the feeds are available:
 
 ```bash
 curl -s http://localhost:8080/vehicle-positions.pb --output vp.pb
 ```
+
+## Deployment
+
+Run it under a process supervisor. The service exits with a non-zero status if any
+of its long-lived tasks (poller, static refresher, HTTP server) stops unexpectedly,
+so a supervisor configured to restart on failure will bring it back:
+
+```ini
+[Service]
+ExecStart=/usr/local/bin/amtrak-gtfs-rt-service
+Environment=AMTRAK_OUTPUT_DIR=/var/lib/amtrak-gtfs-rt
+Restart=on-failure
+```
+
+Because the poller and the HTTP layer are decoupled through the output directory,
+you can also skip the built-in server entirely and point any static file server, or
+sync the directory to object storage behind a CDN.
 
 ## Configuration (environment variables)
 
@@ -50,21 +71,51 @@ curl -s http://localhost:8080/vehicle-positions.pb --output vp.pb
 
 ## Resilience
 
-- Sources are tried in order; the first fresh, non-empty batch wins. If none produce
-  data in a cycle, the last-good files on disk are left in place (their header timestamp
-  reveals their age) — the service never serves empty or partial feeds.
-- The static feed refresh keeps the last-good schedule if a refresh fails.
+- **Fallback chain.** Sources are tried in order; the first fresh, non-empty batch
+  wins. Empty and failing sources are logged and skipped.
+- **Last-good serving.** If no source produces data in a cycle, the previous files
+  are left in place (their header timestamp reveals their age) — the service never
+  serves empty or malformed feeds. A failed static refresh likewise keeps the
+  last-good schedule.
+- **Atomic group writes.** The three `.pb` files are written to temp files and only
+  renamed into place once all three have been written, so a mid-write failure can
+  never leave a mix of fresh and stale feeds, and consumers never read a partial file.
+- **Version consistency.** `static.zip` is written before the in-memory schedule is
+  swapped, so the `feed_version` stamped on RT feeds always matches the static feed
+  actually being served.
 
-## Validation
+## Project layout
 
-The feeds are verified in two ways in the test suite: RT protobuf round-trips through the
-decoder, and a live end-to-end test fetches real Amtrak data and confirms non-empty,
-statically-bound output. For a full spec-compliance gate, run
+| File | Responsibility |
+|------|----------------|
+| `src/config.rs` | Environment-driven configuration |
+| `src/sources/mod.rs` | `RtSource` trait and the `RtBatch` normalization model |
+| `src/sources/amtrak.rs` | Amtrak source, wrapping the catenary crate |
+| `src/static_gtfs.rs` | Static GTFS ingest, shared store, periodic refresh |
+| `src/orchestrator.rs` | Poll loop, source selection, protobuf encoding and writing |
+| `src/serve.rs` | HTTP layer |
+| `src/writer.rs` | Atomic file write primitive |
+
+## Testing
+
+```bash
+cargo test                      # unit + integration (offline)
+cargo test -- --include-ignored # also runs live tests against Amtrak's endpoints
+```
+
+The feeds are verified two ways: RT protobuf round-trips through the decoder, and a
+live end-to-end test fetches real Amtrak data and asserts non-empty, statically-bound
+output. For a full spec-compliance gate — not yet wired up — run
 [MobilityData's GTFS-Realtime Validator](https://github.com/MobilityData/gtfs-realtime-validator)
-against the served `.pb` URLs and a GTFS validator against `static.zip` (recommended in CI).
+against the served `.pb` URLs and
+[gtfs-validator](https://github.com/MobilityData/gtfs-validator) against `static.zip`.
+
+## Changelog
+
+See [CHANGELOG.md](CHANGELOG.md).
 
 ## License
 
-**AGPL-3.0.** This service depends on the AGPL-3.0-licensed
+**AGPL-3.0-only.** This service depends on the AGPL-3.0-licensed
 [`catenarytransit/amtrak-gtfs-rt`](https://github.com/catenarytransit/amtrak-gtfs-rt)
 crate, which does the core decryption and GTFS matching. Thanks to the Catenary project.
