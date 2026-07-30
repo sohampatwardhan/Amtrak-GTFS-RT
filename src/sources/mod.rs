@@ -4,6 +4,8 @@ use gtfs_structures::Gtfs;
 
 pub type SourceError = Box<dyn std::error::Error + Send + Sync>;
 
+pub mod amtrak;
+
 #[derive(Clone, Debug)]
 pub struct RtBatch {
     pub trip_updates: FeedMessage,
