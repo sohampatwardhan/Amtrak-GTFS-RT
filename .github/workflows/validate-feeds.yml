@@ -34,6 +34,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Install protoc
+        # The gtfs-realtime crate's build script generates Rust bindings from
+        # .proto files and requires the protobuf compiler.
+        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
+
       - uses: dtolnay/rust-toolchain@stable
 
       - uses: Swatinem/rust-cache@v2

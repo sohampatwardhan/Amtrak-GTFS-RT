@@ -31,7 +31,14 @@ confirm the realtime and static feeds match.
 ## Running
 
 Requires a current stable Rust toolchain (the `amtrak-gtfs-rt` dependency uses
-edition 2024; developed against 1.96).
+edition 2024; developed against 1.96) and **`protoc`**, the protobuf compiler —
+the `gtfs-realtime` crate generates its Rust bindings from `.proto` files at build
+time:
+
+```bash
+brew install protobuf          # macOS
+sudo apt-get install -y protobuf-compiler   # Debian/Ubuntu
+```
 
 ```bash
 cargo run
