@@ -1,6 +1,6 @@
 # Amtrak GTFS-RT Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Build a Rust service that produces spec-valid, live Amtrak GTFS-Realtime (TripUpdates, VehiclePositions, Alerts) plus the static GTFS it binds to, served over HTTP for third-party transit apps.
 
@@ -34,7 +34,7 @@
 - Consumes: nothing.
 - Produces: a compiling binary crate with all dependencies resolved to single shared versions.
 
-- [ ] **Step 1: Create `.gitignore`**
+- [x] **Step 1: Create `.gitignore`**
 
 ```gitignore
 /target
@@ -42,7 +42,7 @@
 ```
 (This is a binary crate, so `Cargo.lock` **is** committed — it pins the exact resolved versions, which matters given the shared-type version constraint.)
 
-- [ ] **Step 2: Create `Cargo.toml`**
+- [x] **Step 2: Create `Cargo.toml`**
 
 ```toml
 [package]
@@ -65,11 +65,11 @@ tracing = "0.1"
 tracing-subscriber = "0.3"
 ```
 
-- [ ] **Step 3: Create `LICENSE`**
+- [x] **Step 3: Create `LICENSE`**
 
 Download the full GNU AGPL-3.0 text from `https://www.gnu.org/licenses/agpl-3.0.txt` and save it verbatim as `LICENSE`.
 
-- [ ] **Step 4: Create `src/main.rs` (temporary stub)**
+- [x] **Step 4: Create `src/main.rs` (temporary stub)**
 
 ```rust
 fn main() {
@@ -85,7 +85,7 @@ mod tests {
 }
 ```
 
-- [ ] **Step 5: Build and verify no duplicate shared crates**
+- [x] **Step 5: Build and verify no duplicate shared crates**
 
 Run: `cargo build`
 Expected: compiles (first build downloads the git dep; may take a minute).
@@ -94,12 +94,12 @@ Run: `cargo tree -d | grep -E "^(gtfs-structures|gtfs-realtime|prost) v" || echo
 Expected: prints `NO DUPLICATES` (these three must be single-version).
 A duplicate `reqwest` (0.12.x from `gtfs-structures` alongside 0.13.x from catenary + us) is **expected** — see Global Constraints — so it is deliberately excluded from this check. What matters is that our `reqwest` version matches catenary's: confirm with `cargo tree -i "reqwest@0.13.4"` that the `amtrak-gtfs-rt` git dep sits above the same 0.13.x our crate depends on. If `gtfs-structures`/`gtfs-realtime`/`prost` show a duplicate, align our pin to catenary's version via `cargo metadata` and rebuild until clean.
 
-- [ ] **Step 6: Run the stub test**
+- [x] **Step 6: Run the stub test**
 
 Run: `cargo test`
 Expected: PASS (1 test).
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add Cargo.toml Cargo.lock src/main.rs LICENSE .gitignore
@@ -121,7 +121,7 @@ git commit -m "chore: scaffold crate with dependencies and AGPL license"
   - `Config::from_env() -> Result<Config, String>`
   - `Config::from_map<F: Fn(&str) -> Option<String>>(get: F) -> Result<Config, String>`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Create `src/config.rs`:
 
@@ -180,12 +180,12 @@ mod tests {
 }
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `cargo test config`
 Expected: FAIL — `from_map` not found.
 
-- [ ] **Step 3: Implement `Config`**
+- [x] **Step 3: Implement `Config`**
 
 Add above the `#[cfg(test)]` block in `src/config.rs`:
 
@@ -231,12 +231,12 @@ fn parse_u64<F: Fn(&str) -> Option<String>>(get: &F, key: &str, default: u64) ->
 
 Add `mod config;` to the top of `src/main.rs`.
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `cargo test config`
 Expected: PASS (3 tests).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/config.rs src/main.rs
@@ -255,7 +255,7 @@ git commit -m "feat: env-driven configuration"
 - Consumes: nothing.
 - Produces: `pub fn write_atomic(path: &std::path::Path, bytes: &[u8]) -> std::io::Result<()>`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Create `src/writer.rs`:
 
@@ -287,12 +287,12 @@ mod tests {
 }
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `cargo test writer`
 Expected: FAIL — `write_atomic` not found.
 
-- [ ] **Step 3: Implement `write_atomic`**
+- [x] **Step 3: Implement `write_atomic`**
 
 Add above the `#[cfg(test)]` block in `src/writer.rs`:
 
@@ -311,12 +311,12 @@ pub fn write_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
 
 Add `mod writer;` to `src/main.rs`.
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `cargo test writer`
 Expected: PASS (2 tests).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/writer.rs src/main.rs
@@ -340,7 +340,7 @@ git commit -m "feat: atomic file writer"
   - `#[async_trait] pub trait RtSource: Send + Sync { fn name(&self) -> &'static str; async fn fetch(&self, gtfs: &gtfs_structures::Gtfs) -> Result<RtBatch, SourceError>; }`
   - Test-only: `pub mod mock` with `MockSource { name, behavior }`, `enum Behavior { Ok(RtBatch), Empty, Fail }`, `fn batch_with(n: usize) -> RtBatch`.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Create `src/sources/mod.rs`:
 
@@ -382,12 +382,12 @@ mod tests {
 }
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `cargo test sources`
 Expected: FAIL — `RtBatch`, `mock`, etc. not found.
 
-- [ ] **Step 3: Implement the seam**
+- [x] **Step 3: Implement the seam**
 
 Add above the `#[cfg(test)]` block in `src/sources/mod.rs`:
 
@@ -473,12 +473,12 @@ pub mod mock {
 
 Add `mod sources;` to `src/main.rs`.
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `cargo test sources`
 Expected: PASS (4 tests).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/sources/mod.rs src/main.rs
@@ -500,7 +500,7 @@ git commit -m "feat: RtSource trait and RtBatch normalization model"
   - `impl AmtrakSource { pub fn new() -> AmtrakSource }`
   - `impl RtSource for AmtrakSource` with `name() == "amtrak"`, `fetch` delegating to `amtrak_gtfs_rt::fetch_amtrak_gtfs_rt`.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `src/sources/amtrak.rs`:
 
@@ -536,12 +536,12 @@ mod tests {
 }
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `cargo test sources::amtrak::tests::source_is_named_amtrak`
 Expected: FAIL — `AmtrakSource` not found.
 
-- [ ] **Step 3: Implement `AmtrakSource`**
+- [x] **Step 3: Implement `AmtrakSource`**
 
 Add above the `#[cfg(test)]` block in `src/sources/amtrak.rs`:
 
@@ -584,7 +584,7 @@ impl RtSource for AmtrakSource {
 
 Add `pub mod amtrak;` to `src/sources/mod.rs` (below the trait definition, before the test module).
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `cargo test sources::amtrak::tests::source_is_named_amtrak`
 Expected: PASS.
@@ -593,7 +593,7 @@ Then the live integration check:
 Run: `cargo test sources::amtrak -- --ignored --nocapture`
 Expected: PASS — confirms the catenary crate, decryption, and static binding all work end-to-end against the real endpoints. (If it fails due to a transient Amtrak outage, retry; if it fails to compile due to a `reqwest::Client` type mismatch, revisit Task 1 Step 5 version alignment.)
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/sources/amtrak.rs src/sources/mod.rs
@@ -618,7 +618,7 @@ git commit -m "feat: Amtrak realtime source via catenary crate"
   - `pub async fn save_static_zip(url: &str, dest: &std::path::Path) -> Result<(), Box<dyn std::error::Error + Send + Sync>>`
   - `pub async fn run_static_refresh(store: StaticFeedStore, config: crate::config::Config)`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Create `src/static_gtfs.rs`:
 
@@ -661,12 +661,12 @@ mod tests {
 }
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `cargo test static_gtfs`
 Expected: FAIL — `SharedStore` not found.
 
-- [ ] **Step 3: Implement the store and loaders**
+- [x] **Step 3: Implement the store and loaders**
 
 Add above the `#[cfg(test)]` block in `src/static_gtfs.rs`:
 
@@ -753,7 +753,7 @@ pub async fn run_static_refresh(store: StaticFeedStore, config: crate::config::C
 
 Add `mod static_gtfs;` to `src/main.rs`.
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `cargo test static_gtfs`
 Expected: PASS (2 non-ignored tests).
@@ -762,7 +762,7 @@ Optional live check:
 Run: `cargo test static_gtfs -- --ignored --nocapture`
 Expected: PASS — downloads and parses the real feed.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/static_gtfs.rs src/main.rs
@@ -784,7 +784,7 @@ git commit -m "feat: static GTFS ingest with swappable shared store"
   - `pub fn write_feeds(dir: &std::path::Path, batch: RtBatch, filter_capital_corridor: bool, feed_version: &str) -> std::io::Result<()>`
   - `pub async fn run_poller(sources: std::sync::Arc<Vec<Box<dyn RtSource>>>, store: StaticFeedStore, config: crate::config::Config)`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Create `src/orchestrator.rs`:
 
@@ -867,12 +867,12 @@ mod tests {
 }
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `cargo test orchestrator`
 Expected: FAIL — `select_batch` / `write_feeds` not found.
 
-- [ ] **Step 3: Implement the orchestrator**
+- [x] **Step 3: Implement the orchestrator**
 
 Add above the `#[cfg(test)]` block in `src/orchestrator.rs`:
 
@@ -965,12 +965,12 @@ pub async fn run_poller(
 
 Add `mod orchestrator;` to `src/main.rs`.
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `cargo test orchestrator`
 Expected: PASS (5 tests).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/orchestrator.rs src/main.rs
@@ -991,7 +991,7 @@ git commit -m "feat: orchestrator with source chain and atomic feed writing"
   - `pub fn router(dir: std::path::PathBuf) -> axum::Router`
   - `pub async fn run_server(config: crate::config::Config) -> std::io::Result<()>`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `src/serve.rs`:
 
@@ -1039,12 +1039,12 @@ mod tests {
 }
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `cargo test serve`
 Expected: FAIL — `router` not found.
 
-- [ ] **Step 3: Implement the server**
+- [x] **Step 3: Implement the server**
 
 Add above the `#[cfg(test)]` block in `src/serve.rs`:
 
@@ -1097,12 +1097,12 @@ pub async fn run_server(config: crate::config::Config) -> std::io::Result<()> {
 
 Add `mod serve;` to `src/main.rs`.
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `cargo test serve`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/serve.rs src/main.rs
@@ -1121,7 +1121,7 @@ git commit -m "feat: axum server for feed files"
 - Consumes: everything produced above.
 - Produces: a runnable binary that loads the static feed, spawns the refresh + poll + serve tasks, and serves live feeds.
 
-- [ ] **Step 1: Replace `main`**
+- [x] **Step 1: Replace `main`**
 
 Replace the stub `fn main()` and its test module in `src/main.rs` with (keep the `mod` declarations at the top):
 
@@ -1177,17 +1177,17 @@ mod static_gtfs;
 mod writer;
 ```
 
-- [ ] **Step 2: Build**
+- [x] **Step 2: Build**
 
 Run: `cargo build`
 Expected: compiles with no errors.
 
-- [ ] **Step 3: Full test suite**
+- [x] **Step 3: Full test suite**
 
 Run: `cargo test`
 Expected: all non-ignored tests PASS.
 
-- [ ] **Step 4: End-to-end smoke run (manual)**
+- [x] **Step 4: End-to-end smoke run (manual)**
 
 Run:
 ```bash
@@ -1202,7 +1202,7 @@ curl -s -o /dev/null -w "%{http_code} %{content_type}\n" http://127.0.0.1:8080/s
 ```
 Expected: `200 application/protobuf` and `200 application/zip`.
 
-- [ ] **Step 5: Validate the feeds (spec compliance gate)**
+- [ ] **Step 5: Validate the feeds (spec compliance gate)** — *partial: automated `prost` decode (orchestrator test) + live end-to-end (145 trips/vehicles, 31 alerts, feed_version-stamped, statically bound) done and passing. The external MobilityData GTFS/GTFS-RT Java validators were NOT run here (require downloading jars); recommended as a CI gate.*
 
 Validate the produced protobuf decodes and the static feed is spec-valid:
 ```bash
@@ -1213,11 +1213,11 @@ Validate the produced protobuf decodes and the static feed is spec-valid:
 ```
 Expected: RT validator reports the feeds parse and reference `trip_id`/`stop_id`/`route_id` values that exist in the static feed (no unresolved-ID errors). Record the validator summary in the commit message.
 
-- [ ] **Step 6: Update `README.md`**
+- [x] **Step 6: Update `README.md`**
 
 Replace `README.md` with a short usage doc: what the service does, the served endpoints (`/trip-updates.pb`, `/vehicle-positions.pb`, `/alerts.pb`, `/static.zip`, `/health`), the env vars (`AMTRAK_STATIC_URL`, `AMTRAK_OUTPUT_DIR`, `AMTRAK_POLL_SECS`, `AMTRAK_STATIC_REFRESH_SECS`, `AMTRAK_FILTER_CAPITAL_CORRIDOR`, `AMTRAK_BIND_ADDR`), how to run (`cargo run`), and an **AGPL-3.0** notice with attribution to `catenarytransit/amtrak-gtfs-rt`.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add src/main.rs README.md
