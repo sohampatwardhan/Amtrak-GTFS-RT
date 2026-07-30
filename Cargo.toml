@@ -2,7 +2,7 @@
 name = "amtrak-gtfs-rt-service"
 version = "0.1.0"
 edition = "2021"
-license = "AGPL-3.0"
+license = "AGPL-3.0-only"
 description = "Serves live GTFS-Realtime feeds for Amtrak"
 
 [dependencies]

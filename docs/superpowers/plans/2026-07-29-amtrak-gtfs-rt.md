@@ -11,7 +11,7 @@
 ## Global Constraints
 
 - **Rust toolchain:** stable ≥ 1.85 (the `amtrak-gtfs-rt` dependency is edition 2024). Every task assumes this.
-- **License:** `AGPL-3.0` (required — we depend on catenary's AGPL-3.0 crate over a network service). `Cargo.toml` `license = "AGPL-3.0"`; repo `LICENSE` file present.
+- **License:** `AGPL-3.0-only` (required — we depend on catenary's AGPL-3.0 crate over a network service). `Cargo.toml` `license = "AGPL-3.0-only"`; repo `LICENSE` file present.
 - **Shared-type version pinning:** the types that cross the boundary to catenary's crate must unify.
   - `gtfs-structures = "0.46.1"`, `gtfs-realtime = "0.2.0"`, `prost = "0.14"` MUST each resolve to a **single version** (they carry `Gtfs`, `FeedMessage`, and the protobuf `Message` impl). Verify with `cargo tree -d` — it must show **no** duplicate of these three.
   - `reqwest` MUST match the version catenary's `amtrak-gtfs-rt` uses (currently **0.13**), because the `reqwest::Client` we build is passed into `fetch_amtrak_gtfs_rt(&Gtfs, &reqwest::Client)`. Our `Cargo.toml` pins `reqwest = "0.13"`.
@@ -49,7 +49,7 @@
 name = "amtrak-gtfs-rt-service"
 version = "0.1.0"
 edition = "2021"
-license = "AGPL-3.0"
+license = "AGPL-3.0-only"
 description = "Serves live GTFS-Realtime feeds for Amtrak"
 
 [dependencies]

@@ -44,9 +44,20 @@ pub fn write_feeds(
     for msg in [&mut tu, &mut vp, &mut al] {
         msg.header.feed_version = Some(feed_version.to_string());
     }
-    crate::writer::write_atomic(&dir.join("trip-updates.pb"), &tu.encode_to_vec())?;
-    crate::writer::write_atomic(&dir.join("vehicle-positions.pb"), &vp.encode_to_vec())?;
-    crate::writer::write_atomic(&dir.join("alerts.pb"), &al.encode_to_vec())?;
+    // Write all three to sibling `.tmp` files first, then rename them into place.
+    // Renames happen only after every encode+write has succeeded, so a failure
+    // partway through cannot leave a mix of new and stale feeds on disk.
+    let outputs = [
+        ("trip-updates.pb", tu.encode_to_vec()),
+        ("vehicle-positions.pb", vp.encode_to_vec()),
+        ("alerts.pb", al.encode_to_vec()),
+    ];
+    for (name, bytes) in &outputs {
+        std::fs::write(dir.join(format!("{name}.tmp")), bytes)?;
+    }
+    for (name, _) in &outputs {
+        std::fs::rename(dir.join(format!("{name}.tmp")), dir.join(name))?;
+    }
     Ok(())
 }
 

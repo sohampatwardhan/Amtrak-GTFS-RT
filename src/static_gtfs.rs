@@ -60,25 +60,36 @@ pub async fn save_static_zip(
     Ok(())
 }
 
+/// Perform one refresh: reload the static feed, then save the zip. The in-memory
+/// store is swapped only after `static.zip` is written successfully, so the served
+/// zip and the `feed_version` stamped on RT feeds never disagree. Any failure
+/// (download, parse, or zip write) leaves the last-good feed untouched.
+pub async fn refresh_once(store: &StaticFeedStore, config: &crate::config::Config) {
+    match load_static_feed(&config.static_url).await {
+        Ok(feed) => {
+            let dest = config.output_dir.join("static.zip");
+            match save_static_zip(&config.static_url, &dest).await {
+                Ok(()) => {
+                    let version = feed.feed_version.clone();
+                    store.set(feed).await;
+                    tracing::info!(feed_version = %version, "refreshed static feed");
+                }
+                Err(e) => {
+                    tracing::error!(error = %e, "failed to save static.zip; keeping last-good feed")
+                }
+            }
+        }
+        Err(e) => tracing::error!(error = %e, "static refresh failed; keeping last-good"),
+    }
+}
+
 /// Periodically refresh the static feed. Keeps the last-good feed on failure.
 pub async fn run_static_refresh(store: StaticFeedStore, config: crate::config::Config) {
     let mut ticker = tokio::time::interval(config.static_refresh_interval);
     ticker.tick().await; // the first tick fires immediately; skip it (already loaded at startup)
     loop {
         ticker.tick().await;
-        match load_static_feed(&config.static_url).await {
-            Ok(feed) => {
-                let version = feed.feed_version.clone();
-                store.set(feed).await;
-                if let Err(e) =
-                    save_static_zip(&config.static_url, &config.output_dir.join("static.zip")).await
-                {
-                    tracing::error!(error = %e, "failed to save static.zip");
-                }
-                tracing::info!(feed_version = %version, "refreshed static feed");
-            }
-            Err(e) => tracing::error!(error = %e, "static refresh failed; keeping last-good"),
-        }
+        refresh_once(&store, &config).await;
     }
 }
 
@@ -101,6 +112,26 @@ mod tests {
         clone.set("b".to_string()).await;
         // The clone shares the same inner Arc<RwLock>, so the original sees the update.
         assert_eq!(store.get().await, "b");
+    }
+
+    #[tokio::test]
+    async fn refresh_keeps_last_good_on_failure() {
+        use crate::config::Config;
+        // Store seeded with a known feed; the refresh target is a dead address
+        // (localhost port 1, connection refused) so load_static_feed fails fast.
+        let orig = StaticFeed { gtfs: Arc::new(Gtfs::default()), feed_version: "orig".to_string() };
+        let store = StaticFeedStore::new(orig);
+        let config = Config {
+            static_url: "http://127.0.0.1:1/nope.zip".to_string(),
+            output_dir: std::env::temp_dir(),
+            poll_interval: std::time::Duration::from_secs(1),
+            static_refresh_interval: std::time::Duration::from_secs(1),
+            filter_capital_corridor: false,
+            bind_addr: "127.0.0.1:0".parse().unwrap(),
+        };
+        refresh_once(&store, &config).await;
+        // The failed refresh must not have replaced the last-good feed.
+        assert_eq!(store.get().await.feed_version, "orig");
     }
 
     // Live test: downloads Amtrak's real GTFS.zip (~19 MB).

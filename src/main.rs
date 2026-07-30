@@ -35,11 +35,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let refresher = tokio::spawn(static_gtfs::run_static_refresh(store.clone(), config.clone()));
     let server = tokio::spawn(serve::run_server(config.clone()));
 
-    // If any long-lived task exits, shut the process down so a supervisor restarts it.
+    // These tasks are meant to run forever. If any of them resolves, something went
+    // wrong; exit non-zero so a process supervisor (systemd Restart=on-failure,
+    // container orchestrator, etc.) actually restarts the service.
     tokio::select! {
-        _ = poller => tracing::error!("poller task exited"),
-        _ = refresher => tracing::error!("refresh task exited"),
-        r = server => tracing::error!(result = ?r, "server task exited"),
+        _ = poller => tracing::error!("poller task exited unexpectedly"),
+        _ = refresher => tracing::error!("refresh task exited unexpectedly"),
+        r = server => tracing::error!(result = ?r, "server task exited unexpectedly"),
     }
-    Ok(())
+    std::process::exit(1);
 }
