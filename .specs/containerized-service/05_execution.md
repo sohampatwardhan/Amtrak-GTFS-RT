@@ -8,7 +8,7 @@
 
 | Task | Stage | Mode | Branch / worktree | State |
 |---|---:|---|---|---|
-| none | complete | controller | `containerized-service` / current checkout | all tasks verified; awaiting integration choice; rollout blocked |
+| none | complete | controller | `containerized-service` / current checkout | all tasks verified; PR open; rollout blocked pending risk-owner decision |
 
 | Task | Status | Commit / diff | Verification | Reviewer | Notes |
 |---|---|---|---|---|---|
@@ -47,14 +47,19 @@ Docker Engine `29.6.2` is available for the build and smoke tasks.
 - Status: user chose push + PR on 2026-08-14; branch `containerized-service` pushed to `origin`.
 - Base: `main`
 - Result: [PR #2](https://github.com/sohampatwardhan/Amtrak-GTFS-RT/pull/2) is the authoritative
-  integration record; its final state and merge commit govern this decision. Two commits:
-  `9954de2` (task 1.1 image), `f969404` (task 2.1 harness + runbook).
+  integration record; its final state and merge commit govern this decision. Original task
+  commits: `9954de2` (task 1.1 image), `f969404` (task 2.1 harness + runbook). Post-task security
+  evidence began with `fb8aa09` (auth-free grype fallback); the proposed risk acceptance and its
+  supporting triage are tracked in the same PR.
 - Rollout: still blocked. CVE evidence is now **available** (grype: 33 Critical / 74 High / 146
   Medium — not clean; inherited from the JRE's OS packages and the bundled validator JAR), so the
-  remaining decisions are (a) remediate or risk-accept those CVE findings and (b) the pre-existing
-  base-service dependency-audit block (left as-is per user decision — inherited from the catenary
-  crate chain, unaffected by containerization). Image publication and deployment are out of scope
-  and not authorized.
+  remaining decisions are (a) explicit owner approval of the
+  [proposed risk acceptance](../../.security/risk-acceptance/containerized-service.md) and (b) the
+  pre-existing base-service dependency-audit block (inherited from the catenary crate chain and
+  unaffected by containerization). Remediation triage found no fixable Critical image finding;
+  all 10 fixable High findings are embedded in the latest upstream validator JAR. A smaller
+  runtime would not address those findings and would require a compatibility redesign. Image
+  publication and deployment are out of scope and not authorized.
 
 ## Execution Timing
 

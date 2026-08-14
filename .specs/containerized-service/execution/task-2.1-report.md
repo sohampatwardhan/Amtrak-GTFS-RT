@@ -93,14 +93,20 @@ packaging:
   (`commons-compress 1.20`, `commons-beanutils 1.9.2`).
 
 So the "CVE evidence unavailable" caveat is **resolved** (evidence now exists and was reviewed),
-but it shows the image is not vulnerability-free. Reducing this is a separate hardening effort
-(e.g. a slimmer/distroless Java runtime, or upstreaming validator-JAR updates), not part of this
-task, and would still need a risk-acceptance decision before shipping.
+but it shows the image is not vulnerability-free. Follow-up triage classified all 33 Critical
+matches as Debian `not-fixed` or `won't-fix`. The only 10 fixable Critical/High matches are High
+findings in Java libraries embedded in MobilityData GTFS Validator v8.0.1, confirmed on 2026-08-14
+as the latest upstream release. A smaller/distroless runtime would not remove those vendor-JAR
+findings. It could reduce OS-package surface, but would require redesigning the service's Java,
+`shasum`, glibc, and health-probe dependencies and rerunning the complete compatibility suite. The
+resulting residual risk is documented in a
+[proposed risk-acceptance record](../../../.security/risk-acceptance/containerized-service.md).
 
 ## Notes / shipping posture
 
-Local container verification is complete and CVE evidence now exists (grype). Shipping still
-requires a decision on the CVE findings above (remediate or risk-accept) and remains subject to the
-pre-existing base-service dependency-audit block (left as-is per the user's 2026-08-14 decision —
-it is inherited from the `catenary/amtrak-gtfs-rt` crate chain and unaffected by containerization).
-Registry publication and deployment stay out of scope and require separate user authorization.
+Local container verification is complete and CVE evidence now exists (grype). Available
+remediation was investigated; the remaining exception is documented but **not accepted**. Shipping
+still requires explicit risk-owner approval and remains subject to the pre-existing base-service
+dependency-audit block, inherited from the `catenary/amtrak-gtfs-rt` crate chain and unaffected by
+containerization. Registry publication and deployment stay out of scope and require separate user
+authorization.

@@ -11,7 +11,7 @@
 | Design | approved | Approved 2026-08-14: digest-pinned multi-stage Debian slim image with explicit network-policy handoff |
 | Tasks | approved | Approved 2026-08-14: two dependency-ordered implementation tasks (Dockerfile, smoke harness + runbook) |
 | Audit | not_run | Optional audit not requested |
-| Execution | complete | Both tasks implemented, reviewed, and verified 2026-08-14 on branch `containerized-service`; local container verification complete, rollout blocked pending authenticated CVE evidence |
+| Execution | complete | Both tasks implemented, reviewed, and verified 2026-08-14 on branch `containerized-service`; local container verification complete, rollout blocked pending explicit risk acceptance and the existing dependency-audit decision |
 
 ## Change Control
 
@@ -25,3 +25,4 @@
 - On 2026-08-14, both tasks were implemented, independently reviewed, and verified; execution is complete. Local container verification passed (build, smoke harness, Rust and feed gates, SBOM). Rollout remains blocked: the Docker Scout CVE report is unavailable without `docker login`, and the base service's dependency-audit block still stands. Image publication and deployment remain out of scope pending user authorization.
 - On 2026-08-14, the user chose push + PR; the branch was pushed and [PR #2](https://github.com/sohampatwardhan/Amtrak-GTFS-RT/pull/2) opened against `main` as the authoritative integration record.
 - On 2026-08-14, the image CVE-evidence caveat was resolved: the smoke harness gained an auth-free grype fallback and produced a CVE report (33 Critical / 74 High / 146 Medium — not clean; inherited from the JRE's OS packages and the bundled validator JAR). Rollout still requires remediating or risk-accepting those findings. The base-service dependency-audit block was left as-is per user decision (inherited transitive advisories with no upstream fix; unaffected by containerization).
+- On 2026-08-14, remediation triage found no fixable Critical image finding. All 10 fixable High findings are embedded in the latest upstream validator JAR (v8.0.1); a smaller runtime would not remediate them and would require a compatibility redesign. A [proposed risk-acceptance record](../../.security/risk-acceptance/containerized-service.md) now documents the image and Cargo findings, compensating controls, expiry, and review triggers. It remains pending explicit owner approval and does not authorize publication or deployment.
