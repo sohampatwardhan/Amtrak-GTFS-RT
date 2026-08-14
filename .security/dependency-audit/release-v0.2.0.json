@@ -573,6 +573,31 @@
           {
             "ecosystem": "crates.io",
             "fixed_versions": [
+              "0.2.23"
+            ],
+            "name": "time",
+            "purl": "pkg:cargo/time@0.1.45",
+            "ranges": [
+              {
+                "events": [
+                  {
+                    "kind": "introduced",
+                    "value": "0.1.0"
+                  },
+                  {
+                    "kind": "fixed",
+                    "value": "0.2.23"
+                  }
+                ],
+                "repo": null,
+                "type": "SEMVER"
+              }
+            ],
+            "versions": []
+          },
+          {
+            "ecosystem": "crates.io",
+            "fixed_versions": [
               "0.2.0",
               "0.2.1",
               "0.2.2",
@@ -646,31 +671,6 @@
                   {
                     "kind": "introduced",
                     "value": "0.2.7-0"
-                  },
-                  {
-                    "kind": "fixed",
-                    "value": "0.2.23"
-                  }
-                ],
-                "repo": null,
-                "type": "SEMVER"
-              }
-            ],
-            "versions": []
-          },
-          {
-            "ecosystem": "crates.io",
-            "fixed_versions": [
-              "0.2.23"
-            ],
-            "name": "time",
-            "purl": "pkg:cargo/time@0.1.45",
-            "ranges": [
-              {
-                "events": [
-                  {
-                    "kind": "introduced",
-                    "value": "0.1.0"
                   },
                   {
                     "kind": "fixed",
@@ -8083,14 +8083,14 @@
     ],
     "statuses": [
       {
-        "attempted_at": "2026-08-14T22:25:44.443424Z",
+        "attempted_at": "2026-08-14T22:32:25.924961Z",
         "diagnostic": "",
         "provenance": "",
         "source": "cargo-metadata",
         "state": "ok"
       },
       {
-        "attempted_at": "2026-08-14T22:25:44.444714Z",
+        "attempted_at": "2026-08-14T22:32:25.925950Z",
         "diagnostic": "",
         "provenance": "",
         "source": "inventory",
@@ -8099,177 +8099,177 @@
     ]
   },
   "mode": "release",
-  "project_revision": "20b693d3e09fa2e03e11ec6c2d893f806f26af60",
+  "project_revision": "eb6b18efb8502b7c4ee35aab54db94e141c6c1dd",
   "schema_version": "1.0",
   "sources": [
     {
-      "attempted_at": "2026-08-14T22:25:48.095002Z",
+      "attempted_at": "2026-08-14T22:32:34.946280Z",
       "diagnostic": "",
       "provenance": "",
       "source": "cargo-audit",
       "state": "ok"
     },
     {
-      "attempted_at": "2026-08-14T22:25:48.662807Z",
+      "attempted_at": "2026-08-14T22:32:35.650882Z",
       "diagnostic": "",
       "provenance": "https://api.github.com/advisories",
       "source": "github",
       "state": "not_applicable"
     },
     {
-      "attempted_at": "2026-08-14T22:25:48.672782Z",
+      "attempted_at": "2026-08-14T22:32:35.663707Z",
       "diagnostic": "",
       "provenance": "https://api.github.com/advisories",
       "source": "github",
       "state": "not_applicable"
     },
     {
-      "attempted_at": "2026-08-14T22:25:48.679737Z",
+      "attempted_at": "2026-08-14T22:32:35.672117Z",
       "diagnostic": "",
       "provenance": "https://api.github.com/advisories",
       "source": "github",
       "state": "not_applicable"
     },
     {
-      "attempted_at": "2026-08-14T22:25:48.680124Z",
+      "attempted_at": "2026-08-14T22:32:35.672516Z",
       "diagnostic": "",
       "provenance": "https://api.github.com/advisories",
       "source": "github",
       "state": "not_applicable"
     },
     {
-      "attempted_at": "2026-08-14T22:25:48.706718Z",
+      "attempted_at": "2026-08-14T22:32:35.696995Z",
       "diagnostic": "",
       "provenance": "https://api.github.com/advisories",
       "source": "github",
       "state": "not_applicable"
     },
     {
-      "attempted_at": "2026-08-14T22:25:49.415356Z",
+      "attempted_at": "2026-08-14T22:32:36.344709Z",
       "diagnostic": "",
       "provenance": "https://api.github.com/advisories",
       "source": "github",
       "state": "not_applicable"
     },
     {
-      "attempted_at": "2026-08-14T22:25:49.050442Z",
+      "attempted_at": "2026-08-14T22:32:36.019056Z",
       "diagnostic": "",
       "provenance": "https://api.github.com/advisories",
       "source": "github",
       "state": "ok"
     },
     {
-      "attempted_at": "2026-08-14T22:25:49.414648Z",
+      "attempted_at": "2026-08-14T22:32:36.343680Z",
       "diagnostic": "",
       "provenance": "https://api.github.com/advisories",
       "source": "github",
       "state": "ok"
     },
     {
-      "attempted_at": "2026-08-14T22:25:49.897165Z",
+      "attempted_at": "2026-08-14T22:32:36.792817Z",
       "diagnostic": "",
       "provenance": "https://api.github.com/advisories",
       "source": "github",
       "state": "ok"
     },
     {
-      "attempted_at": "2026-08-14T22:25:48.095025Z",
+      "attempted_at": "2026-08-14T22:32:34.946299Z",
       "diagnostic": "ecosystem not present",
       "provenance": "",
       "source": "govulncheck",
       "state": "not_applicable"
     },
     {
-      "attempted_at": "2026-08-14T22:25:48.657559Z",
+      "attempted_at": "2026-08-14T22:32:35.644662Z",
       "diagnostic": "",
       "provenance": "https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json",
       "source": "kev",
       "state": "ok"
     },
     {
-      "attempted_at": "2026-08-14T22:25:47.229640Z",
+      "attempted_at": "2026-08-14T22:32:30.247932Z",
       "diagnostic": "ecosystem not present",
       "provenance": "",
       "source": "npm-audit",
       "state": "not_applicable"
     },
     {
-      "attempted_at": "2026-08-14T22:25:48.662884Z",
+      "attempted_at": "2026-08-14T22:32:35.650974Z",
       "diagnostic": "",
       "provenance": "https://services.nvd.nist.gov/rest/json/cves/2.0",
       "source": "nvd",
       "state": "not_applicable"
     },
     {
-      "attempted_at": "2026-08-14T22:25:48.672825Z",
+      "attempted_at": "2026-08-14T22:32:35.663739Z",
       "diagnostic": "",
       "provenance": "https://services.nvd.nist.gov/rest/json/cves/2.0",
       "source": "nvd",
       "state": "not_applicable"
     },
     {
-      "attempted_at": "2026-08-14T22:25:48.679776Z",
+      "attempted_at": "2026-08-14T22:32:35.672137Z",
       "diagnostic": "",
       "provenance": "https://services.nvd.nist.gov/rest/json/cves/2.0",
       "source": "nvd",
       "state": "not_applicable"
     },
     {
-      "attempted_at": "2026-08-14T22:25:48.680140Z",
+      "attempted_at": "2026-08-14T22:32:35.672533Z",
       "diagnostic": "",
       "provenance": "https://services.nvd.nist.gov/rest/json/cves/2.0",
       "source": "nvd",
       "state": "not_applicable"
     },
     {
-      "attempted_at": "2026-08-14T22:25:48.706753Z",
+      "attempted_at": "2026-08-14T22:32:35.697010Z",
       "diagnostic": "",
       "provenance": "https://services.nvd.nist.gov/rest/json/cves/2.0",
       "source": "nvd",
       "state": "not_applicable"
     },
     {
-      "attempted_at": "2026-08-14T22:25:49.050699Z",
+      "attempted_at": "2026-08-14T22:32:36.019305Z",
       "diagnostic": "",
       "provenance": "https://services.nvd.nist.gov/rest/json/cves/2.0",
       "source": "nvd",
       "state": "not_applicable"
     },
     {
-      "attempted_at": "2026-08-14T22:25:49.414793Z",
+      "attempted_at": "2026-08-14T22:32:36.343915Z",
       "diagnostic": "",
       "provenance": "https://services.nvd.nist.gov/rest/json/cves/2.0",
       "source": "nvd",
       "state": "not_applicable"
     },
     {
-      "attempted_at": "2026-08-14T22:25:49.415408Z",
+      "attempted_at": "2026-08-14T22:32:36.344766Z",
       "diagnostic": "",
       "provenance": "https://services.nvd.nist.gov/rest/json/cves/2.0",
       "source": "nvd",
       "state": "not_applicable"
     },
     {
-      "attempted_at": "2026-08-14T22:25:50.074392Z",
+      "attempted_at": "2026-08-14T22:32:37.002980Z",
       "diagnostic": "",
       "provenance": "https://services.nvd.nist.gov/rest/json/cves/2.0",
       "source": "nvd",
       "state": "ok"
     },
     {
-      "attempted_at": "2026-08-14T22:25:47.229466Z",
+      "attempted_at": "2026-08-14T22:32:30.247738Z",
       "diagnostic": "",
       "provenance": "https://api.osv.dev/v1",
       "source": "osv",
       "state": "ok"
     },
     {
-      "attempted_at": "2026-08-14T22:25:48.095029Z",
+      "attempted_at": "2026-08-14T22:32:34.946301Z",
       "diagnostic": "ecosystem not present",
       "provenance": "",
       "source": "pip-audit",
       "state": "not_applicable"
     }
   ],
-  "timestamp": "2026-08-14T22:25:44.326300Z"
+  "timestamp": "2026-08-14T22:32:25.810520Z"
 }

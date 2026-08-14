@@ -7,8 +7,8 @@
 | Field | Value |
 |---|---|
 | Mode | release |
-| Completed | 2026\-08\-14T22:25:44\.326300Z |
-| Project revision | 20b693d3e09fa2e03e11ec6c2d893f806f26af60 |
+| Completed | 2026\-08\-14T22:32:25\.810520Z |
+| Project revision | eb6b18efb8502b7c4ee35aab54db94e141c6c1dd |
 | Inventory fingerprint | 725e38374fc90bc622980a32a3657224e6bf276cb9cbf4e91a787bc1103d3fc8 |
 | Inventory completeness | complete |
 | Stable exit code | 0 |
@@ -16,7 +16,7 @@
 ## Report links
 
 - [Machine-readable JSON](latest.json)
-- [Immutable JSON evidence](audit-20260814T222544Z.json)
+- [Immutable JSON evidence](audit-20260814T223225Z.json)
 
 ## Source availability
 
