@@ -356,6 +356,7 @@ git commit -m "ci: publish verified multi-platform releases"
 - Create: `.security/dependency-audit/release-v0.2.0.json`
 - Create: `.security/dependency-audit/release-v0.2.0.md`
 - Create when warnings require acceptance: `.security/risk-acceptance/v0.2.0-cargo-dependencies.md`
+- Create when warnings require acceptance: `.security/risk-acceptance/v0.2.0-cargo-dependencies.json`
 - Modify: `.security/dependency-audit/.gitignore`
 - Modify: `.specs/containerized-service/00_state.md`
 - Modify as needed to repair stale evidence links: `.specs/containerized-service/03_design.md`
@@ -404,7 +405,7 @@ scripts/test-container.sh amtrak-gtfs-rt:release-test
 git diff --check
 ```
 
-- [ ] **Step 4: Run the fresh release dependency audit**
+- [x] **Step 4: Run the fresh release dependency audit**
 
 Run against the exact release-preparation revision:
 

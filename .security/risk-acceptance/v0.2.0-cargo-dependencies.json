@@ -1,0 +1,41 @@
+{
+  "schema_version": "1",
+  "acceptances": {
+    "RUSTSEC-2023-0089": {
+      "mitigation": "Inherited through the locked geojson dependency graph. The release retains scratch-image, non-root, loopback-default, peer-policy, exact-image smoke-test, SBOM, and zero-match Grype controls, with the review triggers documented in the companion Markdown record.",
+      "approval": "Repository owner explicitly accepted this exact nine-warning v0.2.0 risk set on 2026-08-14 through 2026-11-12."
+    },
+    "RUSTSEC-2024-0388": {
+      "mitigation": "Inherited through locked gtfs-structures; no maintained same-chain replacement is available. The release retains the controls and review triggers documented in the companion Markdown record.",
+      "approval": "Repository owner explicitly accepted this exact nine-warning v0.2.0 risk set on 2026-08-14 through 2026-11-12."
+    },
+    "RUSTSEC-2025-0057": {
+      "mitigation": "Inherited through the locked scraper/selectors chain; no maintained same-chain replacement is available. The release retains the controls and review triggers documented in the companion Markdown record.",
+      "approval": "Repository owner explicitly accepted this exact nine-warning v0.2.0 risk set on 2026-08-14 through 2026-11-12."
+    },
+    "RUSTSEC-2025-0121": {
+      "mitigation": "Deprecated build dependency inherited through locked rust-crypto. The release runtime is a scratch image and retains the controls and review triggers documented in the companion Markdown record.",
+      "approval": "Repository owner explicitly accepted this exact nine-warning v0.2.0 risk set on 2026-08-14 through 2026-11-12."
+    },
+    "RUSTSEC-2016-0005": {
+      "mitigation": "The unmaintained crate is a direct legacy dependency with no released common safe version. Replacement requires upstream API work; the release retains the controls and review triggers documented in the companion Markdown record.",
+      "approval": "Repository owner explicitly accepted this exact nine-warning v0.2.0 risk set on 2026-08-14 through 2026-11-12."
+    },
+    "RUSTSEC-2022-0011": {
+      "mitigation": "No patched rust-crypto release exists and reachability is not established. Replacement requires upstream API work; the release retains the controls and review triggers documented in the companion Markdown record.",
+      "approval": "Repository owner explicitly accepted this exact nine-warning v0.2.0 risk set on 2026-08-14 through 2026-11-12."
+    },
+    "RUSTSEC-2022-0004": {
+      "mitigation": "Inherited through locked rust-crypto with no patched same-chain release. The release retains the controls and review triggers documented in the companion Markdown record.",
+      "approval": "Repository owner explicitly accepted this exact nine-warning v0.2.0 risk set on 2026-08-14 through 2026-11-12."
+    },
+    "RUSTSEC-2025-0025": {
+      "mitigation": "The unmaintained crate is inherited through locked rust-crypto. Replacement requires upstream API work; the release retains the controls and review triggers documented in the companion Markdown record.",
+      "approval": "Repository owner explicitly accepted this exact nine-warning v0.2.0 risk set on 2026-08-14 through 2026-11-12."
+    },
+    "RUSTSEC-2020-0071": {
+      "mitigation": "Affected time 0.1.45 is inherited through locked rust-crypto; migration requires replacing that upstream chain. The release retains the controls and review triggers documented in the companion Markdown record.",
+      "approval": "Repository owner explicitly accepted this exact nine-warning v0.2.0 risk set on 2026-08-14 through 2026-11-12."
+    }
+  }
+}
