@@ -24,7 +24,7 @@
 
 ### Task 1: Version, changelog, and deterministic third-party licensing
 
-- [ ] **Task status:** Complete and reviewed
+- [x] **Task status:** Complete and reviewed
 
 **Files:**
 - Create: `about.toml`
@@ -116,7 +116,7 @@ git diff --check
 
 Expected: all commands exit 0.
 
-- [ ] **Step 6: Commit Task 1**
+- [x] **Step 6: Commit Task 1**
 
 ```bash
 git add Cargo.toml Cargo.lock CHANGELOG.md about.toml about.hbs \
