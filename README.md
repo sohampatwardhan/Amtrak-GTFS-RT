@@ -197,9 +197,10 @@ scripts/test-container.sh amtrak-gtfs-rt:local
 ### Release evidence and licensing
 
 The tag-triggered release workflow builds and tests each architecture separately, scans each exact
-platform digest, and only then assembles the public version tags. The GitHub Release records the
-immutable multi-platform digest and attaches per-platform SPDX SBOMs, vulnerability reports,
-provenance, and license evidence. No release workflow deploys a running service.
+platform digest, attaches its SPDX SBOM as a registry attestation, and only then assembles the
+public version tags. The final multi-platform digest receives a provenance attestation. The GitHub
+Release records that digest and attaches per-platform SPDX SBOMs, vulnerability reports, and
+license evidence. No release workflow deploys a running service.
 
 The project is licensed `AGPL-3.0-only`. The complete project license and generated Rust
 third-party notices are available inside every released image at `/licenses/`, in the repository,

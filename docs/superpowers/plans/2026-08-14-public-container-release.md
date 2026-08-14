@@ -292,6 +292,7 @@ Pin actions to these immutable commits, retaining version comments:
 actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1       # v7.0.1
 actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
 actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6          # v4.2.2
 actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
 docker/login-action@dbcb813823bdd20940b903addbd779551569679f     # v4.6.0
 docker/setup-qemu-action@96fe6ef7f33517b61c61be40b68a1882f3264fb8 # v4.2.0
@@ -300,7 +301,16 @@ docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
 docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302   # v6.2.0
 ```
 
-The validation job must check tag/Cargo/changelog consistency, log in to GHCR, build one platform using `docker/build-push-action` with `tags: $IMAGE`, `outputs: type=image,name=$IMAGE,push-by-digest=true,name-canonical=true,push=true`, `sbom: true`, `provenance: mode=max`, and OCI build args. Pull `$IMAGE@$DIGEST`, tag it locally, install scanners, run the complete harness, require both report files, assert `.matches | length == 0`, require at least one SPDX package, run the image metadata verifier, and upload evidence plus a digest file named by platform slug.
+The validation job must check tag/Cargo/changelog consistency, log in to GHCR, and build one
+platform using `docker/build-push-action` with `tags: $IMAGE`,
+`outputs: type=image,name=$IMAGE,push-by-digest=true,name-canonical=true,push=true`, explicit
+`sbom: false` and `provenance: false`, and OCI build args. Keeping BuildKit attestations off this
+step preserves an actual platform-manifest digest for later assembly rather than producing a
+nested single-platform OCI index. Pull `$IMAGE@$DIGEST`, tag it locally, install scanners, run the
+complete harness, require both report files, assert `.matches | length == 0`, require at least one
+SPDX package, run the image metadata verifier, attach that SPDX document to the exact validated
+platform digest with commit-pinned `actions/attest`, and upload evidence plus a digest file named
+by platform slug.
 
 - [x] **Step 5: Add manifest, provenance, and GitHub Release publication**
 

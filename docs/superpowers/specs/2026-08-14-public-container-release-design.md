@@ -58,7 +58,8 @@ For each platform digest, the workflow:
 
 1. pulls the exact pushed digest;
 2. runs the existing bounded container smoke/recovery harness;
-3. produces an SPDX SBOM containing a non-empty inventory;
+3. produces an SPDX SBOM containing a non-empty inventory and attaches it to the exact platform
+   digest after validation;
 4. runs Grype against that exact digest and requires zero matches;
 5. checks the expected non-root user, healthcheck, architecture, license/source labels, and
    embedded project license; and
@@ -70,7 +71,10 @@ No version or `latest` tag is created unless every platform succeeds.
 
 After both platform jobs pass, a publication job combines the two canonical digests into one OCI
 manifest list and applies `0.2.0`, `0.2`, and `latest`. The job records the resulting manifest-list
-digest and generates provenance tied to that digest. The immutable deployment identity is:
+digest and generates provenance tied to that digest. Per-platform build outputs remain plain image
+manifest digests so the final manifest has exactly two runnable platforms; SBOMs use registry
+referrer attestations rather than changing those digests into nested single-platform indexes. The
+immutable deployment identity is:
 
 ```text
 ghcr.io/sohampatwardhan/amtrak-gtfs-rt@sha256:…
