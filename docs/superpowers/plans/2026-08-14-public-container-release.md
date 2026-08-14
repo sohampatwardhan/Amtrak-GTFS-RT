@@ -452,7 +452,7 @@ git commit -m "docs: record v0.2.0 release audit"
 
 Push `release-v0.2.0`, create a PR against `main`, and include version, licensing, exact local image evidence, history-audit result, dependency warnings/acceptance status, and the fact that publication happens only after merge.
 
-- [ ] **Step 2: Wait for required PR checks and review the diff**
+- [x] **Step 2: Wait for required PR checks and review the diff**
 
 Require all GitHub checks to pass, verify the PR remains mergeable, inspect the complete base-to-head diff, and repair any P0/P1 or release-contract defect in additional commits.
 
