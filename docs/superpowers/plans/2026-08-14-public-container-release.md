@@ -350,7 +350,7 @@ git commit -m "ci: publish verified multi-platform releases"
 
 ### Task 4: Pre-publication history, dependency, license, and local quality gates
 
-- [ ] **Task status:** Complete and reviewed
+- [x] **Task status:** Complete and reviewed
 
 **Files:**
 - Create: `.security/dependency-audit/release-v0.2.0.json`
@@ -417,7 +417,7 @@ python3 /Users/soham/.agents/skills/dependency-security-audit/scripts/dependency
 
 Require complete inventory and required sources. Copy `latest.json`/`latest.md` to the two tracked release evidence paths and update `.gitignore`. If inherited no-fix warnings remain, document mitigations, exact warning identities, no KEV match, exact-image scan evidence, and the user's explicit acceptance before tagging; a blocked or unavailable result stops release. Do not claim a Cargo finding is excluded merely because a filesystem scanner does not enumerate statically linked Rust components.
 
-- [ ] **Step 5: Commit release audit evidence**
+- [x] **Step 5: Commit release audit evidence**
 
 ```bash
 git add .security/dependency-audit .security/risk-acceptance .specs/containerized-service/sidecars
