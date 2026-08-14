@@ -144,7 +144,7 @@ git commit -m "chore: prepare v0.2.0 release metadata"
 - Consumes: `LICENSE`, `THIRD_PARTY_LICENSES.html`, OCI build arguments `OCI_VERSION` and `OCI_REVISION`, and an image reference.
 - Produces: `/licenses/AGPL-3.0-only.txt`, `/licenses/THIRD_PARTY_LICENSES.html`, OCI labels, and `scripts/verify-release-image.sh IMAGE VERSION REVISION ARCH`.
 
-- [ ] **Step 1: Add the failing image metadata verifier**
+- [x] **Step 1: Add the failing image metadata verifier**
 
 Create `scripts/verify-release-image.sh` with strict Bash mode. It must inspect the image and require:
 
@@ -159,13 +159,13 @@ test "$(docker image inspect "$IMAGE" -f '{{.Architecture}}')" = "$ARCH"
 
 It must create a stopped container, `docker cp` both `/licenses` files to a temporary directory, compare the AGPL text byte-for-byte with repository `LICENSE`, require a non-empty third-party HTML file, and clean up only that temporary container/directory via a trap.
 
-- [ ] **Step 2: Verify the current image fails the new contract**
+- [x] **Step 2: Verify the current image fails the new contract**
 
 Run: `bash scripts/verify-release-image.sh amtrak-gtfs-rt:local 0.2.0 "$(git rev-parse HEAD)" arm64`
 
 Expected: non-zero because the existing image has no release labels or `/licenses` bundle.
 
-- [ ] **Step 3: Add license files and OCI metadata to the Dockerfile**
+- [x] **Step 3: Add license files and OCI metadata to the Dockerfile**
 
 Copy `LICENSE` byte-for-byte to `container/licenses/AGPL-3.0-only.txt`. Ensure `.dockerignore` admits `LICENSE`, `THIRD_PARTY_LICENSES.html`, and `container/licenses/**`. Add before the final stage:
 
@@ -190,11 +190,11 @@ COPY --chmod=0444 container/licenses/AGPL-3.0-only.txt /licenses/AGPL-3.0-only.t
 COPY --chmod=0444 THIRD_PARTY_LICENSES.html /licenses/THIRD_PARTY_LICENSES.html
 ```
 
-- [ ] **Step 4: Document public installation, immutable deployment, upgrade, and rollback**
+- [x] **Step 4: Document public installation, immutable deployment, upgrade, and rollback**
 
 Update `README.md` to use `ghcr.io/sohampatwardhan/amtrak-gtfs-rt:0.2.0` in the recommended Linux host-network command, retain local-build instructions in a separate development subsection, document anonymous pull, `latest` as convenience-only, digest pinning, multi-platform support, named-volume retention, and the AGPL/source/third-party notice locations. Replace the statement that registry publication is out of scope with the exact release workflow contract.
 
-- [ ] **Step 5: Build and verify the licensed local image**
+- [x] **Step 5: Build and verify the licensed local image**
 
 ```bash
 docker build \
