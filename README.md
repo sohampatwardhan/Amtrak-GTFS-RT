@@ -61,12 +61,31 @@ curl -fsS "http://127.0.0.1:8080${vehicle_url}" --output vehicle-positions.pb
 
 ## Container
 
+Versioned releases are published for `linux/amd64` and `linux/arm64` at
+`ghcr.io/sohampatwardhan/amtrak-gtfs-rt`. The image is public, so released tags can be pulled
+without a registry login:
+
+```bash
+docker pull ghcr.io/sohampatwardhan/amtrak-gtfs-rt:0.2.0
+```
+
+`0.2.0` is the stable release tag, while `latest` is a convenience pointer that can move. Pin the
+manifest digest recorded in the corresponding GitHub Release for reproducible production
+deployment:
+
+```bash
+docker pull ghcr.io/sohampatwardhan/amtrak-gtfs-rt@sha256:<release-manifest-digest>
+```
+
 The service ships as a digest-pinned, non-root, multi-stage image assembled from `scratch`. The
 build compiles the locked Rust binary against musl and rebuilds MobilityData validator v8.0.1 from
 its SHA-256-pinned source snapshot with reviewed security-version overrides. The complete upstream
 validator suite runs during the build, and a fixed reproducible JAR digest gates copy-forward. The
-runtime contains only the binary, that JAR, a minimized Corretto Java 17 runtime, musl, zlib, and CA
-roots—no shell, package manager, curl, Rust toolchain, `protoc`, or repository source.
+runtime contains only the binary, that JAR, a minimized Corretto Java 17 runtime, musl, zlib, CA
+roots, and license notices—no shell, package manager, curl, Rust toolchain, `protoc`, or repository
+source.
+
+### Build locally
 
 ```bash
 docker build --tag amtrak-gtfs-rt:local .
@@ -92,7 +111,7 @@ unchanged and only loopback peers are admitted:
 ```bash
 docker run --rm --network host \
   -v amtrak-data:/data \
-  amtrak-gtfs-rt:local
+  ghcr.io/sohampatwardhan/amtrak-gtfs-rt:0.2.0
 # manifest is reachable from the host loopback (an admitted peer):
 curl -fsS http://127.0.0.1:8080/v1/feed-set.json
 ```
@@ -110,7 +129,7 @@ docker run --rm --network amtrak-net \
   -e AMTRAK_BIND_ADDR=0.0.0.0:8080 \
   -e AMTRAK_ALLOWED_PEER_IPS=172.31.240.1 \
   -v amtrak-data:/data \
-  amtrak-gtfs-rt:local
+  ghcr.io/sohampatwardhan/amtrak-gtfs-rt:0.2.0
 ```
 
 `AMTRAK_ALLOWED_PEER_IPS` must be the **exact** source IP the container observes for admitted
@@ -151,7 +170,7 @@ docker rm -f <container>                       # keep the volume
 docker run -d --network amtrak-net -p 127.0.0.1:8080:8080 \
   -e AMTRAK_BIND_ADDR=0.0.0.0:8080 -e AMTRAK_ALLOWED_PEER_IPS=172.31.240.1 \
   -v amtrak-data:/data \
-  amtrak-gtfs-rt:local                          # or the prior image tag to roll back
+  ghcr.io/sohampatwardhan/amtrak-gtfs-rt@sha256:<release-manifest-digest>
 ```
 
 Rollback is simply running the preceding image tag against the retained volume; immutable
@@ -175,9 +194,22 @@ image. Reviewed release evidence is retained under
 scripts/test-container.sh amtrak-gtfs-rt:local
 ```
 
-**Out of scope for this image:** anonymous public exposure, reverse-proxy or forwarded-identity
-trust, registry publication, and orchestration. The image is built and verified locally; it is not
-published or deployed by this repository.
+### Release evidence and licensing
+
+The tag-triggered release workflow builds and tests each architecture separately, scans each exact
+platform digest, attaches its SPDX SBOM as a registry attestation, and only then assembles the
+public version tags. The final multi-platform digest receives a provenance attestation. The GitHub
+Release records that digest and attaches per-platform SPDX SBOMs, vulnerability reports, and
+license evidence. No release workflow deploys a running service.
+
+The project is licensed `AGPL-3.0-only`. The complete project license and generated Rust
+third-party notices are available inside every released image at `/licenses/`, in the repository,
+and as GitHub Release assets. The minimized Java runtime and validator JAR retain their own legal
+notices. OCI labels identify the exact source repository, revision, version, and project license.
+
+**Still out of scope:** anonymous public exposure of a running feed service, reverse-proxy or
+forwarded-identity trust, Docker Hub publication, and orchestration. Publishing the image does not
+change the loopback-only default or authorize internet-facing deployment.
 
 ## Deployment
 

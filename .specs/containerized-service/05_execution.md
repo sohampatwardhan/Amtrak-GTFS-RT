@@ -33,7 +33,7 @@ snapshots, no blocked result, and no KEV match; these remain explicit base-servi
 The approved containerized-service specification is uncommitted, so an isolated worktree cannot
 reproduce the approved planning state from the base revision. Execution therefore uses the
 dedicated `containerized-service` feature branch in the current checkout and preserves the
-pre-existing untracked [.codebase-memory](../../.codebase-memory) directory and the unrelated
+pre-existing untracked `.codebase-memory` directory and the unrelated
 modified [amtrak-gtfs-rt-service/03_design.md](../amtrak-gtfs-rt-service/03_design.md), which stay
 out of every task commit.
 

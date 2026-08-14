@@ -1,9 +1,9 @@
 # Build context exclusions.
 #
-# The image build only consumes Cargo.toml, Cargo.lock, src/, and the reviewed validator override
-# and dependency-verification files under container/. These rules are defense-in-depth: an
-# excluded file cannot be sent in the context or mounted at all, even if a future stage switches
-# from a bind mount to COPY. Keep this list conservative; it must not exclude those inputs.
+# The image build only consumes Cargo.toml, Cargo.lock, src/, the reviewed validator inputs under
+# container/, and the release license notices. These rules are defense-in-depth: an excluded file
+# cannot be sent in the context or mounted at all, even if a future stage switches from a bind
+# mount to COPY. Keep this list conservative; it must not exclude those inputs.
 
 # Version-control metadata
 .git
@@ -29,6 +29,10 @@
 # Documentation not needed to compile
 /docs
 *.md
+!/LICENSE
+!/THIRD_PARTY_LICENSES.html
+!/container/licenses/
+!/container/licenses/**
 
 # Container tooling itself
 Dockerfile

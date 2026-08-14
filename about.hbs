@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Amtrak GTFS-RT third-party licenses</title>
+  <style>
+    body { font-family: sans-serif; line-height: 1.4; margin: 2rem auto; max-width: 72rem; padding: 0 1rem; }
+    pre { overflow-x: auto; white-space: pre-wrap; }
+  </style>
+</head>
+<body>
+  <h1>Amtrak GTFS-RT third-party licenses</h1>
+  <p>This notice covers resolved Rust dependencies included in the released service binary.</p>
+  <h2>License overview</h2>
+  <ul>
+  {{#each overview}}
+    <li>{{name}} (SPDX: {{id}}) — {{count}} use(s)</li>
+  {{/each}}
+  </ul>
+  {{#each licenses}}
+  <section>
+    <h2>{{name}} (SPDX: {{id}})</h2>
+    <p>Used by:</p>
+    <ul>
+    {{#each used_by}}
+      <li>{{crate.name}} {{crate.version}}</li>
+    {{/each}}
+    </ul>
+    <pre>{{text}}</pre>
+  </section>
+  {{/each}}
+</body>
+</html>

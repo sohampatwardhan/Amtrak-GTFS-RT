@@ -7,6 +7,9 @@
 # artifacts copied forward are the locked Rust service and a byte-reproducible validator built
 # from the pinned MobilityData v8.0.1 source with reviewed dependency fixes.
 
+ARG OCI_VERSION=dev
+ARG OCI_REVISION=unknown
+
 # -------------------------------------------------------------------------------------------------
 # Stage 1 — locked Rust release builder
 # -------------------------------------------------------------------------------------------------
@@ -124,11 +127,24 @@ RUN set -eu; \
 # -------------------------------------------------------------------------------------------------
 FROM scratch AS runtime
 
+ARG OCI_VERSION
+ARG OCI_REVISION
+
+LABEL org.opencontainers.image.title="Amtrak GTFS-RT" \
+      org.opencontainers.image.description="Validated static and realtime GTFS feeds for Amtrak" \
+      org.opencontainers.image.source="https://github.com/sohampatwardhan/Amtrak-GTFS-RT" \
+      org.opencontainers.image.documentation="https://github.com/sohampatwardhan/Amtrak-GTFS-RT#container" \
+      org.opencontainers.image.licenses="AGPL-3.0-only" \
+      org.opencontainers.image.version="$OCI_VERSION" \
+      org.opencontainers.image.revision="$OCI_REVISION"
+
 COPY --from=runtime-files /runtime/ /
 COPY --from=builder --chmod=0555 /out/amtrak-gtfs-rt-service /usr/local/bin/amtrak-gtfs-rt-service
 COPY --from=validator --chmod=0444 \
     /out/gtfs-validator-v8.0.1-amtrak-hardened.1-cli.jar \
     /opt/amtrak/gtfs-validator-v8.0.1-amtrak-hardened.1-cli.jar
+COPY --chmod=0444 container/licenses/AGPL-3.0-only.txt /licenses/AGPL-3.0-only.txt
+COPY --chmod=0444 THIRD_PARTY_LICENSES.html /licenses/THIRD_PARTY_LICENSES.html
 
 ENV JAVA_HOME=/opt/java \
     PATH=/opt/java/bin \
