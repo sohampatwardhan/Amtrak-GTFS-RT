@@ -58,7 +58,6 @@ actual="$(cargo metadata --manifest-path "$ROOT/Cargo.toml" --locked --offline -
 [ "$TAG" = "v${VERSION}" ]
 grep -Fqx "## [${VERSION}] - 2026-08-14" "$ROOT/CHANGELOG.md"
 grep -Fqx 'license = "AGPL-3.0-only"' "$ROOT/Cargo.toml"
-cmp -s "$ROOT/LICENSE" "$ROOT/container/licenses/AGPL-3.0-only.txt"
 test -s "$ROOT/THIRD_PARTY_LICENSES.html"
 ```
 
@@ -66,7 +65,7 @@ test -s "$ROOT/THIRD_PARTY_LICENSES.html"
 
 Run: `bash scripts/check-release-metadata.sh 0.2.0 v0.2.0`
 
-Expected: non-zero because Cargo and changelog still report `0.1.0`/Unreleased and the image license copy does not exist.
+Expected: non-zero because Cargo and changelog still report `0.1.0`/Unreleased and the third-party notice bundle does not exist.
 
 - [ ] **Step 3: Bump the crate and close the changelog release**
 
@@ -452,7 +451,7 @@ Expected: `PUBLIC`. Verify Actions remain enabled and `main` has pull-request/CI
 
 ---
 
-### Task 6: Tag, publish, expose the package, and verify anonymous installation
+### Task 6: Final audit, tag, publish, expose the package, and verify anonymous installation
 
 - [ ] **Task status:** Complete and reviewed
 
@@ -462,9 +461,13 @@ Expected: `PUBLIC`. Verify Actions remain enabled and `main` has pull-request/CI
 
 **Interfaces:**
 - Consumes: public merged release commit and the tag-triggered release workflow.
-- Produces: public multi-platform GHCR manifest, public GitHub Release, provenance/SBOM/CVE/license assets, and anonymous pull/startup proof.
+- Produces: an exact-merge release audit, public multi-platform GHCR manifest, public GitHub Release, provenance/SBOM/CVE/license assets, and anonymous pull/startup proof.
 
-- [ ] **Step 1: Create and push the annotated release tag**
+- [ ] **Step 1: Audit the exact merged release commit**
+
+Run a fresh `release` dependency audit with `--revision` set to the merged `main` SHA, save it under `/tmp/amtrak-v0.2.0-final-audit`, and require complete inventory, required-source availability, zero blocking findings, and the same reviewed warning fingerprint accepted during Task 4. A new finding, KEV match, block, unavailable source, or unaccepted warning stops tagging. Preserve `latest.json` and `latest.md` for upload as `release-v0.2.0-final-audit.{json,md}`.
+
+- [ ] **Step 2: Create and push the annotated release tag**
 
 At the exact merged `main` commit:
 
@@ -475,27 +478,27 @@ git push origin v0.2.0
 
 Verify `git rev-list -n1 v0.2.0` equals the intended release commit.
 
-- [ ] **Step 2: Monitor the release workflow to completion**
+- [ ] **Step 3: Monitor the release workflow to completion**
 
 Locate the tag-triggered `Release` workflow, watch it, and require both native platform validation jobs and publication job to succeed. Inspect logs for exact digest scan assertions, non-empty SBOM counts, metadata verification, and manifest creation.
 
-- [ ] **Step 3: Make the linked GHCR package public**
+- [ ] **Step 4: Make the linked GHCR package public**
 
 After first publication, inspect package linkage and visibility. Change the container package to public through GitHub's package settings/API using the authenticated owner account, then verify the package reports `public` and links to `sohampatwardhan/Amtrak-GTFS-RT`.
 
-- [ ] **Step 4: Verify the GitHub Release contract**
+- [ ] **Step 5: Attach the exact-merge audit and verify the GitHub Release contract**
 
-Require `v0.2.0` to be non-draft/non-prerelease, target the tagged commit, contain the changelog notes, and expose `LICENSE`, `THIRD_PARTY_LICENSES.html`, `image-release.txt`, both platform SBOMs, and both platform Grype reports. Require its recorded manifest digest to equal GHCR inspection.
+Upload `release-v0.2.0-final-audit.json` and `.md` without replacing existing assets. Require `v0.2.0` to be non-draft/non-prerelease, target the tagged commit, contain the changelog notes, and expose `LICENSE`, `THIRD_PARTY_LICENSES.html`, `image-release.txt`, both platform SBOMs, both platform Grype reports, and the exact-merge audit. Require its recorded manifest digest to equal GHCR inspection.
 
-- [ ] **Step 5: Verify anonymous multi-platform pulls**
+- [ ] **Step 6: Verify anonymous multi-platform pulls**
 
 Use a clean temporary `DOCKER_CONFIG` with no credentials. Pull `:0.2.0` and the recorded digest anonymously, inspect the manifest, and require exactly `linux/amd64` and `linux/arm64`. Confirm `:0.2`, `:latest`, and `:0.2.0` resolve to the same manifest digest.
 
-- [ ] **Step 6: Verify anonymous startup using the README command**
+- [ ] **Step 7: Verify anonymous startup using the README command**
 
 On the available native platform, use a uniquely named volume/container and the documented host-network command with the immutable digest. Wait for Docker health, request `/livez` and `/v1/feed-set.json` from `127.0.0.1:8080`, inspect UID/labels/licenses, then remove only the temporary container and retain/remove its uniquely named test volume after recording the result.
 
-- [ ] **Step 7: Record final release state**
+- [ ] **Step 8: Record final release state**
 
 Capture the repository URL, release URL, package URL, tag commit, manifest digest, two platform digests, anonymous pull result, health result, and remaining accepted Cargo warnings in the final handoff. Do not claim deployment occurred.
 
