@@ -1,0 +1,50 @@
+{
+  "schema_version": 1,
+  "decided_at": "2026-08-14T01:30:57Z",
+  "decision": "block",
+  "reason": "release_dependency_evidence_unavailable",
+  "deployment": {
+    "authorized": false,
+    "performed": false,
+    "state": "unchanged"
+  },
+  "validated_feed_set": {
+    "generation_id": "1786670322000000000-0",
+    "gtfs_validator_version": "8.0.1",
+    "gtfs_validator_sha256": "19293ddd9b6f954f216d4f12054bd8a3232921751c4484339e339764a91000e2",
+    "gtfs_realtime_validator_commit": "7041fa3fcaf674bf730e17325c179d329cdff6f2",
+    "static_validation": "pass",
+    "realtime_validation": "pass",
+    "independent_java_decode": "pass",
+    "exception_ratchet": "pass"
+  },
+  "dependency_audit": {
+    "mode": "release",
+    "timestamp": "2026-08-14T01:30:23.662401Z",
+    "status": "unavailable",
+    "exit_code": 2,
+    "inventory_complete": true,
+    "package_count": 375,
+    "finding_count": 10,
+    "blockers": [
+      "CISA KEV response exceeded the audit tool's 1000000-byte evidence limit",
+      "four GitHub advisory CVSS records were partial",
+      "the complete inventory includes critical RUSTSEC-2022-0011 in rust-crypto 0.2.36 through the upstream amtrak-gtfs-rt dependency"
+    ],
+    "json_report": "../.security/dependency-audit/release.json",
+    "markdown_report": "../.security/dependency-audit/release.md"
+  },
+  "controlled_consumer_migration": {
+    "status": "not_started",
+    "prerequisites": [
+      "fresh dependency audit with complete available evidence and a shippable result",
+      "explicit user authorization for rollout",
+      "consumer cutover to manifest-first generation URLs"
+    ]
+  },
+  "rollback": {
+    "posture": "preserve",
+    "binary": "retain the preceding deployed binary",
+    "data": "retain the persisted last-good immutable generation and do not rewrite generation artifacts"
+  }
+}

@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+: "${VALIDATION_REPO_ROOT:?VALIDATION_REPO_ROOT is required}"
+validation_tmp="${TMPDIR:-/tmp}"
+exec docker run --rm \
+  -v "$VALIDATION_REPO_ROOT:$VALIDATION_REPO_ROOT" \
+  -v "$validation_tmp:$validation_tmp" \
+  -w "$PWD" \
+  eclipse-temurin:17-jre java "$@"
