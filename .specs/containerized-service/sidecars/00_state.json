@@ -1,0 +1,42 @@
+{
+  "change_control": [
+    "This feature adds a container packaging and local container-run boundary without changing the GTFS or GTFS-Realtime HTTP contract.",
+    "A change that alters direct-peer authorization, validator pinning, artifact durability, or public exposure returns to discovery and requires re-approval.",
+    "Image publication, orchestration, and production deployment remain separate decisions unless explicitly added to scope.",
+    "On 2026-08-14, discovery was approved with Debian slim as the default base family; Alpine remains eligible only after complete-image size and native-library compatibility evidence.",
+    "On 2026-08-14, the container requirements were approved without changing the existing feed or access-control contract.",
+    "On 2026-08-14, the container design was approved with immutable base-image pins, validator verification, UID 10001, `/data` persistence, and loopback-safe defaults.",
+    "On 2026-08-14, the two implementation tasks were approved and execution began on branch `containerized-service`."
+  ],
+  "gates": {
+    "audit": {
+      "evidence": "Optional audit not requested",
+      "status": "not_run"
+    },
+    "design": {
+      "evidence": "Approved 2026-08-14: digest-pinned multi-stage Debian slim image with explicit network-policy handoff",
+      "status": "approved"
+    },
+    "discovery": {
+      "evidence": "Approved 2026-08-14: compatibility-first Debian slim image with Alpine retained as a measured future optimization",
+      "status": "approved"
+    },
+    "execution": {
+      "evidence": "Execution started 2026-08-14 on branch `containerized-service`",
+      "status": "in_progress"
+    },
+    "requirements": {
+      "evidence": "Approved 2026-08-14: 38 criteria covering build, runtime, persistence, authorization, health, and rollback",
+      "status": "approved"
+    },
+    "tasks": {
+      "evidence": "Approved 2026-08-14: two dependency-ordered implementation tasks (Dockerfile, smoke harness + runbook)",
+      "status": "approved"
+    }
+  },
+  "generated_from": {
+    "file": "00_state.md",
+    "sha256": "3f1f4e0c4f877355348830abedd93d3cd1546cfc64bc162b24b16261576a1f54"
+  },
+  "schema_version": 1
+}

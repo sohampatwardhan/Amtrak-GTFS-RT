@@ -1,0 +1,345 @@
+{
+  "schema_version": 1,
+  "generated_from": {
+    "file": "02_requirements.md",
+    "sha256": "1dd577d260e97c4f1af4134db4e5fc2e73be87908fa4be3c83173995b17734dc"
+  },
+  "requirements": [
+    {
+      "id": "1",
+      "user_story": {
+        "role": "service operator",
+        "capability": "a repeatable container build",
+        "benefit": "the same reviewed source and lockfile produce an executable service image without host build artifacts"
+      },
+      "criteria": [
+        {
+          "id": "1.1",
+          "kind": "event",
+          "trigger": "an operator builds from a clean repository checkout",
+          "actor": "Container_Build",
+          "behavior": "produce an image containing an executable release build of the service"
+        },
+        {
+          "id": "1.2",
+          "kind": "unconditional",
+          "trigger": "",
+          "actor": "Container_Build",
+          "behavior": "resolve Rust dependencies according to the committed lockfile"
+        },
+        {
+          "id": "1.3",
+          "kind": "unwanted",
+          "trigger": "the committed lockfile cannot be honored",
+          "actor": "Container_Build",
+          "behavior": "terminate with a non-zero status"
+        },
+        {
+          "id": "1.4",
+          "kind": "unconditional",
+          "trigger": "",
+          "actor": "Container_Build",
+          "behavior": "complete without reading host build outputs, generated feeds, local validator caches, or version-control metadata"
+        },
+        {
+          "id": "1.5",
+          "kind": "unwanted",
+          "trigger": "service compilation fails",
+          "actor": "Container_Build",
+          "behavior": "terminate without producing a runnable final image"
+        }
+      ]
+    },
+    {
+      "id": "2",
+      "user_story": {
+        "role": "service operator",
+        "capability": "the image to include the approved static-feed validator runtime",
+        "benefit": "startup and static refreshes retain the existing standards gate without manual provisioning"
+      },
+      "criteria": [
+        {
+          "id": "2.1",
+          "kind": "unconditional",
+          "trigger": "",
+          "actor": "Runtime_Image",
+          "behavior": "contain the pinned validator artifact whose SHA-256 equals `19293ddd9b6f954f216d4f12054bd8a3232921751c4484339e339764a91000e2`"
+        },
+        {
+          "id": "2.2",
+          "kind": "unconditional",
+          "trigger": "",
+          "actor": "Runtime_Image",
+          "behavior": "provide a Java runtime whose reported major version is at least 17"
+        },
+        {
+          "id": "2.3",
+          "kind": "unconditional",
+          "trigger": "",
+          "actor": "Runtime_Image",
+          "behavior": "provide a `shasum` command capable of calculating SHA-256 digests"
+        },
+        {
+          "id": "2.4",
+          "kind": "unwanted",
+          "trigger": "the downloaded validator artifact does not match the pinned digest",
+          "actor": "Container_Build",
+          "behavior": "terminate with a non-zero status"
+        },
+        {
+          "id": "2.5",
+          "kind": "event",
+          "trigger": "the container starts with its packaged defaults",
+          "actor": "Service_Process",
+          "behavior": "validate the packaged validator before opening its HTTP listener"
+        }
+      ]
+    },
+    {
+      "id": "3",
+      "user_story": {
+        "role": "security-conscious operator",
+        "capability": "the API to run without root privileges or build tooling",
+        "benefit": "a service compromise has a smaller host and image impact"
+      },
+      "criteria": [
+        {
+          "id": "3.1",
+          "kind": "event",
+          "trigger": "the container starts normally",
+          "actor": "Service_Process",
+          "behavior": "run with a non-zero user identifier"
+        },
+        {
+          "id": "3.2",
+          "kind": "unconditional",
+          "trigger": "",
+          "actor": "Runtime_Image",
+          "behavior": "exclude the Rust compiler"
+        },
+        {
+          "id": "3.3",
+          "kind": "unconditional",
+          "trigger": "",
+          "actor": "Runtime_Image",
+          "behavior": "exclude Cargo"
+        },
+        {
+          "id": "3.4",
+          "kind": "unconditional",
+          "trigger": "",
+          "actor": "Runtime_Image",
+          "behavior": "exclude the protobuf compiler"
+        },
+        {
+          "id": "3.5",
+          "kind": "unconditional",
+          "trigger": "",
+          "actor": "Runtime_Image",
+          "behavior": "contain trusted certificate authorities needed for HTTPS access to configured Amtrak sources"
+        },
+        {
+          "id": "3.6",
+          "kind": "unconditional",
+          "trigger": "",
+          "actor": "Runtime_Image",
+          "behavior": "exclude repository-local secrets and untracked files from the final image"
+        }
+      ]
+    },
+    {
+      "id": "4",
+      "user_story": {
+        "role": "service operator",
+        "capability": "feed generations to survive container replacement",
+        "benefit": "routine restarts preserve last-good service and rollback evidence"
+      },
+      "criteria": [
+        {
+          "id": "4.1",
+          "kind": "event",
+          "trigger": "a writable generation volume is mounted at the documented location",
+          "actor": "Service_Process",
+          "behavior": "publish its output generations into that volume"
+        },
+        {
+          "id": "4.2",
+          "kind": "event",
+          "trigger": "a container is recreated with a generation volume containing a valid current generation",
+          "actor": "Service_Process",
+          "behavior": "recover that generation before requiring a successful upstream refresh"
+        },
+        {
+          "id": "4.3",
+          "kind": "unwanted",
+          "trigger": "the generation volume is not writable by the runtime identity",
+          "actor": "Service_Process",
+          "behavior": "terminate with a non-zero status"
+        },
+        {
+          "id": "4.4",
+          "kind": "unwanted",
+          "trigger": "the generation volume contains an incomplete or corrupt newest candidate plus an older valid generation",
+          "actor": "Service_Process",
+          "behavior": "expose only the valid generation"
+        }
+      ]
+    },
+    {
+      "id": "5",
+      "user_story": {
+        "role": "service operator",
+        "capability": "container networking to preserve direct-peer authorization",
+        "benefit": "packaging does not silently make controlled feeds publicly accessible"
+      },
+      "criteria": [
+        {
+          "id": "5.1",
+          "kind": "unconditional",
+          "trigger": "",
+          "actor": "Runtime_Image",
+          "behavior": "NOT configure a wildcard peer allowlist"
+        },
+        {
+          "id": "5.2",
+          "kind": "unwanted",
+          "trigger": "the service binds to a non-loopback address without an explicit peer allowlist",
+          "actor": "Service_Process",
+          "behavior": "terminate before serving requests"
+        },
+        {
+          "id": "5.3",
+          "kind": "event",
+          "trigger": "an admitted direct peer requests a controlled endpoint",
+          "actor": "Service_Process",
+          "behavior": "apply the existing direct socket-peer authorization policy"
+        },
+        {
+          "id": "5.4",
+          "kind": "event",
+          "trigger": "a request supplies forwarding identity headers",
+          "actor": "Service_Process",
+          "behavior": "ignore those headers when making its authorization decision"
+        },
+        {
+          "id": "5.5",
+          "kind": "unwanted",
+          "trigger": "a direct peer is not admitted",
+          "actor": "Service_Process",
+          "behavior": "return `403` for readiness, manifest, and generation-artifact requests"
+        },
+        {
+          "id": "5.6",
+          "kind": "unconditional",
+          "trigger": "",
+          "actor": "Container_Documentation",
+          "behavior": "state that bridged operation requires an explicit exact peer allowlist appropriate to the selected container network"
+        }
+      ]
+    },
+    {
+      "id": "6",
+      "user_story": {
+        "role": "service operator",
+        "capability": "standard container and HTTP checks",
+        "benefit": "I can distinguish a running process from a fresh usable feed generation"
+      },
+      "criteria": [
+        {
+          "id": "6.1",
+          "kind": "state",
+          "trigger": "the service process is running",
+          "actor": "Container_Healthcheck",
+          "behavior": "test the public `/livez` endpoint through the container's loopback interface"
+        },
+        {
+          "id": "6.2",
+          "kind": "unwanted",
+          "trigger": "the `/livez` check repeatedly fails for the configured healthcheck interval",
+          "actor": "Container_Runtime",
+          "behavior": "report the container as unhealthy"
+        },
+        {
+          "id": "6.3",
+          "kind": "event",
+          "trigger": "the service has committed a generation less than 300 seconds old",
+          "actor": "Service_Process",
+          "behavior": "return `200` from `/readyz` to an admitted peer"
+        },
+        {
+          "id": "6.4",
+          "kind": "event",
+          "trigger": "the service has committed a current generation",
+          "actor": "Service_Process",
+          "behavior": "return a manifest whose four artifact URLs identify that same immutable generation"
+        },
+        {
+          "id": "6.5",
+          "kind": "event",
+          "trigger": "an operator fetches all four manifest-selected artifacts",
+          "actor": "Service_Process",
+          "behavior": "return a static ZIP and three independently decodable GTFS-Realtime protobuf feeds"
+        },
+        {
+          "id": "6.6",
+          "kind": "unwanted",
+          "trigger": "no generation has been committed",
+          "actor": "Service_Process",
+          "behavior": "return `503` from `/readyz` to an admitted peer"
+        }
+      ]
+    },
+    {
+      "id": "7",
+      "user_story": {
+        "role": "service operator",
+        "capability": "documented build, run, verification, and rollback procedures",
+        "benefit": "I can operate the container without reconstructing hidden assumptions"
+      },
+      "criteria": [
+        {
+          "id": "7.1",
+          "kind": "unconditional",
+          "trigger": "",
+          "actor": "Container_Documentation",
+          "behavior": "provide a command that builds the image from the repository root"
+        },
+        {
+          "id": "7.2",
+          "kind": "unconditional",
+          "trigger": "",
+          "actor": "Container_Documentation",
+          "behavior": "provide a local run command with a persistent generation volume and explicit network authorization values"
+        },
+        {
+          "id": "7.3",
+          "kind": "unconditional",
+          "trigger": "",
+          "actor": "Container_Documentation",
+          "behavior": "provide commands that verify container health, readiness, the feed-set manifest, and manifest-selected artifact retrieval"
+        },
+        {
+          "id": "7.4",
+          "kind": "unconditional",
+          "trigger": "",
+          "actor": "Container_Documentation",
+          "behavior": "identify every required environment value that differs from the non-container defaults"
+        },
+        {
+          "id": "7.5",
+          "kind": "unconditional",
+          "trigger": "",
+          "actor": "Container_Documentation",
+          "behavior": "state that deleting the container does not delete a separately managed generation volume"
+        },
+        {
+          "id": "7.6",
+          "kind": "event",
+          "trigger": "an operator replaces a candidate container with the prior image while retaining the generation volume",
+          "actor": "Prior_Service_Image",
+          "behavior": "recover the last valid compatible generation"
+        }
+      ]
+    }
+  ]
+}

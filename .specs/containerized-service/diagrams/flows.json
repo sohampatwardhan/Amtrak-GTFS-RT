@@ -1,0 +1,40 @@
+{
+  "diagram": "sequence",
+  "target": "sequenceDiagram",
+  "actors": [
+    { "id": "Operator", "kind": "actor" },
+    { "id": "Docker" },
+    { "id": "Service" },
+    { "id": "Volume" },
+    { "id": "Validator" },
+    { "id": "Amtrak" },
+    { "id": "Consumer", "kind": "actor" }
+  ],
+  "steps": [
+    { "type": "message", "from": "Operator", "to": "Docker", "label": "run image with volume and peer policy", "kind": "sync" },
+    { "type": "message", "from": "Docker", "to": "Service", "label": "start as uid 10001", "kind": "sync" },
+    { "type": "message", "from": "Service", "to": "Validator", "label": "verify digest Java version and CLI", "kind": "sync" },
+    { "type": "message", "from": "Service", "to": "Volume", "label": "recover current valid generation", "kind": "sync" },
+    {
+      "type": "alt",
+      "branches": [
+        {
+          "label": "valid generation retained",
+          "steps": [
+            { "type": "message", "from": "Volume", "to": "Service", "label": "last good feed set", "kind": "reply" }
+          ]
+        },
+        {
+          "label": "no valid generation",
+          "steps": [
+            { "type": "message", "from": "Service", "to": "Amtrak", "label": "fetch static and realtime data", "kind": "sync" },
+            { "type": "message", "from": "Service", "to": "Validator", "label": "validate exact static bytes", "kind": "sync" },
+            { "type": "message", "from": "Service", "to": "Volume", "label": "durably commit coherent generation", "kind": "sync" }
+          ]
+        }
+      ]
+    },
+    { "type": "message", "from": "Consumer", "to": "Service", "label": "GET feed set manifest", "kind": "sync" },
+    { "type": "message", "from": "Service", "to": "Consumer", "label": "generation pinned URLs or authorization error", "kind": "reply" }
+  ]
+}
