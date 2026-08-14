@@ -1,0 +1,135 @@
+{
+  "diagram": "graph",
+  "target": "C4Container",
+  "title": "Pinned container build and runtime boundaries",
+  "groups": [
+    {
+      "id": "build_boundary",
+      "label": "Image build",
+      "kind": "container_boundary"
+    },
+    {
+      "id": "runtime_boundary",
+      "label": "Debian slim runtime image",
+      "kind": "container_boundary"
+    }
+  ],
+  "nodes": [
+    {
+      "id": "source",
+      "label": "Filtered repository context",
+      "kind": "system_ext",
+      "description": "Tracked source and lockfile after dockerignore filtering"
+    },
+    {
+      "id": "rust_builder",
+      "label": "Rust release builder",
+      "kind": "container",
+      "technology": "Rust 1.96 and protoc",
+      "description": "Builds the locked release binary",
+      "group": "build_boundary"
+    },
+    {
+      "id": "validator_gate",
+      "label": "Validator digest gate",
+      "kind": "container",
+      "technology": "HTTPS and SHA 256",
+      "description": "Accepts only MobilityData validator 8.0.1",
+      "group": "build_boundary"
+    },
+    {
+      "id": "service",
+      "label": "Amtrak GTFS RT API",
+      "kind": "container",
+      "technology": "Rust binary as uid 10001",
+      "description": "Fetches validates publishes and serves coherent feeds",
+      "group": "runtime_boundary"
+    },
+    {
+      "id": "java_validator",
+      "label": "Static standards validator",
+      "kind": "container",
+      "technology": "Java 17 and pinned JAR",
+      "description": "Validates every new static feed",
+      "group": "runtime_boundary"
+    },
+    {
+      "id": "healthcheck",
+      "label": "Container healthcheck",
+      "kind": "container",
+      "technology": "curl over loopback",
+      "description": "Checks public process liveness",
+      "group": "runtime_boundary"
+    },
+    {
+      "id": "volume",
+      "label": "Generation volume",
+      "kind": "container_db",
+      "technology": "Docker volume at data",
+      "description": "Retains immutable generations and current marker",
+      "group": "runtime_boundary"
+    },
+    {
+      "id": "consumer",
+      "label": "Admitted consumer",
+      "kind": "person_ext",
+      "description": "Direct peer explicitly allowed by the operator"
+    },
+    {
+      "id": "amtrak",
+      "label": "Amtrak sources",
+      "kind": "system_ext",
+      "description": "Static schedule and live train data over HTTPS"
+    }
+  ],
+  "edges": [
+    {
+      "from": "source",
+      "to": "rust_builder",
+      "label": "Supplies locked source",
+      "kind": "rel"
+    },
+    {
+      "from": "rust_builder",
+      "to": "service",
+      "label": "Copies release binary",
+      "kind": "rel"
+    },
+    {
+      "from": "validator_gate",
+      "to": "java_validator",
+      "label": "Copies verified JAR",
+      "kind": "rel"
+    },
+    {
+      "from": "service",
+      "to": "java_validator",
+      "label": "Runs static validation",
+      "kind": "rel"
+    },
+    {
+      "from": "service",
+      "to": "volume",
+      "label": "Recovers and commits",
+      "kind": "rel"
+    },
+    {
+      "from": "consumer",
+      "to": "service",
+      "label": "Requests controlled feeds",
+      "kind": "rel"
+    },
+    {
+      "from": "service",
+      "to": "amtrak",
+      "label": "Fetches schedule and status",
+      "kind": "rel"
+    },
+    {
+      "from": "healthcheck",
+      "to": "service",
+      "label": "GET livez",
+      "kind": "rel"
+    }
+  ]
+}

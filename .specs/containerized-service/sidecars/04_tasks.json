@@ -1,0 +1,118 @@
+{
+  "concurrency": {
+    "active_stage": null,
+    "blocked": {},
+    "parallel_candidates": [],
+    "ready": [],
+    "serial_candidates": [],
+    "waves": []
+  },
+  "generated_from": {
+    "file": "04_tasks.md",
+    "sha256": "b0eee832d7e7f3b74a1d8fa1e938f3e00dcec4e385b01ad91a09c923f5374c15"
+  },
+  "requirement_count": 38,
+  "schema_version": 1,
+  "stages": {
+    "1": [
+      "1.1"
+    ],
+    "2": [
+      "2.1"
+    ]
+  },
+  "tasks": [
+    {
+      "capability_tier": "frontier",
+      "checked": true,
+      "delegation": "controller",
+      "dependency_delivery": "none",
+      "dependency_resolution": "none",
+      "depends_on": [],
+      "files": [
+        "Dockerfile",
+        ".dockerignore"
+      ],
+      "id": "1.1",
+      "interfaces": "Consumes: approved Rust image `rust:1.96-slim-bookworm@sha256:e18a79fc84dfcfc3ab5ba72290398a644c135c97eaa881447fddc354ee4701a3`, Debian image `debian:bookworm-slim@sha256:abd67ffcfa541b485a3dff59865ab629aa048a6c613e639d36e7456b0b229241`, [`Cargo.toml`](../../Cargo.toml), [`Cargo.lock`](../../Cargo.lock), [`src/`](../../src/), validator 8.0.1 URL, and fixed SHA-256 `19293ddd9b6f954f216d4f12054bd8a3232921751c4484339e339764a91000e2`; Produces: local image `amtrak-gtfs-rt:local` with entrypoint `/usr/local/bin/amtrak-gtfs-rt-service`, UID/GID `10001:10001`, `/data`, port `8080/tcp`, packaged validator, safe environment defaults, and Docker healthcheck",
+      "optional": false,
+      "reasoning_level": "extra_high",
+      "requirements": [
+        "1.1",
+        "1.2",
+        "1.3",
+        "1.4",
+        "1.5",
+        "2.1",
+        "2.2",
+        "2.3",
+        "2.4",
+        "2.5",
+        "3.1",
+        "3.2",
+        "3.3",
+        "3.4",
+        "3.5",
+        "3.6",
+        "4.1",
+        "5.1",
+        "5.2",
+        "6.1",
+        "6.2"
+      ],
+      "resolved_model": "claude-opus-5",
+      "risk": "high; a mutable dependency, root process, permissive network default, or incorrect volume owner can defeat the approved runtime boundary. Rollback removes the unshipped local image and leaves the host-run binary and generation data unchanged.",
+      "stage": 1,
+      "task_category": "heavy_reasoning",
+      "title": "Implement the multi-stage Docker image",
+      "verification": "`docker build --tag amtrak-gtfs-rt:local .`; inspect image user, entrypoint, environment, volume, exposed port, and healthcheck; run final-stage tool/version and absence assertions; build with a known wrong validator URL and require digest failure; `git diff --check`; review Dockerfile contract comments."
+    },
+    {
+      "capability_tier": "frontier",
+      "checked": true,
+      "delegation": "controller",
+      "dependency_delivery": "none",
+      "dependency_resolution": "none",
+      "depends_on": [
+        "1.1"
+      ],
+      "files": [
+        "scripts/test-container.sh",
+        "README.md"
+      ],
+      "id": "2.1",
+      "interfaces": "Consumes: task 1.1 image `amtrak-gtfs-rt:local`, UID/GID `10001:10001`, persistent path `/data`, port `8080`, `/livez`, `/readyz`, `/v1/feed-set.json`, four manifest-selected artifacts, direct-peer authorization, and existing validation commands; Produces: [scripts/test-container.sh](../../scripts/test-container.sh), a bounded bridge/volume/restart smoke result, independently inspected feed artifacts, image SBOM and CVE evidence, measured image size and time-to-health, and an operator runbook that preserves the deployment block",
+      "optional": false,
+      "reasoning_level": "extra_high",
+      "requirements": [
+        "4.1",
+        "4.2",
+        "4.3",
+        "4.4",
+        "5.2",
+        "5.3",
+        "5.4",
+        "5.5",
+        "5.6",
+        "6.1",
+        "6.2",
+        "6.3",
+        "6.4",
+        "6.5",
+        "6.6",
+        "7.1",
+        "7.2",
+        "7.3",
+        "7.4",
+        "7.5",
+        "7.6"
+      ],
+      "resolved_model": "claude-opus-5",
+      "risk": "high; Docker bridge peer identity differs across engines and destructive cleanup could remove retained evidence. The harness uses explicit unique names, validates exact targets before cleanup, retains the test volume through recovery, and never operates on unrelated containers, networks, or volumes.",
+      "stage": 2,
+      "task_category": "heavy_reasoning",
+      "title": "Add the smoke harness and operator runbook",
+      "verification": "`bash -n scripts/test-container.sh`; `scripts/test-container.sh amtrak-gtfs-rt:local`; `cargo fmt --check`; `cargo clippy --all-targets --all-features -- -D warnings`; `cargo test --all-targets --all-features`; `RUSTDOCFLAGS='-D warnings' cargo doc --no-deps`; run the offline and live feed validation gates; inspect Docker Scout SBOM/CVE output and confirm no registry push or deployment occurred; `git diff --check`; review operator documentation."
+    }
+  ]
+}

@@ -59,6 +59,123 @@ vehicle_url=$(printf '%s' "$manifest" | jq -r '.urls.vehicle_positions')
 curl -fsS "http://127.0.0.1:8080${vehicle_url}" --output vehicle-positions.pb
 ```
 
+## Container
+
+The service ships as a digest-pinned, non-root, multi-stage image. The build compiles the locked
+release binary and packages the officially pinned MobilityData GTFS validator; the runtime image
+contains only the binary, the validator, and their required libraries — no Rust toolchain,
+`protoc`, or repository source.
+
+```bash
+docker build --tag amtrak-gtfs-rt:local .
+```
+
+**Image contract:** runs as UID/GID `10001`, entrypoint `/usr/local/bin/amtrak-gtfs-rt-service`
+(PID 1), documented port `8080/tcp`, persistent volume `/data`, and a Docker healthcheck that
+probes `/livez`. Container defaults differ from the host defaults so the persistence and validator
+paths are correct inside the image:
+
+| Variable | Host default | Container default |
+|----------|--------------|-------------------|
+| `AMTRAK_OUTPUT_DIR` | `./out` | `/data` |
+| `AMTRAK_GTFS_VALIDATOR_JAR` | `./tools/gtfs-validator-v8.0.1-cli.jar` | `/opt/amtrak/gtfs-validator-v8.0.1-cli.jar` |
+| `AMTRAK_BIND_ADDR` | `127.0.0.1:8080` | `127.0.0.1:8080` (loopback-only) |
+| `AMTRAK_ALLOWED_PEER_IPS` | empty | empty (loopback only) |
+
+### Run — host networking (simplest safe posture)
+
+With host networking the container shares the host's loopback, so the safe loopback default works
+unchanged and only loopback peers are admitted:
+
+```bash
+docker run --rm --network host \
+  -v amtrak-data:/data \
+  amtrak-gtfs-rt:local
+# manifest is reachable from the host loopback (an admitted peer):
+curl -fsS http://127.0.0.1:8080/v1/feed-set.json
+```
+
+### Run — dedicated bridge (explicit network policy required)
+
+A bridge port map is **intentionally unreachable** with the loopback default. Bridged operation
+must bind the wildcard address *and* name the exact peer(s) allowed to reach the feed boundary —
+there is no wildcard allowlist and no proxy trust. Publish the port on host loopback only:
+
+```bash
+docker network create --subnet 172.31.240.0/24 --gateway 172.31.240.1 amtrak-net
+docker run --rm --network amtrak-net \
+  -p 127.0.0.1:8080:8080 \
+  -e AMTRAK_BIND_ADDR=0.0.0.0:8080 \
+  -e AMTRAK_ALLOWED_PEER_IPS=172.31.240.1 \
+  -v amtrak-data:/data \
+  amtrak-gtfs-rt:local
+```
+
+`AMTRAK_ALLOWED_PEER_IPS` must be the **exact** source IP the container observes for admitted
+traffic. That IP is engine-dependent (the bridge gateway on a Linux bridge; it can differ on
+Docker Desktop), so confirm it — a wrong value yields `403`, and the denied request logs its
+observed `peer=<ip>` in the container logs. Authorization uses only the direct socket peer;
+`Forwarded` and `X-Forwarded-For` are ignored.
+
+### Health, readiness, manifest, and artifacts
+
+```bash
+# Docker liveness (public; used by HEALTHCHECK):
+docker inspect -f '{{.State.Health.Status}}' <container>
+curl -fsS http://127.0.0.1:8080/livez
+
+# Feed readiness — 200 only while the current generation is < 300s old (peer-gated):
+curl -fsS http://127.0.0.1:8080/readyz
+
+# Manifest first, then only the URLs it returns (peer-gated):
+manifest=$(curl -fsS http://127.0.0.1:8080/v1/feed-set.json)
+static_url=$(printf '%s' "$manifest" | jq -r '.urls.static_zip')
+curl -fsS "http://127.0.0.1:8080${static_url}" --output static.zip
+```
+
+`/livez` is the Docker health signal — process liveness only. `/readyz` is a separate,
+peer-gated feed-availability signal. They are deliberately distinct: Docker must not restart a
+healthy process that is merely waiting for its first good generation.
+
+### Volume retention and rollback
+
+Generations live only in the mounted volume, so **retain the named volume across upgrades**.
+`GenerationStore` recovers the last complete, valid generation on startup and rejects partial
+state, so recreating the container over the same volume — even before any successful upstream
+refresh — recovers the previous last-good feed set byte-for-byte:
+
+```bash
+docker rm -f <container>                       # keep the volume
+docker run -d --network amtrak-net -p 127.0.0.1:8080:8080 \
+  -e AMTRAK_BIND_ADDR=0.0.0.0:8080 -e AMTRAK_ALLOWED_PEER_IPS=172.31.240.1 \
+  -v amtrak-data:/data \
+  amtrak-gtfs-rt:local                          # or the prior image tag to roll back
+```
+
+Rollback is simply running the preceding image tag against the retained volume; immutable
+artifacts are never rewritten and there is no on-disk migration.
+
+### Smoke test
+
+[`scripts/test-container.sh`](scripts/test-container.sh) runs a bounded, fail-closed smoke test
+against a built image on an isolated bridge and named volume: it waits for health, readiness, and
+the manifest; fetches and independently decodes all four artifacts; asserts denied-peer and
+spoofed-header requests get `403`; asserts a wildcard bind without a policy and a non-writable
+`/data` refuse to start; and verifies retained-volume recovery. It also records image size and
+time-to-health and exports an SBOM plus a CVE report under `validation-reports/container/`. CVE
+scanning prefers Docker Scout (needs `docker login`) and falls back to [grype](https://github.com/anchore/grype)
+if it is installed (no auth required); unavailable CVE evidence is reported as such, never assumed
+clean. The reviewed release candidate's compact scan summary and complete finding table are retained
+under [`.security/risk-acceptance/evidence/`](.security/risk-acceptance/evidence/).
+
+```bash
+scripts/test-container.sh amtrak-gtfs-rt:local
+```
+
+**Out of scope for this image:** anonymous public exposure, reverse-proxy or forwarded-identity
+trust, registry publication, and orchestration. The image is built and verified locally; it is not
+published or deployed by this repository.
+
 ## Deployment
 
 Run it under a process supervisor. The service exits with a non-zero status if any

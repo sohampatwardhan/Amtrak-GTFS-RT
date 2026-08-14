@@ -1,0 +1,154 @@
+{
+  "schema_version": 1,
+  "evidence": {
+    "raw_grype_json_sha256": "774a79db3aaf5cc0d59e419d214f3b36b8f869605cecf69ebf0ae99b42255a9b",
+    "tracked_table_sha256": "b49375b2048db68b41c1d9e14df68baa71dc1d84607fcf086a685d45dedd02ec",
+    "sbom_spdx_json_sha256": "4962e305666f35d79bec194e21d0d9cd293cfd9d2feb95ddacb674989cf4fac3"
+  },
+  "scanner": {
+    "name": "grype",
+    "version": "0.117.0",
+    "timestamp": "2026-08-14T14:11:07.878065-04:00",
+    "database": {
+      "schema_version": "v6.1.9",
+      "built": "2026-08-14T06:39:10Z",
+      "source": "https://grype.anchore.io/databases/v6/vulnerability-db_v6.1.9_2026-08-14T00:27:08Z_1786689550.tar.zst?checksum=sha256%3Af00de2384773ba0d26d6904076e1ed315a219e71da2d92b0fc7c2510498d877c",
+      "valid": true
+    }
+  },
+  "image": {
+    "input": "amtrak-gtfs-rt:local",
+    "image_id": "sha256:71c5a199b9cc60aa112354812ee22c79b727e18635d91e21f4292520dd9c0439",
+    "platform_manifest_digest": "sha256:56f476d68cd3b078ef1d75e91e02b91cd898e99c03457858c7cdb98cb913aebc",
+    "repo_digests": [
+      "amtrak-gtfs-rt@sha256:b182f0d453431a70d0e30f3643f9b0a5bd687723f46c03214f4558328eb25785"
+    ],
+    "architecture": "arm64",
+    "os": "linux",
+    "size_bytes": 430536576
+  },
+  "distro": {
+    "name": "debian",
+    "version": "12.15",
+    "idLike": []
+  },
+  "severity_counts": {
+    "Critical": 33,
+    "High": 74,
+    "Low": 10,
+    "Medium": 146,
+    "Negligible": 122,
+    "Unknown": 16
+  },
+  "critical_fix_states": {
+    "not-fixed": 12,
+    "wont-fix": 21
+  },
+  "high_fix_states": {
+    "fixed": 10,
+    "not-fixed": 22,
+    "wont-fix": 42
+  },
+  "fixed_critical_or_high": [
+    {
+      "id": "GHSA-6phf-73q6-gh87",
+      "severity": "High",
+      "package": "commons-beanutils",
+      "installed": "1.9.2",
+      "fixed_versions": [
+        "1.9.4"
+      ],
+      "type": "java-archive"
+    },
+    {
+      "id": "GHSA-p66x-2cv9-qq3v",
+      "severity": "High",
+      "package": "commons-beanutils",
+      "installed": "1.9.2",
+      "fixed_versions": [
+        "1.9.4"
+      ],
+      "type": "java-archive"
+    },
+    {
+      "id": "GHSA-wxr5-93ph-8wr9",
+      "severity": "High",
+      "package": "commons-beanutils",
+      "installed": "1.9.2",
+      "fixed_versions": [
+        "1.11.0"
+      ],
+      "type": "java-archive"
+    },
+    {
+      "id": "GHSA-7hfm-57qf-j43q",
+      "severity": "High",
+      "package": "commons-compress",
+      "installed": "1.20",
+      "fixed_versions": [
+        "1.21"
+      ],
+      "type": "java-archive"
+    },
+    {
+      "id": "GHSA-crv7-7245-f45f",
+      "severity": "High",
+      "package": "commons-compress",
+      "installed": "1.20",
+      "fixed_versions": [
+        "1.21"
+      ],
+      "type": "java-archive"
+    },
+    {
+      "id": "GHSA-mc84-pj99-q6hh",
+      "severity": "High",
+      "package": "commons-compress",
+      "installed": "1.20",
+      "fixed_versions": [
+        "1.21"
+      ],
+      "type": "java-archive"
+    },
+    {
+      "id": "GHSA-xqfj-vm6h-2x34",
+      "severity": "High",
+      "package": "commons-compress",
+      "installed": "1.20",
+      "fixed_versions": [
+        "1.21"
+      ],
+      "type": "java-archive"
+    },
+    {
+      "id": "GHSA-4jrv-ppp4-jm57",
+      "severity": "High",
+      "package": "gson",
+      "installed": "2.8.6",
+      "fixed_versions": [
+        "2.8.9"
+      ],
+      "type": "java-archive"
+    },
+    {
+      "id": "GHSA-hf6x-8p5f-cgmf",
+      "severity": "High",
+      "package": "httpcore5",
+      "installed": "5.0.2",
+      "fixed_versions": [
+        "5.4.3"
+      ],
+      "type": "java-archive"
+    },
+    {
+      "id": "GHSA-v3jc-474w-2wm6",
+      "severity": "High",
+      "package": "httpcore5-h2",
+      "installed": "5.0.2",
+      "fixed_versions": [
+        "5.4.3"
+      ],
+      "type": "java-archive"
+    }
+  ]
+}

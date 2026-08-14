@@ -1,0 +1,56 @@
+# Build context exclusions.
+#
+# The image build only bind-mounts Cargo.toml, Cargo.lock, and src/, so these rules are
+# defense-in-depth: a file excluded here cannot be sent in the context or mounted at all, even
+# if a future stage switches from a bind mount to COPY. Keep this list conservative — it must
+# never exclude the three declared build inputs.
+
+# Version-control metadata
+.git
+.gitignore
+.github
+
+# Host build output and Rust artifacts (rebuilt inside the image)
+/target
+**/*.rs.bk
+
+# Generated feed output and validator caches (produced at runtime, never an input)
+/out
+/validation
+/validation-reports
+/.validator-cache
+
+# Planning, security, and knowledge-graph directories
+/.specs
+/.security
+/.superpowers
+/.codebase-memory
+
+# Documentation not needed to compile
+/docs
+*.md
+
+# Container tooling itself
+Dockerfile
+.dockerignore
+
+# Environment files, credentials, keys, and certificates
+.env
+.env.*
+*.env
+secrets
+secrets/
+*.pem
+*.key
+*.crt
+*.p12
+*.pfx
+id_rsa
+id_ed25519
+
+# Editor and OS artifacts
+.DS_Store
+.idea
+.vscode
+*.swp
+*~

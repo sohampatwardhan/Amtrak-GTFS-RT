@@ -1,0 +1,89 @@
+{
+  "gantt": {
+    "axisFormat": "%m-%d %H:%M",
+    "dateFormat": "YYYY-MM-DDTHH:mm:ss",
+    "diagram": "timeline",
+    "sections": [
+      {
+        "bars": [
+          {
+            "end": "2026-08-14T17:15:58",
+            "id": "run_20260814T164102Z",
+            "label": "run-20260814T164102Z (complete, 2096s)",
+            "start": "2026-08-14T16:41:02",
+            "tags": [
+              "done"
+            ]
+          }
+        ],
+        "name": "Execution Runs"
+      },
+      {
+        "bars": [
+          {
+            "end": "2026-08-14T16:50:05",
+            "id": "b_1_1_attempt1",
+            "label": "1.1 attempt 1 (verified, 407s)",
+            "start": "2026-08-14T16:43:18",
+            "tags": [
+              "done"
+            ]
+          }
+        ],
+        "name": "Stage 1"
+      },
+      {
+        "bars": [
+          {
+            "end": "2026-08-14T17:15:58",
+            "id": "b_2_1_attempt1",
+            "label": "2.1 attempt 1 (verified after repair round 1, 1201s)",
+            "start": "2026-08-14T16:55:57",
+            "tags": [
+              "done"
+            ]
+          }
+        ],
+        "name": "Stage 2"
+      }
+    ],
+    "target": "gantt"
+  },
+  "generated_from": {
+    "file": "05_execution.md",
+    "sha256": "3f6fba5dc96227ecee2e1281e5ae3b302d26d690baf60b6792420ef4acf4352a"
+  },
+  "runs": [
+    {
+      "elapsed_seconds": 2096,
+      "outcome": "complete",
+      "run_id": "run-20260814T164102Z",
+      "started_utc": "2026-08-14T16:41:02Z",
+      "stopped_utc": "2026-08-14T17:15:58Z"
+    }
+  ],
+  "schema_version": 1,
+  "task_attempts": [
+    {
+      "attempt": 1,
+      "elapsed_seconds": 407,
+      "outcome": "verified",
+      "run_id": "run-20260814T164102Z",
+      "stage_wave": "Stage 1",
+      "started_utc": "2026-08-14T16:43:18Z",
+      "stopped_utc": "2026-08-14T16:50:05Z",
+      "task": "1.1"
+    },
+    {
+      "attempt": 1,
+      "elapsed_seconds": 1201,
+      "outcome": "verified after repair round 1",
+      "run_id": "run-20260814T164102Z",
+      "stage_wave": "Stage 2",
+      "started_utc": "2026-08-14T16:55:57Z",
+      "stopped_utc": "2026-08-14T17:15:58Z",
+      "task": "2.1"
+    }
+  ],
+  "unresolved": []
+}
