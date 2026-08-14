@@ -30,6 +30,7 @@
 - Create: `about.toml`
 - Create: `about.hbs`
 - Create: `THIRD_PARTY_LICENSES.html`
+- Create: `scripts/generate-third-party-licenses.sh`
 - Create: `scripts/check-release-metadata.sh`
 - Modify: `Cargo.toml:3`
 - Modify: `Cargo.lock:85`
@@ -40,7 +41,7 @@
 - Consumes: `Cargo.lock`, root package metadata, repository `LICENSE`, and target release `0.2.0`.
 - Produces: `scripts/check-release-metadata.sh VERSION [TAG]`, committed `THIRD_PARTY_LICENSES.html`, and a changelog section extractable as `## [0.2.0] - 2026-08-14`.
 
-- [ ] **Step 1: Add the failing metadata checker**
+- [x] **Step 1: Add the failing metadata checker**
 
 Create `scripts/check-release-metadata.sh` with strict Bash mode. It must accept version as argument 1 and optional tag as argument 2, derive the root package version using `cargo metadata --locked --offline --no-deps`, and fail unless all of these are true:
 
@@ -61,13 +62,13 @@ grep -Fqx 'license = "AGPL-3.0-only"' "$ROOT/Cargo.toml"
 test -s "$ROOT/THIRD_PARTY_LICENSES.html"
 ```
 
-- [ ] **Step 2: Run the checker and confirm the pre-release tree fails**
+- [x] **Step 2: Run the checker and confirm the pre-release tree fails**
 
 Run: `bash scripts/check-release-metadata.sh 0.2.0 v0.2.0`
 
 Expected: non-zero because Cargo and changelog still report `0.1.0`/Unreleased and the third-party notice bundle does not exist.
 
-- [ ] **Step 3: Bump the crate and close the changelog release**
+- [x] **Step 3: Bump the crate and close the changelog release**
 
 Change the root package version in `Cargo.toml` and the `amtrak-gtfs-rt-service` package entry in `Cargo.lock` to `0.2.0`. Keep a new empty `## [Unreleased]` section, rename the populated section to `## [0.2.0] - 2026-08-14`, add release bullets for public GHCR distribution and licensing, and set links exactly as:
 
@@ -77,7 +78,7 @@ Change the root package version in `Cargo.toml` and the `amtrak-gtfs-rt-service`
 [0.1.0]: https://github.com/sohampatwardhan/Amtrak-GTFS-RT/releases/tag/v0.1.0
 ```
 
-- [ ] **Step 4: Configure cargo-about and generate the notice bundle**
+- [x] **Step 4: Configure cargo-about and generate the notice bundle**
 
 Create `about.toml` with both Linux musl targets, ignored dev dependencies, and this accepted license set:
 
@@ -96,14 +97,14 @@ workarounds = ["chrono", "prost", "ring", "rustls", "rustix"]
 Create `about.hbs` as a standalone HTML document that renders `overview`, each license's SPDX ID and complete text, and every `used_by` crate name/version. Install and run:
 
 ```bash
-cargo install --locked cargo-about --version 0.9.1
-cargo about generate --config about.toml about.hbs > THIRD_PARTY_LICENSES.html
+cargo install --locked cargo-about --version 0.9.1 --features cli
+scripts/generate-third-party-licenses.sh THIRD_PARTY_LICENSES.html
 test -s THIRD_PARTY_LICENSES.html
 ```
 
 If cargo-about rejects a legacy non-SPDX expression, add only a checksum-backed crate clarification described by the tool output; do not globally accept an unidentified license.
 
-- [ ] **Step 5: Add freshness validation and pass the metadata checker**
+- [x] **Step 5: Add freshness validation and pass the metadata checker**
 
 Extend `scripts/check-release-metadata.sh` to generate the notice into `mktemp` output and `cmp` it with the committed file when `cargo-about` is installed. Run:
 
@@ -119,7 +120,8 @@ Expected: all commands exit 0.
 
 ```bash
 git add Cargo.toml Cargo.lock CHANGELOG.md about.toml about.hbs \
-  THIRD_PARTY_LICENSES.html scripts/check-release-metadata.sh
+  THIRD_PARTY_LICENSES.html scripts/generate-third-party-licenses.sh \
+  scripts/check-release-metadata.sh
 git commit -m "chore: prepare v0.2.0 release metadata"
 ```
 

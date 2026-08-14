@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-08-14
+
 ### Added
 
 - **Immutable feed generations** containing one static GTFS snapshot, separated
@@ -29,6 +31,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   cannot block unrelated work).
 - **Spec-driven delivery record** under `.specs/amtrak-gtfs-rt-service`, including
   approved requirements, design, task execution evidence, and rollout decision.
+- **Public multi-platform container release** for `linux/amd64` and `linux/arm64`
+  through GitHub Container Registry, with immutable-digest installation support.
+- **Release licensing evidence** containing the project AGPL text, third-party
+  notices, per-platform SPDX SBOMs, vulnerability reports, and provenance.
 
 ### Changed
 
@@ -96,5 +102,6 @@ against Amtrak's production endpoints (145 trip updates, 145 vehicle positions,
 - 21 tests, including live integration tests against Amtrak's real endpoints
   (run with `cargo test -- --include-ignored`).
 
-[Unreleased]: https://github.com/sohampatwardhan/Amtrak-GTFS-RT/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/sohampatwardhan/Amtrak-GTFS-RT/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/sohampatwardhan/Amtrak-GTFS-RT/releases/tag/v0.2.0
 [0.1.0]: https://github.com/sohampatwardhan/Amtrak-GTFS-RT/releases/tag/v0.1.0
