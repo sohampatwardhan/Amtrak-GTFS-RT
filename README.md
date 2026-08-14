@@ -108,6 +108,10 @@ paths are correct inside the image:
 With host networking the container shares the host's loopback, so the safe loopback default works
 unchanged and only loopback peers are admitted:
 
+This works directly with Docker Engine on Linux. Docker Desktop requires version 4.34 or later and
+**Settings → Resources → Network → Enable host networking**; if that option is unavailable or
+disabled, use the dedicated-bridge command below instead.
+
 ```bash
 docker run --rm --network host \
   -v amtrak-data:/data \

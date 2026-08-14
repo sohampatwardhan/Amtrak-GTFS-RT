@@ -438,7 +438,7 @@ git commit -m "docs: record v0.2.0 release audit"
 
 ### Task 5: Review, merge, and make the audited repository public
 
-- [ ] **Task status:** Complete and reviewed
+- [x] **Task status:** Complete and reviewed
 
 **Files:**
 - No additional source files unless review repairs are required.
@@ -456,11 +456,11 @@ Push `release-v0.2.0`, create a PR against `main`, and include version, licensin
 
 Require all GitHub checks to pass, verify the PR remains mergeable, inspect the complete base-to-head diff, and repair any P0/P1 or release-contract defect in additional commits.
 
-- [ ] **Step 3: Merge without rewriting audited commits**
+- [x] **Step 3: Merge without rewriting audited commits**
 
 Merge the PR using a normal merge commit. Fetch `main`, record the merge SHA, and rerun the release metadata checker against the merged checkout.
 
-- [ ] **Step 4: Reconfirm no secrets appeared and change repository visibility**
+- [x] **Step 4: Reconfirm no secrets appeared and change repository visibility**
 
 Run the redacted Gitleaks all-history scan once more on merged `main`. Then execute:
 
@@ -475,7 +475,7 @@ Expected: `PUBLIC`. Verify Actions remain enabled and `main` has pull-request/CI
 
 ### Task 6: Final audit, tag, publish, expose the package, and verify anonymous installation
 
-- [ ] **Task status:** Complete and reviewed
+- [x] **Task status:** Complete and reviewed
 
 **Files:**
 - External state: annotated Git tag `v0.2.0`, GHCR package, GitHub Release, workflow run.
@@ -485,11 +485,11 @@ Expected: `PUBLIC`. Verify Actions remain enabled and `main` has pull-request/CI
 - Consumes: public merged release commit and the tag-triggered release workflow.
 - Produces: an exact-merge release audit, public multi-platform GHCR manifest, public GitHub Release, provenance/SBOM/CVE/license assets, and anonymous pull/startup proof.
 
-- [ ] **Step 1: Audit the exact merged release commit**
+- [x] **Step 1: Audit the exact merged release commit**
 
 Run a fresh `release` dependency audit with `--revision` set to the merged `main` SHA, save it under `/tmp/amtrak-v0.2.0-final-audit`, and require complete inventory, required-source availability, zero blocking findings, and the same reviewed warning fingerprint accepted during Task 4. A new finding, KEV match, block, unavailable source, or unaccepted warning stops tagging. Preserve `latest.json` and `latest.md` for upload as `release-v0.2.0-final-audit.{json,md}`.
 
-- [ ] **Step 2: Create and push the annotated release tag**
+- [x] **Step 2: Create and push the annotated release tag**
 
 At the exact merged `main` commit:
 
@@ -500,41 +500,64 @@ git push origin v0.2.0
 
 Verify `git rev-list -n1 v0.2.0` equals the intended release commit.
 
-- [ ] **Step 3: Monitor the release workflow to completion**
+- [x] **Step 3: Monitor the release workflow to completion**
 
 Locate the tag-triggered `Release` workflow, watch it, and require both native platform validation jobs and publication job to succeed. Inspect logs for exact digest scan assertions, non-empty SBOM counts, metadata verification, and manifest creation.
 
-- [ ] **Step 4: Make the linked GHCR package public**
+- [x] **Step 4: Make the linked GHCR package public**
 
 After first publication, inspect package linkage and visibility. Change the container package to public through GitHub's package settings/API using the authenticated owner account, then verify the package reports `public` and links to `sohampatwardhan/Amtrak-GTFS-RT`.
 
-- [ ] **Step 5: Attach the exact-merge audit and verify the GitHub Release contract**
+- [x] **Step 5: Attach the exact-merge audit and verify the GitHub Release contract**
 
 Upload `release-v0.2.0-final-audit.json` and `.md` without replacing existing assets. Require `v0.2.0` to be non-draft/non-prerelease, target the tagged commit, contain the changelog notes, and expose `LICENSE`, `THIRD_PARTY_LICENSES.html`, `image-release.txt`, both platform SBOMs, both platform Grype reports, and the exact-merge audit. Require its recorded manifest digest to equal GHCR inspection.
 
-- [ ] **Step 6: Verify anonymous multi-platform pulls**
+- [x] **Step 6: Verify anonymous multi-platform pulls**
 
 Use a clean temporary `DOCKER_CONFIG` with no credentials. Pull `:0.2.0` and the recorded digest anonymously, inspect the manifest, and require exactly `linux/amd64` and `linux/arm64`. Confirm `:0.2`, `:latest`, and `:0.2.0` resolve to the same manifest digest.
 
-- [ ] **Step 7: Verify anonymous startup using the README command**
+- [x] **Step 7: Verify anonymous startup using the README command**
 
 On the available native platform, use a uniquely named volume/container and the documented host-network command with the immutable digest. Wait for Docker health, request `/livez` and `/v1/feed-set.json` from `127.0.0.1:8080`, inspect UID/labels/licenses, then remove only the temporary container and retain/remove its uniquely named test volume after recording the result.
 
-- [ ] **Step 8: Record final release state**
+The local Docker Desktop instance had its opt-in host-network feature disabled: the container was
+healthy internally but its loopback was not reachable from the host. The same anonymously pulled
+digest then passed the documented dedicated-bridge fallback with a loopback-only published port
+and exact gateway allowlist. `/livez` and `/v1/feed-set.json` passed; the process ran as UID/GID
+`10001`, labels and embedded licenses matched, and only uniquely named test resources were removed.
+The README now documents the Docker Desktop prerequisite explicitly.
+
+- [x] **Step 8: Record final release state**
 
 Capture the repository URL, release URL, package URL, tag commit, manifest digest, two platform digests, anonymous pull result, health result, and remaining accepted Cargo warnings in the final handoff. Do not claim deployment occurred.
+
+The completed release record is:
+
+- Repository: <https://github.com/sohampatwardhan/Amtrak-GTFS-RT>
+- Release: <https://github.com/sohampatwardhan/Amtrak-GTFS-RT/releases/tag/v0.2.0>
+- Package: <https://github.com/sohampatwardhan/Amtrak-GTFS-RT/pkgs/container/amtrak-gtfs-rt>
+- Tag commit: `dfb3f753b14417718e33a356e83ab086e4c6b280`
+- Multi-platform manifest: `sha256:2fe49e2f6d834e32af02c97ad07af65ed66992ced7825331e3af804194089266`
+- `linux/amd64`: `sha256:ee807a9ab71c8088d8dbd788140b4ea4a85a0d2f9e486a8a1d8b236ad710db46`
+- `linux/arm64`: `sha256:193387e829f5ff6e6817be5ac6dc0b3067a295c8e203e93e55fe525cd7188499`
+- Anonymous pulls by tag and digest passed; `0.2.0`, `0.2`, and `latest` resolved to the same manifest.
+- Native startup passed using the documented dedicated-bridge fallback.
+- Platform SBOM attestations and recovered manifest provenance verified. Recovery run
+  `31848799944` validated original release run `31847609145` before signing.
+- Nine Cargo dependency warnings are explicitly accepted through 2026-11-12.
+- No production deployment was performed.
 
 ---
 
 ## Final Acceptance
 
-- [ ] Repository history has zero unresolved secret/private-material findings and repository visibility is public.
-- [ ] `Cargo.toml`, `Cargo.lock`, README, and CHANGELOG consistently describe `v0.2.0`.
-- [ ] Project AGPL text and generated third-party license notices exist in source, image, and release assets.
-- [ ] Exact `linux/amd64` and `linux/arm64` digests passed smoke, non-empty SBOM, metadata, and zero-match Grype gates.
-- [ ] GHCR tags `0.2.0`, `0.2`, and `latest` share one immutable two-platform manifest digest.
-- [ ] Provenance and per-platform SBOM/CVE evidence are published and refer to the released digests.
-- [ ] GitHub Release `v0.2.0` targets the intended commit and contains all required assets.
-- [ ] GHCR package is public, linked to the repository, and anonymously pullable by tag and digest.
-- [ ] The README installation command starts the anonymously pulled image successfully.
-- [ ] No production service deployment was performed.
+- [x] Repository history has zero unresolved secret/private-material findings and repository visibility is public.
+- [x] `Cargo.toml`, `Cargo.lock`, README, and CHANGELOG consistently describe `v0.2.0`.
+- [x] Project AGPL text and generated third-party license notices exist in source, image, and release assets.
+- [x] Exact `linux/amd64` and `linux/arm64` digests passed smoke, non-empty SBOM, metadata, and zero-match Grype gates.
+- [x] GHCR tags `0.2.0`, `0.2`, and `latest` share one immutable two-platform manifest digest.
+- [x] Provenance and per-platform SBOM/CVE evidence are published and refer to the released digests.
+- [x] GitHub Release `v0.2.0` targets the intended commit and contains all required assets.
+- [x] GHCR package is public, linked to the repository, and anonymously pullable by tag and digest.
+- [x] The README installation command starts the anonymously pulled image successfully.
+- [x] No production service deployment was performed.
