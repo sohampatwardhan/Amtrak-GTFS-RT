@@ -42,6 +42,16 @@ Docker Engine `29.6.2` is available for the build and smoke tasks.
   `/v1/feed-set.json`), and binary name (`amtrak-gtfs-rt-service`) are consistent with the existing
   source ([config.rs](../../src/config.rs), [serve.rs](../../src/serve.rs)) and the design contract.
 
+## Integration Decision
+
+- Status: user chose push + PR on 2026-08-14; branch `containerized-service` pushed to `origin`.
+- Base: `main`
+- Result: [PR #2](https://github.com/sohampatwardhan/Amtrak-GTFS-RT/pull/2) is the authoritative
+  integration record; its final state and merge commit govern this decision. Two commits:
+  `9954de2` (task 1.1 image), `f969404` (task 2.1 harness + runbook).
+- Rollout: still blocked (CVE evidence unavailable without `docker login`; base dependency-audit
+  block stands). Image publication and deployment are out of scope and not authorized.
+
 ## Execution Timing
 
 
