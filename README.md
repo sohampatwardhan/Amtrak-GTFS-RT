@@ -162,7 +162,9 @@ against a built image on an isolated bridge and named volume: it waits for healt
 the manifest; fetches and independently decodes all four artifacts; asserts denied-peer and
 spoofed-header requests get `403`; asserts a wildcard bind without a policy and a non-writable
 `/data` refuse to start; and verifies retained-volume recovery. It also records image size and
-time-to-health and exports a Docker Scout SBOM and CVE report under `validation-reports/container/`.
+time-to-health and exports an SBOM plus a CVE report under `validation-reports/container/`. CVE
+scanning prefers Docker Scout (needs `docker login`) and falls back to [grype](https://github.com/anchore/grype)
+if it is installed (no auth required); unavailable CVE evidence is reported as such, never assumed clean.
 
 ```bash
 scripts/test-container.sh amtrak-gtfs-rt:local

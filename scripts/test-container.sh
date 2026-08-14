@@ -345,28 +345,42 @@ for name in $ARTIFACTS; do
 done
 
 # -----------------------------------------------------------------------------------------------
-step "image size and Docker Scout SBOM/CVE evidence for the exact image"
+step "image size, SBOM, and CVE evidence for the exact image"
 IMG_SIZE_MB="$(docker image inspect "$IMAGE" --format '{{.Size}}' | awk '{printf "%.0f", $1/1048576}')"
 pass "image size ${IMG_SIZE_MB} MB (uncompressed); time-to-health ${TIME_TO_HEALTH}s"
-if docker scout version >/dev/null 2>&1; then
-  if docker scout sbom --format spdx --output "$REPORT_DIR/sbom.spdx.json" "$IMAGE" >/dev/null 2>&1; then
-    pass "SBOM written to validation-reports/container/sbom.spdx.json"
-  else
-    printf 'NOTE  docker scout sbom did not complete; SBOM evidence unavailable (not clean)\n'
-  fi
-  # Never describe CVE output as clean if Scout could not gather it. CVE analysis queries Docker
-  # Scout's service and requires `docker login`; capture stderr so an auth gap is reported as
-  # UNAVAILABLE (actionable), never mistaken for "no CVEs found".
-  cve_err="$(docker scout cves --format markdown --output "$REPORT_DIR/cves.md" "$IMAGE" 2>&1 >/dev/null || true)"
-  if [ -s "$REPORT_DIR/cves.md" ]; then
-    pass "CVE report written to validation-reports/container/cves.md (review it; do not assume clean)"
-  elif printf '%s' "$cve_err" | grep -qi 'log in'; then
-    printf 'NOTE  CVE evidence UNAVAILABLE: docker scout cves requires `docker login`. Not clean; run `docker login` then re-run for CVE evidence.\n'
-  else
-    printf 'NOTE  CVE evidence UNAVAILABLE: docker scout cves did not complete (%s). Not clean.\n' "$(printf '%s' "$cve_err" | head -1)"
-  fi
+
+# SBOM: Docker Scout analyzes the image locally and does not need auth.
+if docker scout version >/dev/null 2>&1 &&
+   docker scout sbom --format spdx --output "$REPORT_DIR/sbom.spdx.json" "$IMAGE" >/dev/null 2>&1; then
+  pass "SBOM written to validation-reports/container/sbom.spdx.json"
 else
-  printf 'NOTE  docker scout unavailable; SBOM/CVE evidence not generated\n'
+  printf 'NOTE  SBOM evidence unavailable (docker scout sbom did not complete); not clean\n'
+fi
+
+# CVE evidence. Prefer Docker Scout (the design-named tool), but its `cves` command queries the
+# Scout service and needs `docker login`. Fall back to grype, which scans the local image against
+# its own database with no registry auth. Either way, never call unavailable evidence "clean".
+cve_done=""
+scout_err="$(docker scout cves --format markdown --output "$REPORT_DIR/cves.md" "$IMAGE" 2>&1 >/dev/null || true)"
+if [ -s "$REPORT_DIR/cves.md" ]; then
+  pass "CVE report (docker scout) written to validation-reports/container/cves.md (review it; do not assume clean)"
+  cve_done=1
+elif command -v grype >/dev/null 2>&1; then
+  # grype: auth-free local scan. Save both a human table and JSON, and surface the counts so the
+  # result is reviewed, not assumed clean.
+  if grype "$IMAGE" -o table >"$REPORT_DIR/cves-grype.txt" 2>/dev/null &&
+     grype "$IMAGE" -o json  >"$REPORT_DIR/cves-grype.json" 2>/dev/null; then
+    counts="$(grype "$IMAGE" -o json 2>/dev/null | jq -r '[.matches[].vulnerability.severity] | group_by(.) | map("\(length) \(.[0])") | join(", ")' 2>/dev/null || true)"
+    pass "CVE report (grype) written to validation-reports/container/cves-grype.{txt,json}; findings: ${counts:-see report} (review it; do not assume clean)"
+    cve_done=1
+  fi
+fi
+if [ -z "$cve_done" ]; then
+  if printf '%s' "$scout_err" | grep -qi 'log in'; then
+    printf 'NOTE  CVE evidence UNAVAILABLE: docker scout cves needs `docker login` and grype is not installed. Not clean; run `docker login` or install grype, then re-run.\n'
+  else
+    printf 'NOTE  CVE evidence UNAVAILABLE: no scanner produced a report (%s). Not clean.\n' "$(printf '%s' "$scout_err" | head -1)"
+  fi
 fi
 
 step "confirm no publication or deployment occurred"

@@ -75,8 +75,32 @@ Independent review raised two confidence-85 findings; both were fixed and re-ver
 
 Re-run after the fixes: **CONTAINER SMOKE HARNESS PASSED** (exit 0), no leftover Docker objects.
 
+## CVE evidence (caveat follow-up, 2026-08-14)
+
+The harness now prefers Docker Scout for CVE evidence and falls back to
+[grype](https://github.com/anchore/grype) when Scout is unauthenticated (grype scans the local
+image with no registry login). grype `0.117.0` was installed and produced
+`validation-reports/container/cves-grype.{txt,json}` for `amtrak-gtfs-rt:local`.
+
+The report is **not clean**: 401 matches (33 Critical, 74 High, 146 Medium, 10 Low, 122 Negligible,
+16 Unknown). The Critical/High findings are almost entirely inherited, not introduced by this
+packaging:
+
+- **97 OS-package findings** from the Debian base and, predominantly, the packages
+  `openjdk-17-jre-headless` pulls in — `perl`/`libperl`, `curl`/`libcurl4`, `libglib2.0-0`,
+  `libssh2-1`, `libexpat1`, `libcups2`, `libc6`. Many are Debian `won't fix` / negligible EPSS.
+- **10 Java-archive findings** inside the bundled MobilityData validator JAR
+  (`commons-compress 1.20`, `commons-beanutils 1.9.2`).
+
+So the "CVE evidence unavailable" caveat is **resolved** (evidence now exists and was reviewed),
+but it shows the image is not vulnerability-free. Reducing this is a separate hardening effort
+(e.g. a slimmer/distroless Java runtime, or upstreaming validator-JAR updates), not part of this
+task, and would still need a risk-acceptance decision before shipping.
+
 ## Notes / shipping posture
 
-Local container verification is complete. Shipping remains blocked pending an authenticated Docker
-Scout CVE report (and the pre-existing dependency-audit block from the base service). Registry
-publication and deployment stay out of scope and require separate user authorization.
+Local container verification is complete and CVE evidence now exists (grype). Shipping still
+requires a decision on the CVE findings above (remediate or risk-accept) and remains subject to the
+pre-existing base-service dependency-audit block (left as-is per the user's 2026-08-14 decision —
+it is inherited from the `catenary/amtrak-gtfs-rt` crate chain and unaffected by containerization).
+Registry publication and deployment stay out of scope and require separate user authorization.

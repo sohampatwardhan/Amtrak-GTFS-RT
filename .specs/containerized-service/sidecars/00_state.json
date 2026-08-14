@@ -8,7 +8,8 @@
     "On 2026-08-14, the container design was approved with immutable base-image pins, validator verification, UID 10001, `/data` persistence, and loopback-safe defaults.",
     "On 2026-08-14, the two implementation tasks were approved and execution began on branch `containerized-service`.",
     "On 2026-08-14, both tasks were implemented, independently reviewed, and verified; execution is complete. Local container verification passed (build, smoke harness, Rust and feed gates, SBOM). Rollout remains blocked: the Docker Scout CVE report is unavailable without `docker login`, and the base service's dependency-audit block still stands. Image publication and deployment remain out of scope pending user authorization.",
-    "On 2026-08-14, the user chose push + PR; the branch was pushed and [PR #2](https://github.com/sohampatwardhan/Amtrak-GTFS-RT/pull/2) opened against `main` as the authoritative integration record."
+    "On 2026-08-14, the user chose push + PR; the branch was pushed and [PR #2](https://github.com/sohampatwardhan/Amtrak-GTFS-RT/pull/2) opened against `main` as the authoritative integration record.",
+    "On 2026-08-14, the image CVE-evidence caveat was resolved: the smoke harness gained an auth-free grype fallback and produced a CVE report (33 Critical / 74 High / 146 Medium \u2014 not clean; inherited from the JRE's OS packages and the bundled validator JAR). Rollout still requires remediating or risk-accepting those findings. The base-service dependency-audit block was left as-is per user decision (inherited transitive advisories with no upstream fix; unaffected by containerization)."
   ],
   "gates": {
     "audit": {
@@ -38,7 +39,7 @@
   },
   "generated_from": {
     "file": "00_state.md",
-    "sha256": "e8a9dcd4da7f0bfc7c5edad279636273013dc448793e5b70cd6db535c61b69a2"
+    "sha256": "b36cff7460b73abdd98fcbe2537baf9fce9612b3f3344b0f6d54b9503ad8c482"
   },
   "schema_version": 1
 }

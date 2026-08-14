@@ -13,7 +13,7 @@
 | Task | Status | Commit / diff | Verification | Reviewer | Notes |
 |---|---|---|---|---|---|
 | 1.1 | passed | `9954de2` | build → 156 MB image; 24 image/runtime assertions; wrong-validator digest build fails; `git diff --check` clean | 1 independent reviewer | [report](execution/task-1.1-report.md) · [review](execution/task-1.1-review.md); no repair round needed |
-| 2.1 | passed | working tree diff | smoke harness PASSED (guards, live health 6s, 4 artifacts decoded, denied/spoofed 403, R4.4 incomplete-newest, offline recovery byte-identical); fmt/clippy/54 tests/doc; offline + live feed gates; SBOM exported, CVE unavailable | 1 independent reviewer | [report](execution/task-2.1-report.md) · [review](execution/task-2.1-review.md); repair round 1 bounded the fail-closed guards and added R4.4/R6.6 coverage |
+| 2.1 | passed | working tree diff | smoke harness PASSED (guards, live health 6s, 4 artifacts decoded, denied/spoofed 403, R4.4 incomplete-newest, offline recovery byte-identical); fmt/clippy/54 tests/doc; offline + live feed gates; SBOM exported; CVE evidence via grype (33C/74H/146M — not clean, inherited from JRE OS deps + validator JAR) | 1 independent reviewer | [report](execution/task-2.1-report.md) · [review](execution/task-2.1-review.md); repair round 1 bounded the fail-closed guards and added R4.4/R6.6 coverage; harness gained an auth-free grype CVE fallback |
 
 ## Baseline
 
@@ -49,8 +49,12 @@ Docker Engine `29.6.2` is available for the build and smoke tasks.
 - Result: [PR #2](https://github.com/sohampatwardhan/Amtrak-GTFS-RT/pull/2) is the authoritative
   integration record; its final state and merge commit govern this decision. Two commits:
   `9954de2` (task 1.1 image), `f969404` (task 2.1 harness + runbook).
-- Rollout: still blocked (CVE evidence unavailable without `docker login`; base dependency-audit
-  block stands). Image publication and deployment are out of scope and not authorized.
+- Rollout: still blocked. CVE evidence is now **available** (grype: 33 Critical / 74 High / 146
+  Medium — not clean; inherited from the JRE's OS packages and the bundled validator JAR), so the
+  remaining decisions are (a) remediate or risk-accept those CVE findings and (b) the pre-existing
+  base-service dependency-audit block (left as-is per user decision — inherited from the catenary
+  crate chain, unaffected by containerization). Image publication and deployment are out of scope
+  and not authorized.
 
 ## Execution Timing
 
