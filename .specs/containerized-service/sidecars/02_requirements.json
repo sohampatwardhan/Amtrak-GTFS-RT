@@ -2,7 +2,7 @@
   "schema_version": 1,
   "generated_from": {
     "file": "02_requirements.md",
-    "sha256": "ef303c480881a455fac2d82b03ad95cbd203d9d49c63daa3332294bafa90ebb5"
+    "sha256": "2a9c6095747905e55e13a0f57449b51a7947410b7d160a697d7b6bfd5dbe7693"
   },
   "requirements": [
     {
@@ -63,7 +63,7 @@
           "kind": "unconditional",
           "trigger": "",
           "actor": "Runtime_Image",
-          "behavior": "contain the pinned validator artifact whose SHA-256 equals `19293ddd9b6f954f216d4f12054bd8a3232921751c4484339e339764a91000e2`"
+          "behavior": "contain the pinned validator artifact whose SHA-256 equals `24ca7e890ca15bfbb36fa889fcb16200f7276995b7e6ec75551a8b7175e818d7`"
         },
         {
           "id": "2.2",
@@ -76,13 +76,13 @@
           "id": "2.3",
           "kind": "unconditional",
           "trigger": "",
-          "actor": "Runtime_Image",
-          "behavior": "provide a `shasum` command capable of calculating SHA-256 digests"
+          "actor": "Service_Process",
+          "behavior": "verify the validator SHA-256 internally without requiring a shell or checksum utility in the Runtime_Image"
         },
         {
           "id": "2.4",
           "kind": "unwanted",
-          "trigger": "the downloaded validator artifact does not match the pinned digest",
+          "trigger": "the validator source archive or rebuilt artifact does not match its pinned digest",
           "actor": "Container_Build",
           "behavior": "terminate with a non-zero status"
         },
@@ -144,6 +144,13 @@
           "trigger": "",
           "actor": "Runtime_Image",
           "behavior": "exclude repository-local secrets and untracked files from the final image"
+        },
+        {
+          "id": "3.7",
+          "kind": "unconditional",
+          "trigger": "",
+          "actor": "Runtime_Image",
+          "behavior": "exclude shells, package managers, download clients, and package databases"
         }
       ]
     },

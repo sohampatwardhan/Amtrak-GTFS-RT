@@ -9,9 +9,9 @@
   },
   "generated_from": {
     "file": "04_tasks.md",
-    "sha256": "b0eee832d7e7f3b74a1d8fa1e938f3e00dcec4e385b01ad91a09c923f5374c15"
+    "sha256": "bff572d72f5a4a7d584dd0b6fc3084d8eef18fec8b76197883c532b25f70c8c7"
   },
-  "requirement_count": 38,
+  "requirement_count": 39,
   "schema_version": 1,
   "stages": {
     "1": [
@@ -19,6 +19,9 @@
     ],
     "2": [
       "2.1"
+    ],
+    "3": [
+      "3.1"
     ]
   },
   "tasks": [
@@ -113,6 +116,55 @@
       "task_category": "heavy_reasoning",
       "title": "Add the smoke harness and operator runbook",
       "verification": "`bash -n scripts/test-container.sh`; `scripts/test-container.sh amtrak-gtfs-rt:local`; `cargo fmt --check`; `cargo clippy --all-targets --all-features -- -D warnings`; `cargo test --all-targets --all-features`; `RUSTDOCFLAGS='-D warnings' cargo doc --no-deps`; run the offline and live feed validation gates; inspect Docker Scout SBOM/CVE output and confirm no registry push or deployment occurred; `git diff --check`; review operator documentation."
+    },
+    {
+      "capability_tier": "frontier",
+      "checked": true,
+      "delegation": "controller",
+      "dependency_delivery": "none",
+      "dependency_resolution": "change",
+      "depends_on": [
+        "2.1"
+      ],
+      "files": [
+        "Cargo.toml",
+        "Cargo.lock",
+        "Dockerfile",
+        "container/validator-dependency-overrides.gradle",
+        "container/validator-verification-metadata.xml",
+        "src/config.rs",
+        "src/main.rs",
+        "src/static_gtfs.rs",
+        "scripts/test-container.sh",
+        "README.md",
+        "security evidence and this spec"
+      ],
+      "id": "3.1",
+      "interfaces": "Consumes: pinned Rust/Corretto/Temurin/helper images, MobilityData v8.0.1 source, Cargo lockfile, and the approved runtime contracts; Produces: hardened scratch image `amtrak-gtfs-rt:hardened`, reproducible validator SHA-256 `24ca7e890ca15bfbb36fa889fcb16200f7276995b7e6ec75551a8b7175e818d7`, internal probes, updated harness, and retained scan evidence.",
+      "optional": false,
+      "reasoning_level": "extra_high",
+      "requirements": [
+        "1.1",
+        "1.5",
+        "2.1",
+        "2.5",
+        "3.1",
+        "3.7",
+        "4.1",
+        "4.4",
+        "5.1",
+        "5.6",
+        "6.1",
+        "6.6",
+        "7.1",
+        "7.6"
+      ],
+      "resolved_model": "claude-opus-5",
+      "risk": "high; dependency overrides or an incomplete runtime closure could change validator behavior. Immutable digests, two matching builds, upstream tests, old/new feed comparison, exact-image scanning, and full smoke/recovery evidence mitigate this.",
+      "stage": 3,
+      "task_category": "heavy_reasoning",
+      "title": "Replace the vulnerable runtime and validator dependency set",
+      "verification": "exact image Grype result `No vulnerabilities found`; upstream validator `BUILD SUCCESSFUL` (69 tasks); Rust 57 passed/2 ignored; full container harness passed, 79 MiB and healthy in 13s"
     }
   ]
 }

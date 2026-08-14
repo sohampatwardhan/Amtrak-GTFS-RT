@@ -371,6 +371,7 @@ async fn validate_with_mobility_data(
             .arg(&zip_path)
             .arg("-o")
             .arg(&report_dir)
+            .arg("--skip_validator_update")
             .stdout(Stdio::null())
             .stderr(Stdio::null());
         run_command_bounded(&mut command, timeout).await?;

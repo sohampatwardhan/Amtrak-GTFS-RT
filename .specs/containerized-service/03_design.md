@@ -4,6 +4,36 @@
 **Spec navigation:** [State](00_state.md) · [Discovery](01_discovery.md) · [Requirements](02_requirements.md) · [Design](03_design.md) · [Tasks](04_tasks.md) · [Execution](05_execution.md)
 <!-- spec-nav:end -->
 
+## Security Remediation Amendment (authoritative)
+
+This amendment supersedes the Debian/glibc runtime, prebuilt validator JAR, external `shasum`,
+curl healthcheck, and Alpine-deferral decisions in the historical design below.
+
+- Builder: `rust:1.96-alpine@sha256:a41f7740f8b45d45795624eec13a8b42263cc700f19f7e4e86e04d3dda08a479`;
+  musl build with static OpenSSL and an assertion that no SSL/crypto/C++ runtime library is linked.
+- Validator source: MobilityData v8.0.1 commit `d74d7177f9f7c6bc7adc69508bb939362f2cf770`, source archive
+  SHA-256 `651872b1a7abbde5b999d7261f875532eebaee22a9d7ce4946b8f764cdf7b8a3`.
+  [`container/validator-dependency-overrides.gradle`](../../container/validator-dependency-overrides.gradle)
+  applies exact reviewed versions and normalizes archives. The Gradle 7.4 distribution uses its
+  official SHA-256 and
+  [`container/validator-verification-metadata.xml`](../../container/validator-verification-metadata.xml)
+  strictly verifies the resolved Gradle/Maven graph. The build runs `test :cli:shadowJar` and
+  accepts only JAR SHA-256 `24ca7e890ca15bfbb36fa889fcb16200f7276995b7e6ec75551a8b7175e818d7`.
+- Runtime source: `amazoncorretto:17-alpine-jdk@sha256:e1138bf0cca62e04692de650ffe8923f35c39fcb554458c7acd98efc2d135144`.
+  `jlink` retains only `java.base`, `java.desktop`, `java.logging`, and `java.xml`; the final stage
+  is `scratch` and copies only Java, musl, zlib, CA roots, identity files, binary, and validator.
+- Runtime identity and API contract remain UID/GID 10001, `/data`, port 8080, loopback binding,
+  and exact direct-peer authorization. The binary calculates the JAR digest and performs its own
+  bounded `/livez` health probe, so no shell, curl, checksum tool, or package database is shipped.
+- Verification: two independent validator builds matched, the standalone JAR and final image had
+  zero Grype matches, and the complete live/recovery harness passed on a 79 MiB image.
+
+Current Gradle guidance was checked through Context7 `/gradle/gradle`: wrapper downloads are pinned
+with `distributionSha256Sum`, and dependency verification is enabled by a root
+`gradle/verification-metadata.xml` covering artifacts, POM metadata, and plugins in strict mode.
+
+The lower sections document the original merged PR #2 design and remain only as decision history.
+
 ## Overview
 
 The container packages the existing Rust API without changing [`src/main.rs`](../../src/main.rs), its HTTP routes, direct-peer authorization, feed generation, or durable writer. A BuildKit multi-stage Dockerfile compiles the locked release binary and independently retrieves the exact MobilityData validator. The final image is based on Debian 12 slim, contains only the binary and required runtime packages, runs as a fixed unprivileged user, and stores generations under a mounted `/data` directory.
@@ -249,7 +279,7 @@ For every successful image build and startup, the packaged validator bytes equal
 
 Every normal service process runs as UID and GID 10001, can read but not modify the binary and validator, can write `/data`, trusts installed CA roots, and has no Rust compiler, Cargo, protobuf compiler, repository secret, or untracked source file in the final filesystem.
 
-**Validates: Requirements 3.1, 3.2, 3.3, 3.4, 3.5, 3.6**
+**Validates: Requirements 3.1, 3.2, 3.3, 3.4, 3.5, 3.6, 3.7**
 
 ### Property 4: Volume replacement preserves last-good state
 
@@ -282,7 +312,7 @@ The README supplies exact build, safe run, health, readiness, manifest, artifact
 | ----------- | ------------------------------------------------------------- |
 | 1.1–1.5     | Build context and Rust builder; Property 1                    |
 | 2.1–2.5     | Validator acquisition and final runtime; Property 2           |
-| 3.1–3.6     | Final runtime contents and ownership; Property 3              |
+| 3.1–3.7     | Final runtime contents and ownership; Property 3              |
 | 4.1–4.4     | Persistent generation volume and existing writer; Property 4  |
 | 5.1–5.6     | Network-policy handoff and existing access policy; Property 5 |
 | 6.1–6.6     | Healthcheck and runtime smoke verification; Property 6        |
@@ -291,4 +321,4 @@ The README supplies exact build, safe run, health, readiness, manifest, artifact
 
 ## Approval
 
-Status: **Approved on 2026-08-14**
+Status: **Approved on 2026-08-14, including the security remediation amendment**

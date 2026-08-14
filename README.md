@@ -61,10 +61,12 @@ curl -fsS "http://127.0.0.1:8080${vehicle_url}" --output vehicle-positions.pb
 
 ## Container
 
-The service ships as a digest-pinned, non-root, multi-stage image. The build compiles the locked
-release binary and packages the officially pinned MobilityData GTFS validator; the runtime image
-contains only the binary, the validator, and their required libraries — no Rust toolchain,
-`protoc`, or repository source.
+The service ships as a digest-pinned, non-root, multi-stage image assembled from `scratch`. The
+build compiles the locked Rust binary against musl and rebuilds MobilityData validator v8.0.1 from
+its SHA-256-pinned source snapshot with reviewed security-version overrides. The complete upstream
+validator suite runs during the build, and a fixed reproducible JAR digest gates copy-forward. The
+runtime contains only the binary, that JAR, a minimized Corretto Java 17 runtime, musl, zlib, and CA
+roots—no shell, package manager, curl, Rust toolchain, `protoc`, or repository source.
 
 ```bash
 docker build --tag amtrak-gtfs-rt:local .
@@ -78,7 +80,7 @@ paths are correct inside the image:
 | Variable | Host default | Container default |
 |----------|--------------|-------------------|
 | `AMTRAK_OUTPUT_DIR` | `./out` | `/data` |
-| `AMTRAK_GTFS_VALIDATOR_JAR` | `./tools/gtfs-validator-v8.0.1-cli.jar` | `/opt/amtrak/gtfs-validator-v8.0.1-cli.jar` |
+| `AMTRAK_GTFS_VALIDATOR_JAR` | `./tools/gtfs-validator-v8.0.1-cli.jar` | `/opt/amtrak/gtfs-validator-v8.0.1-amtrak-hardened.1-cli.jar` |
 | `AMTRAK_BIND_ADDR` | `127.0.0.1:8080` | `127.0.0.1:8080` (loopback-only) |
 | `AMTRAK_ALLOWED_PEER_IPS` | empty | empty (loopback only) |
 
@@ -165,8 +167,9 @@ spoofed-header requests get `403`; asserts a wildcard bind without a policy and 
 time-to-health and exports an SBOM plus a CVE report under `validation-reports/container/`. CVE
 scanning prefers Docker Scout (needs `docker login`) and falls back to [grype](https://github.com/anchore/grype)
 if it is installed (no auth required); unavailable CVE evidence is reported as such, never assumed
-clean. The reviewed release candidate's compact scan summary and complete finding table are retained
-under [`.security/risk-acceptance/evidence/`](.security/risk-acceptance/evidence/).
+clean. The smoke-only shell/curl helper is separately digest-pinned and never enters the production
+image. Reviewed release evidence is retained under
+[`.security/risk-acceptance/evidence/`](.security/risk-acceptance/evidence/).
 
 ```bash
 scripts/test-container.sh amtrak-gtfs-rt:local
@@ -204,7 +207,7 @@ identifier parsing, and manifest-first discovery.
 | `AMTRAK_FILTER_CAPITAL_CORRIDOR` | `false` | Drop Capital Corridor (route 84); a better feed exists via 511.org |
 | `AMTRAK_BIND_ADDR` | `127.0.0.1:8080` | HTTP bind address; non-loopback requires an allowlist |
 | `AMTRAK_ALLOWED_PEER_IPS` | empty | Comma-separated exact peer IPs; empty admits loopback only |
-| `AMTRAK_GTFS_VALIDATOR_JAR` | `./tools/gtfs-validator-v8.0.1-cli.jar` | Readable, officially pinned MobilityData validator 8.0.1 CLI JAR |
+| `AMTRAK_GTFS_VALIDATOR_JAR` | `./tools/gtfs-validator-v8.0.1-cli.jar` | Readable, approved MobilityData validator 8.0.1 CLI JAR (official host artifact or repository-hardened container build) |
 
 ## Resilience
 

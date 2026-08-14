@@ -6,7 +6,7 @@
 
 ## Context
 
-These requirements define the observable contract for building and running the existing Amtrak GTFS-RT API as a container. A **generation volume** is durable storage supplied by the operator for the API's immutable feed generations and current-generation marker. A **pinned validator** is the exact MobilityData GTFS validator 8.0.1 CLI artifact already required by the service.
+These requirements define the observable contract for building and running the existing Amtrak GTFS-RT API as a container. A **generation volume** is durable storage supplied by the operator for the API's immutable feed generations and current-generation marker. A **pinned validator** is the reproducible hardened MobilityData GTFS validator 8.0.1 CLI artifact built from the repository-pinned source and dependency override policy.
 
 Containerization does not change the API routes, feed semantics, freshness threshold, direct-peer authorization policy, or release-deployment decision.
 
@@ -28,10 +28,10 @@ Containerization does not change the API routes, feed semantics, freshness thres
 
 #### Acceptance Criteria
 
-1. **R2.1** THE Runtime_Image SHALL contain the pinned validator artifact whose SHA-256 equals `19293ddd9b6f954f216d4f12054bd8a3232921751c4484339e339764a91000e2`.
+1. **R2.1** THE Runtime_Image SHALL contain the pinned validator artifact whose SHA-256 equals `24ca7e890ca15bfbb36fa889fcb16200f7276995b7e6ec75551a8b7175e818d7`.
 2. **R2.2** THE Runtime_Image SHALL provide a Java runtime whose reported major version is at least 17.
-3. **R2.3** THE Runtime_Image SHALL provide a `shasum` command capable of calculating SHA-256 digests.
-4. **R2.4** IF the downloaded validator artifact does not match the pinned digest, THEN THE Container_Build SHALL terminate with a non-zero status.
+3. **R2.3** THE Service_Process SHALL verify the validator SHA-256 internally without requiring a shell or checksum utility in the Runtime_Image.
+4. **R2.4** IF the validator source archive or rebuilt artifact does not match its pinned digest, THEN THE Container_Build SHALL terminate with a non-zero status.
 5. **R2.5** WHEN the container starts with its packaged defaults, THE Service_Process SHALL validate the packaged validator before opening its HTTP listener.
 
 ### Requirement 3: Least-privilege runtime
@@ -46,6 +46,7 @@ Containerization does not change the API routes, feed semantics, freshness thres
 4. **R3.4** THE Runtime_Image SHALL exclude the protobuf compiler.
 5. **R3.5** THE Runtime_Image SHALL contain trusted certificate authorities needed for HTTPS access to configured Amtrak sources.
 6. **R3.6** THE Runtime_Image SHALL exclude repository-local secrets and untracked files from the final image.
+7. **R3.7** THE Runtime_Image SHALL exclude shells, package managers, download clients, and package databases.
 
 ### Requirement 4: Persistent generation storage
 
@@ -108,11 +109,11 @@ Containerization does not change the API routes, feed semantics, freshness thres
 
 ## Assumptions and Non-Goals
 
-- Debian slim is the approved compatibility-first base family; Alpine is not required for this increment.
+- A scratch final stage assembled from the pinned Corretto Alpine/musl runtime closure is approved by measured compatibility and scan evidence.
 - The operator supplies a Docker-capable host and controls the container network and persistent volume.
 - Registry publication, image signing, Docker Compose, Kubernetes resources, reverse-proxy trust, public hosting, and deployment are outside this requirements contract.
 - The source-integration decision for the API does not override its existing deployment block.
 
 ## Approval
 
-Status: **Approved on 2026-08-14**
+Status: **Approved on 2026-08-14, including the security remediation revision**

@@ -1,9 +1,9 @@
 # Build context exclusions.
 #
-# The image build only bind-mounts Cargo.toml, Cargo.lock, and src/, so these rules are
-# defense-in-depth: a file excluded here cannot be sent in the context or mounted at all, even
-# if a future stage switches from a bind mount to COPY. Keep this list conservative — it must
-# never exclude the three declared build inputs.
+# The image build only consumes Cargo.toml, Cargo.lock, src/, and the reviewed validator override
+# and dependency-verification files under container/. These rules are defense-in-depth: an
+# excluded file cannot be sent in the context or mounted at all, even if a future stage switches
+# from a bind mount to COPY. Keep this list conservative; it must not exclude those inputs.
 
 # Version-control metadata
 .git

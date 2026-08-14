@@ -32,6 +32,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Replaced the Debian/JRE container with a package-manager-free, non-root scratch
+  runtime and a source-built MobilityData validator whose Gradle distribution,
+  dependency graph, source archive, and final JAR are checksum-verified. The
+  exact final image has a retained SPDX SBOM and zero-match Grype report.
 - Replaced mutable top-level feed files with immutable generation routes.
 - Split mixed upstream entities into type-correct GTFS-Realtime products, removed
   invalid FULL_DATASET deletions, normalized headers, and filtered unresolved
@@ -43,9 +47,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Known issues
 
-- Production rollout remains blocked until a fresh dependency audit has complete,
-  shippable evidence. The current audit includes an unavailable CISA KEV source
-  and a critical advisory inherited through the upstream `amtrak-gtfs-rt` crate.
+- The complete Cargo audit retains ten inherited advisory warnings with no
+  confirmed CISA KEV match. They are not treated as clean, although none blocks
+  this container-only remediation.
 
 ### Planned
 

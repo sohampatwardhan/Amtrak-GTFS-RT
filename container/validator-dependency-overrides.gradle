@@ -1,0 +1,28 @@
+/*
+ * Security resolution policy for the pinned MobilityData GTFS Validator v8.0.1 source tree.
+ *
+ * The upstream release bundles older transitive libraries in its CLI fat JAR. Keep this list
+ * deliberately small and exact: every override corresponds to an authoritative fixed version
+ * reported by the release scan. The container build applies this as a Gradle init script, then
+ * runs the validator test suite and scans the resulting JAR before it can reach the runtime.
+ */
+allprojects {
+    tasks.withType(org.gradle.api.tasks.bundling.AbstractArchiveTask).configureEach {
+        preserveFileTimestamps = false
+        reproducibleFileOrder = true
+    }
+
+    configurations.configureEach {
+        resolutionStrategy.force(
+                'commons-beanutils:commons-beanutils:1.11.0',
+                'org.apache.commons:commons-compress:1.26.0',
+                'org.apache.commons:commons-lang3:3.18.0',
+                'com.google.code.gson:gson:2.8.9',
+                'com.google.guava:guava:32.0.0-jre',
+                'org.apache.httpcomponents.client5:httpclient5:5.6.3',
+                'org.apache.httpcomponents.core5:httpcore5:5.4.3',
+                'org.apache.httpcomponents.core5:httpcore5-h2:5.4.3',
+                'org.jsoup:jsoup:1.23.1'
+        )
+    }
+}

@@ -64,15 +64,47 @@ flowchart TD
     - **Delegation:** controller
     - _Requirements: 4.1, 4.2, 4.3, 4.4, 5.2, 5.3, 5.4, 5.5, 5.6, 6.1, 6.2, 6.3, 6.4, 6.5, 6.6, 7.1, 7.2, 7.3, 7.4, 7.5, 7.6_
 
+- [x] 3. Remediate container dependency findings
+  - [x] 3.1 Replace the vulnerable runtime and validator dependency set
+    - Rebuild pinned MobilityData v8.0.1 source with exact dependency overrides, complete upstream
+      tests, reproducible archive settings, and immutable source/output digest gates.
+    - Build the Rust service on musl with static OpenSSL; assemble a scratch runtime from a
+      digest-pinned, minimized Corretto Java 17 closure without shell, package manager, curl,
+      checksum utility, glibc, libssl, or libcrypto.
+    - Implement internal validator SHA-256 and health probing, and use a separately digest-pinned
+      helper image for smoke-only shell/curl operations.
+    - Require Rust quality gates, two matching validator builds, standalone-JAR scan, exact-image
+      SBOM/scan, full live smoke, authorization guards, and byte-identical offline recovery.
+    - **Files:** [Cargo.toml](../../Cargo.toml), [Cargo.lock](../../Cargo.lock), [Dockerfile](../../Dockerfile), [container/validator-dependency-overrides.gradle](../../container/validator-dependency-overrides.gradle), [container/validator-verification-metadata.xml](../../container/validator-verification-metadata.xml), [src/config.rs](../../src/config.rs), [src/main.rs](../../src/main.rs), [src/static_gtfs.rs](../../src/static_gtfs.rs), [scripts/test-container.sh](../../scripts/test-container.sh), [README.md](../../README.md), security evidence and this spec
+    - **Dependency resolution:** change
+    - **Dependency delivery:** none
+    - **Context7 evidence:** state=completed | identity=/google/gson | version=2.8.9 | decision=exact validator override compatibility reviewed; additional `/gradle/gradle` guidance applied for wrapper checksum and strict dependency verification
+    - **Pre-change dependency audit:** state=completed | command=dependency-security-audit change | mode=change | timestamp=2026-08-14T19:42:17.976455Z | project_revision=f2a3e4357db1f8fc5b0b8b24dc5b20ca768524b1 | inventory_fingerprint=369988778990d67a7dd32aed79392d0ea4e94556322f16f30f7bb948e5030a75 | JSON=[pre-remediation.json](../../.security/dependency-audit/pre-remediation.json) | Markdown=[pre-remediation.md](../../.security/dependency-audit/pre-remediation.md) | review=completed | result=warnings | exit=0 | decision=proceed; ten inherited warnings establish the comparison baseline, with no blocked or KEV result | warnings_reviewed=true | clean=false
+    - **Resolution edit:** state=completed | files=[Cargo.toml](../../Cargo.toml), [Cargo.lock](../../Cargo.lock)
+    - **Project tests:** state=completed | evidence=[security evidence](../../.security/risk-acceptance/containerized-service.md)
+    - **Post-change dependency audit:** state=completed | command=dependency-security-audit change | mode=change | timestamp=2026-08-14T19:42:33.520501Z | project_revision=f2a3e4357db1f8fc5b0b8b24dc5b20ca768524b1 | inventory_fingerprint=725e38374fc90bc622980a32a3657224e6bf276cb9cbf4e91a787bc1103d3fc8 | JSON=[post-remediation.json](../../.security/dependency-audit/post-remediation.json) | Markdown=[post-remediation.md](../../.security/dependency-audit/post-remediation.md) | review=completed | result=warnings | exit=0 | decision=proceed; warning set is unchanged from baseline, no new advisory or KEV match was introduced, and exact delivered image scan is clean | warnings_reviewed=true | clean=false
+    - **Protected-main dependency audit:** state=completed | mode=main | project_revision=20f7be7 | inventory_fingerprint=725e38374fc90bc622980a32a3657224e6bf276cb9cbf4e91a787bc1103d3fc8 | JSON=[main.json](../../.security/dependency-audit/main.json) | Markdown=[main.md](../../.security/dependency-audit/main.md) | result=warnings | exit=0 | ten reviewed inherited warnings, zero blocked findings, complete inventory, and no CISA KEV match | clean=false
+    - **Depends on:** 2.1
+    - **Stage:** 3
+    - **Interfaces:** Consumes: pinned Rust/Corretto/Temurin/helper images, MobilityData v8.0.1 source, Cargo lockfile, and the approved runtime contracts; Produces: hardened scratch image `amtrak-gtfs-rt:hardened`, reproducible validator SHA-256 `24ca7e890ca15bfbb36fa889fcb16200f7276995b7e6ec75551a8b7175e818d7`, internal probes, updated harness, and retained scan evidence.
+    - **Documentation:** Update native Dockerfile/Rust/shell contract comments, operator README, spec amendment, execution ledger, and closed risk record.
+    - **Verification:** exact image Grype result `No vulnerabilities found`; upstream validator `BUILD SUCCESSFUL` (69 tasks); Rust 57 passed/2 ignored; full container harness passed, 79 MiB and healthy in 13s
+    - **Estimated effort:** 1–2 hours
+    - **Risk:** high; dependency overrides or an incomplete runtime closure could change validator behavior. Immutable digests, two matching builds, upstream tests, old/new feed comparison, exact-image scanning, and full smoke/recovery evidence mitigate this.
+    - **Task category:** heavy_reasoning
+    - **Delegation:** controller
+    - _Requirements: 1.1–1.5, 2.1–2.5, 3.1–3.7, 4.1–4.4, 5.1–5.6, 6.1–6.6, 7.1–7.6_
+
 ## Delivery Schedule
 
 | Stage | Task | Estimate | Depends on | Critical path |
 |---:|---|---|---|---|
 | 1 | 1.1 | 1–2 hours | none | yes |
 | 2 | 2.1 | 1–3 hours | 1.1 | yes |
+| 3 | 3.1 | complete | 2.1 | yes |
 
 Critical-path estimate: **2–5 hours**, excluding external image, package, Cargo, validator, and live Amtrak download time. No calendar dates are assumed.
 
 ## Approval
 
-Status: **Approved on 2026-08-14**
+Status: **Approved on 2026-08-14; remediation task 3.1 and its audit gates complete**

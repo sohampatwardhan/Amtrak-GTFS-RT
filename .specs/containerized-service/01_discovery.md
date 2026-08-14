@@ -4,9 +4,18 @@
 **Spec navigation:** [State](00_state.md) · [Discovery](01_discovery.md) · [Requirements](02_requirements.md) · [Design](03_design.md) · [Tasks](04_tasks.md) · [Execution](05_execution.md)
 <!-- spec-nav:end -->
 
+## Security Remediation Amendment (2026-08-14)
+
+The 401-finding Debian/JRE image invalidated the original compatibility-first runtime choice. The
+approved follow-up outcome is a measured musl/scratch image with no shell or package manager and a
+source-built, reproducible validator whose affected embedded dependencies are overridden to exact
+reviewed fixed versions. The full upstream validator suite, service tests, live container harness,
+and exact-image scan are mandatory evidence. This amendment supersedes the Debian, `shasum`, and
+official prebuilt-JAR choices retained below as historical discovery context.
+
 ## Problem and Outcome
 
-The Rust API currently runs directly on a host with a Rust-built binary, Java 17 or newer, the pinned MobilityData GTFS validator JAR, `shasum`, and a writable generation directory. Operators need a repeatable container image that packages those runtime dependencies and starts the same service without weakening validation, persistence, or access controls.
+The Rust API can run directly on a host with a Rust-built binary, Java 17 or newer, the pinned MobilityData GTFS validator JAR, and a writable generation directory. Operators need a repeatable container image that packages those runtime dependencies and starts the same service without weakening validation, persistence, or access controls.
 
 The outcome is a production-oriented Dockerfile and minimal build context that can build the service reproducibly, run it as a non-root user, persist immutable generations through a mounted directory, and support a local health check. The existing API and feed behavior remain unchanged.
 
@@ -79,4 +88,4 @@ Verification will build the image without host build artifacts, inspect its conf
 
 ## Approval
 
-Status: **Approved on 2026-08-14**
+Status: **Approved on 2026-08-14, including the security remediation amendment**
