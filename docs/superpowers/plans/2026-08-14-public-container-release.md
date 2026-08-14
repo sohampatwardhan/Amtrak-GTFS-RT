@@ -129,7 +129,7 @@ git commit -m "chore: prepare v0.2.0 release metadata"
 
 ### Task 2: Licensed OCI image and operator documentation
 
-- [ ] **Task status:** Complete and reviewed
+- [x] **Task status:** Complete and reviewed
 
 **Files:**
 - Create: `container/licenses/AGPL-3.0-only.txt`
@@ -208,7 +208,7 @@ scripts/test-container.sh amtrak-gtfs-rt:release-test
 
 Expected: image verifier and complete smoke/recovery harness pass.
 
-- [ ] **Step 6: Commit Task 2**
+- [x] **Step 6: Commit Task 2**
 
 ```bash
 git add .dockerignore Dockerfile README.md CHANGELOG.md container/licenses \
