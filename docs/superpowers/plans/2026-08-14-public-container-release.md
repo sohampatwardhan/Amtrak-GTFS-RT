@@ -448,7 +448,7 @@ git commit -m "docs: record v0.2.0 release audit"
 - Consumes: audited release branch and user authorization to make the repository public.
 - Produces: merged `main`, public repository visibility, and an exact release commit ready for tagging.
 
-- [ ] **Step 1: Push the branch and open the release-preparation PR**
+- [x] **Step 1: Push the branch and open the release-preparation PR**
 
 Push `release-v0.2.0`, create a PR against `main`, and include version, licensing, exact local image evidence, history-audit result, dependency warnings/acceptance status, and the fact that publication happens only after merge.
 
