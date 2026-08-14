@@ -53,7 +53,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Known issues
 
-- The complete Cargo audit retains ten inherited advisory warnings with no
+- The complete Cargo audit retains nine inherited advisory warnings with no
   confirmed CISA KEV match. They are not treated as clean, although none blocks
   this container-only remediation.
 

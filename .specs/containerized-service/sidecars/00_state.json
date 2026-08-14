@@ -2,7 +2,7 @@
   "change_control": [
     "This feature adds a container packaging and local container-run boundary without changing the GTFS or GTFS-Realtime HTTP contract.",
     "A change that alters direct-peer authorization, validator pinning, artifact durability, or public exposure returns to discovery and requires re-approval.",
-    "Image publication, orchestration, and production deployment remain separate decisions unless explicitly added to scope.",
+    "Image publication, orchestration, and production deployment remain separate decisions unless explicitly added to scope. The user subsequently authorized public image publication under the separate [public container release design](../../docs/superpowers/specs/2026-08-14-public-container-release-design.md); orchestration and production deployment remain outside both scopes.",
     "On 2026-08-14, discovery was approved with Debian slim as the default base family; Alpine remains eligible only after complete-image size and native-library compatibility evidence.",
     "On 2026-08-14, the container requirements were approved without changing the existing feed or access-control contract.",
     "On 2026-08-14, the container design was approved with immutable base-image pins, validator verification, UID 10001, `/data` persistence, and loopback-safe defaults.",
@@ -13,7 +13,9 @@
     "On 2026-08-14, remediation triage found no fixable Critical image finding. All 10 fixable High findings are embedded in the latest upstream validator JAR (v8.0.1); a smaller runtime would not remediate them and would require a compatibility redesign. A [proposed risk-acceptance record](../../.security/risk-acceptance/containerized-service.md) now documents the image and Cargo findings, compensating controls, expiry, and review triggers. It remains pending explicit owner approval and does not authorize publication or deployment.",
     "On 2026-08-14, pre-approval repair round 2 eliminated two false-positive evidence paths: Docker invocation/inspection failures no longer count as startup rejection, and stale scan files cannot survive a failed current scan. Focused guard tests passed, the rebuilt image passed the complete smoke harness, and a fresh [scan summary](../../.security/risk-acceptance/evidence/containerized-service-scan-summary.json) plus [finding table](../../.security/risk-acceptance/evidence/containerized-service-cves-grype.txt) were committed for review. Requirements and Tasks artifact footers were reconciled with their approved state gates.",
     "On 2026-08-14, the user requested remediation instead of accepting the 401 findings. The approved follow-up replaces Debian/glibc with a package-manager-free musl/scratch runtime, statically links the Rust OpenSSL path, rebuilds validator v8.0.1 reproducibly from pinned source with reviewed dependency overrides, and moves shell/curl smoke operations to a separately pinned helper. The exact 79 MiB image passed the full live/recovery harness and Grype reported **No vulnerabilities found**. The proposed container risk acceptance is closed without approval.",
-    "On 2026-08-14, the user approved the security-remediation amendment and authorized package/version/edge/revision disclosure to OSV, GitHub Advisory, NVD, and CISA KEV. Complete pre/post Cargo inventories (375 packages, 969 edges) produced the same ten inherited warning records and no blocked result or KEV match; the changed fingerprint reflects the direct `sha2` declaration. Four malformed GitHub CVSS enrichments remain explicit partial-source diagnostics. Task 3.1 is complete; the warnings are retained as base-service technical debt and are not described as clean."
+    "On 2026-08-14, the user approved the security-remediation amendment and authorized package/version/edge/revision disclosure to OSV, GitHub Advisory, NVD, and CISA KEV. Complete pre/post Cargo inventories (375 packages, 969 edges) produced the same ten inherited warning records and no blocked result or KEV match; the changed fingerprint reflects the direct `sha2` declaration. Four malformed GitHub CVSS enrichments remain explicit partial-source diagnostics. Task 3.1 is complete; the warnings are retained as base-service technical debt and are not described as clean.",
+    "On 2026-08-14, after the remediation merged, the user separately approved preparation and publication of public release `v0.2.0`. That work is governed by the [approved release design](../../docs/superpowers/specs/2026-08-14-public-container-release-design.md) and [implementation plan](../../docs/superpowers/plans/2026-08-14-public-container-release.md), including full-history review, exact-platform smoke/SBOM/Grype gates, AGPL and third-party license evidence, public GHCR/GitHub Release publication, and anonymous pull/startup verification. This authorization does not include a production service deployment.",
+    "On 2026-08-14, release audit review corrected an audit-skill applicability defect that had replayed the affected `time 0.1.45` OSV result onto unaffected `time 0.3.54`. The corrected complete inventory retains nine inherited warning records, zero blocks, no KEV match, and no partial required source. Release remains gated on explicit owner acceptance of that exact nine-warning set; historical ten-warning evidence remains unchanged as the record that exposed the defect."
   ],
   "gates": {
     "audit": {
@@ -43,7 +45,7 @@
   },
   "generated_from": {
     "file": "00_state.md",
-    "sha256": "0b2b129cc6e04ba0cb03077c94499e933766465efdd538cf07b0d6480e054bbe"
+    "sha256": "af77be025d1c894c0e14c2c98ed89a68f41698e4da435cf0b8f0d458f1204af6"
   },
   "schema_version": 1
 }

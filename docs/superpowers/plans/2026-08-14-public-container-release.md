@@ -357,6 +357,9 @@ git commit -m "ci: publish verified multi-platform releases"
 - Create: `.security/dependency-audit/release-v0.2.0.md`
 - Create when warnings require acceptance: `.security/risk-acceptance/v0.2.0-cargo-dependencies.md`
 - Modify: `.security/dependency-audit/.gitignore`
+- Modify: `.specs/containerized-service/00_state.md`
+- Modify as needed to repair stale evidence links: `.specs/containerized-service/03_design.md`
+- Modify as needed to repair stale evidence links: `.specs/containerized-service/05_execution.md`
 - Modify when generated sidecars change: `.specs/containerized-service/sidecars/*`
 - Test: full local gates and repository-history audit
 
@@ -364,7 +367,7 @@ git commit -m "ci: publish verified multi-platform releases"
 - Consumes: the final release-preparation commit, complete Git history, Cargo lockfile, and exact local release image.
 - Produces: a redacted Gitleaks result, oversized-object review, license notice verification, full release-mode dependency audit, and merge-ready PR evidence.
 
-- [ ] **Step 1: Scan all reachable history with pinned Gitleaks**
+- [x] **Step 1: Scan all reachable history with pinned Gitleaks**
 
 Download `gitleaks_8.30.1_darwin_arm64.tar.gz`, verify SHA-256
 `b40ab0ae55c505963e365f271a8d3846efbc170aa17f2607f13df610a9aeb6a5`, extract to a temporary directory, and run:
@@ -377,12 +380,16 @@ jq -e 'length == 0' /tmp/amtrak-gitleaks-redacted.json
 
 Never print unredacted findings. Any finding stops the visibility change for targeted review.
 
-- [ ] **Step 2: Audit history for oversized or private material**
+- [x] **Step 2: Audit history for oversized or private material**
 
 Generate a sorted object-size inventory with `git rev-list --objects --all`,
 `git cat-file --batch-check='%(objecttype) %(objectname) %(objectsize) %(rest)'`, and require manual review of every blob at least 10 MiB. Search commit paths for `.env`, private-key extensions, database dumps, credentials, archives, and validation outputs; inspect matches without printing content. Record zero unresolved findings in the PR body.
 
-- [ ] **Step 3: Run local code, spec, container, and license gates**
+- [x] **Step 3: Run local code, spec, container, and license gates**
+
+Record that the later public-release authorization is governed by the separately approved release
+design and plan while production deployment remains out of scope. Preserve the original
+containerization requirements as historical scope, then regenerate its sidecars.
 
 ```bash
 cargo fmt --all -- --check
@@ -407,7 +414,7 @@ python3 /Users/soham/.agents/skills/dependency-security-audit/scripts/dependency
   --output /tmp/amtrak-release-audit --format human
 ```
 
-Require complete inventory and required sources. Copy `latest.json`/`latest.md` to the two tracked release evidence paths and update `.gitignore`. If the ten inherited no-fix warnings remain, document mitigations, exact warning identities, no KEV match, container exclusion/scan evidence, and the user's explicit acceptance before tagging; a blocked or unavailable result stops release.
+Require complete inventory and required sources. Copy `latest.json`/`latest.md` to the two tracked release evidence paths and update `.gitignore`. If inherited no-fix warnings remain, document mitigations, exact warning identities, no KEV match, exact-image scan evidence, and the user's explicit acceptance before tagging; a blocked or unavailable result stops release. Do not claim a Cargo finding is excluded merely because a filesystem scanner does not enumerate statically linked Rust components.
 
 - [ ] **Step 5: Commit release audit evidence**
 
