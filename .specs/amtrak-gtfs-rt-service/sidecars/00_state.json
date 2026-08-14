@@ -10,7 +10,8 @@
     "On 2026-08-13, generated JSON artifacts moved into [sidecars](sidecars/) under the spec-driven development v1.1.1 suite layout; human-authored numbered Markdown and diagram IR remain in place.",
     "On 2026-08-13, the task plan was approved and execution opened on branch `amtrak-gtfs-rt-service-spec`.",
     "On 2026-08-13, self-hardening clarified approved behavior without changing the product boundary: static replacements must pass the pinned runtime standards validator, freshness uses the generation timestamp, durable restart recovery and directory sync ordering are explicit, and direct-peer authorization fails closed.",
-    "On 2026-08-14, implementation and live feed validation completed. Release decision is BLOCK: no deployment or consumer migration occurred, and rollback preserves the prior binary plus the persisted last-good immutable generation."
+    "On 2026-08-14, implementation and live feed validation completed. Release decision is BLOCK: no deployment or consumer migration occurred, and rollback preserves the prior binary plus the persisted last-good immutable generation.",
+    "On 2026-08-14, the user authorized publishing the feature branch and merging [PR #1](https://github.com/sohampatwardhan/Amtrak-GTFS-RT/pull/1) into `main`; this source-integration decision does not override the deployment block."
   ],
   "gates": {
     "audit": {
@@ -40,7 +41,7 @@
   },
   "generated_from": {
     "file": "00_state.md",
-    "sha256": "1ba90a999b8f6236c75faecff4b945d4ff62a135fe2f8e2c509a919ad6b427d3"
+    "sha256": "3f0511a3ed845c0535db99234ea3b07a80a66cb8a3f6b36d66541f2163e13181"
   },
   "schema_version": 1
 }

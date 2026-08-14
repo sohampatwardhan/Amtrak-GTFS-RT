@@ -90,10 +90,11 @@ kanban
 
 ## Integration Decision
 
-- Status: awaiting user choice; rollout blocked
+- Status: user authorized GitHub publication and merge on 2026-08-14; rollout remains blocked
 - Base: `main`
-- Result: feature branch preserved; no merge, push, PR, or deployment performed
-- Post-integration verification: pending
+- Result: [PR #1](https://github.com/sohampatwardhan/Amtrak-GTFS-RT/pull/1) is the authoritative integration record; its final state and merge commit govern this decision
+- Post-integration verification: GitHub `Build and test` passed before this record update; final head and merge state are verified at PR #1
+- Deployment: not authorized or performed
 
 ### Execution Gantt
 

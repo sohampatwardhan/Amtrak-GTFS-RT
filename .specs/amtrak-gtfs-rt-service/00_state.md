@@ -26,3 +26,4 @@
 - On 2026-08-13, the task plan was approved and execution opened on branch `amtrak-gtfs-rt-service-spec`.
 - On 2026-08-13, self-hardening clarified approved behavior without changing the product boundary: static replacements must pass the pinned runtime standards validator, freshness uses the generation timestamp, durable restart recovery and directory sync ordering are explicit, and direct-peer authorization fails closed.
 - On 2026-08-14, implementation and live feed validation completed. Release decision is BLOCK: no deployment or consumer migration occurred, and rollback preserves the prior binary plus the persisted last-good immutable generation.
+- On 2026-08-14, the user authorized publishing the feature branch and merging [PR #1](https://github.com/sohampatwardhan/Amtrak-GTFS-RT/pull/1) into `main`; this source-integration decision does not override the deployment block.
