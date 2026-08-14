@@ -1,108 +1,74 @@
-# Proposed Risk Acceptance: Containerized Service Dependencies
+# Closed Risk Acceptance: Containerized Service Dependencies
 
 | Field | Value |
 |---|---|
-| Status | **Proposed — not yet accepted** |
-| Prepared | 2026-08-14 |
-| Scope | Local image reference digest `sha256:b182f0d453431a70d0e30f3643f9b0a5bd687723f46c03214f4558328eb25785` (linux/arm64 image ID `sha256:71c5a199b9cc60aa112354812ee22c79b727e18635d91e21f4292520dd9c0439`) and the Cargo resolution recorded by the release dependency audit |
-| Proposed review deadline | 2026-11-12 (90 days), or earlier on any review trigger below |
-| Risk owner / approver | Pending explicit owner designation and approval |
+| Status | **Closed — remediation superseded the proposed exception** |
+| Prepared / closed | 2026-08-14 |
+| Remediated image | `amtrak-gtfs-rt@sha256:c2bc846fb8af357015fef2fecb6280f901d6189d298773f832b2d0032a0c2a56` (`linux/arm64`, 83,213,742 bytes uncompressed) |
 | Deployment authority | Not granted by this record |
 
-## Decision requested
+## Resolution
 
-Approve a time-bounded exception for the inherited dependency findings described below while the
-service remains subject to its existing runtime controls and monitoring. This draft does **not**
-mark the risk accepted, turn an unavailable audit gate green, authorize image publication, or
-authorize deployment. Those decisions remain explicit owner actions.
+No dependency risk acceptance is requested for the container image. The 401-match Debian/JRE
+image and its proposed exception were replaced by a package-manager-free scratch runtime. The
+delivered filesystem contains the service, a minimized Corretto Java 17 runtime, musl, zlib, CA
+roots, and a hardened validator JAR; it contains no shell, BusyBox, curl, apk database, glibc,
+libssl, or libcrypto.
 
-## Evidence and remediation assessment
+MobilityData validator v8.0.1 is rebuilt from source commit
+`d74d7177f9f7c6bc7adc69508bb939362f2cf770`. Its source archive is gated by SHA-256
+`651872b1a7abbde5b999d7261f875532eebaee22a9d7ce4946b8f764cdf7b8a3`, reviewed overrides update
+the affected embedded libraries, the complete upstream test suite runs during the image build,
+and archive normalization makes the output byte-reproducible. The accepted JAR SHA-256 is
+`24ca7e890ca15bfbb36fa889fcb16200f7276995b7e6ec75551a8b7175e818d7`; startup verifies it using
+the service's internal SHA-256 implementation.
 
-The rebuilt local image was scanned with grype 0.117.0 on 2026-08-14 using vulnerability database
-v6.1.9, built 2026-08-14T06:39:10Z. Reviewable evidence is committed as a
-[machine-readable summary](evidence/containerized-service-scan-summary.json) and the complete
-[human-readable finding table](evidence/containerized-service-cves-grype.txt). The summary records
-the exact image identities, architecture, scanner/database provenance, evidence checksums, severity
-and fix-state counts, and every fixable Critical/High match. The scan contains 401 matches: 33
-Critical, 74 High, 146 Medium, 10 Low, 122 Negligible, and 16 Unknown.
+## Evidence
 
-The Critical and High findings were classified by fix state:
+- Grype 0.117.0 scanned the exact image above against valid database schema v6.1.9 (built
+  2026-08-14T06:39:10Z) and reported **No vulnerabilities found**. The SPDX 2.3 SBOM contains 90
+  packages, including OpenJDK and the embedded Maven libraries, so the result is not based on an
+  empty inventory.
+  The retained [scan summary](evidence/containerized-service-scan-summary.json),
+  [raw Grype JSON](evidence/containerized-service-cves-grype.json),
+  [SPDX SBOM](evidence/containerized-service-sbom.spdx.json), and
+  [finding table](evidence/containerized-service-cves-grype.txt) identify that result and allow
+  independent inventory review without access to the local image.
+- A standalone Grype scan of the rebuilt validator JAR reported zero matches.
+- Two independent clean validator builds produced the same JAR digest.
+- The upstream validator build completed 69 Gradle tasks, including its complete test suite.
+- The repository Rust suite passed (57 passed, 2 live tests ignored), with formatting, Clippy
+  (`-D warnings`), documentation, and smoke-script syntax checks also passing.
+- The complete live container harness passed: healthy in 13 seconds, 79 MiB reported by the
+  harness, all four artifacts independently decoded, authorization guards passed, and offline
+  last-good recovery was byte-identical. The harness generated a fresh SBOM and zero-match Grype
+  JSON/table for the exact image.
 
-| Severity | Fixed | Not fixed | Won't fix | Assessment |
-|---|---:|---:|---:|---|
-| Critical | 0 | 12 | 21 | All 33 matches are Debian OS-package findings with no available package fix. |
-| High | 10 | 22 | 42 | The 10 fixable matches are Java libraries embedded in the validator JAR; the remaining 64 have no available package fix. |
+The authorized [pre-remediation](../dependency-audit/pre-remediation.md) and
+[post-remediation](../dependency-audit/post-remediation.md) Cargo audits each resolved 375
+packages and 969 dependency edges. Both produced the same ten inherited warning records, no
+blocked result, and no CISA KEV match. The post-change fingerprint differs because `sha2`, already
+present transitively, became a direct dependency for internal validator hashing. Four GitHub
+enrichments with invalid CVSS metrics remain explicit partial-source diagnostics. Closing this
+container exception does not waive or relabel those warnings as clean.
 
-The 10 fixable High matches affect `commons-beanutils` 1.9.2, `commons-compress` 1.20, `gson`
-2.8.6, `httpcore5` 5.0.2, and `httpcore5-h2` 5.0.2 inside MobilityData's validator JAR. The image
-already pins MobilityData GTFS Validator v8.0.1 by SHA-256, and v8.0.1 was confirmed on 2026-08-14
-as the [latest upstream release](https://github.com/MobilityData/gtfs-validator/releases/tag/v8.0.1).
-Replacing libraries inside the pinned vendor artifact would create an unsupported derivative and
-invalidate the verified artifact identity. The appropriate remediation is an upstream validator
-release containing updated libraries.
+## Ongoing controls
 
-A smaller or distroless runtime was assessed and deferred for this exception cycle. It could reduce
-the OS-package attack surface by removing packages, but it would not remediate the fixable findings
-inside the vendor JAR. The current image also requires Java, `shasum`, glibc compatibility, and a
-health probe. Replacing those facilities requires a separate design change and complete regression
-evidence; it should be evaluated as follow-up hardening rather than represented as an available
-package update.
+- Every base, source archive, helper image, and delivered validator artifact is digest-pinned.
+- The Gradle 7.4 wrapper distribution is pinned by its official SHA-256, and strict dependency
+  verification checks the complete resolved Gradle/Maven graph against committed checksums before
+  executing the upstream suite or assembling the validator.
+- The runtime is UID/GID 10001, loopback-only by default, and fail-closed for wildcard binding
+  without an exact peer allowlist.
+- The binary and validator are read-only; only `/data` is writable by the service user.
+- The production image has no general-purpose diagnostic utility. Smoke-only curl/shell work uses
+  a separately pinned helper image.
+- Any image, base, validator override, Cargo lockfile, or network-policy change requires a fresh
+  build, SBOM, vulnerability scan, and smoke run. A non-zero or unavailable scan must not be
+  represented as clean.
 
-The separate release dependency audit is retained at
-[`release.md`](../dependency-audit/release.md) and [`release.json`](../dependency-audit/release.json).
-It resolves 375 packages and reports 10 warnings, 0 blocking findings, and an `unavailable` gate
-because required enrichment sources were partial/unavailable. The warnings are transitive
-advisories involving `atomic-polyfill`, `derivative`, `fxhash`, `gcc`, `rust-crypto`,
-`rustc-serialize`, and `time`. Reachability is not assessed, so this record does not claim that the
-affected code paths are unreachable.
+## Closure record
 
-## Residual risk
-
-- A vulnerable OS or validator-JAR code path could compromise service availability, integrity, or
-  confidentiality if it is reachable through the fixed upstream data-processing path or runtime
-  environment.
-- The critical `rust-crypto` advisory and the other Cargo warnings are transitive and currently
-  lack authoritative in-tree remediation; their runtime reachability remains unknown.
-- Scanner severity is not proof of exploitability, but lack of demonstrated reachability is also
-  not proof of safety. The residual risk is therefore material and must be owned explicitly.
-- Rebuilding from the same Dockerfile can produce a different image because Debian package
-  resolution occurs at build time. This acceptance applies only to the image identities above; a
-  new identity requires a new scan and review.
-
-## Compensating controls
-
-- The runtime is non-root at fixed UID/GID 10001; the service binary and validator JAR are
-  root-owned and not writable by that user.
-- The default bind address is loopback-only. Bridged operation fails closed unless an exact peer
-  allowlist is configured; forwarded identity headers do not bypass direct-peer authorization.
-- The container exposes only the service HTTP port, persists data under `/data`, and contains no
-  compiler, source tree, build cache, or package manager index.
-- The validator JAR is pinned and verified by SHA-256 both during the image build and at service
-  startup.
-- The smoke harness verifies liveness, readiness, peer denial, spoofed-header denial, artifact
-  decoding, incomplete-generation rejection, and offline last-good recovery.
-- Each release candidate must retain an SBOM and CVE report. Unavailable evidence must continue to
-  fail closed rather than being reported as clean.
-
-## Conditions and review triggers
-
-If accepted, this exception expires at the earliest of the proposed review deadline or any of the
-following events:
-
-1. MobilityData publishes a validator release that updates the affected embedded libraries.
-2. Debian publishes fixed packages for any accepted Critical or High image finding.
-3. The image digest, base-image digest, validator digest, Cargo lockfile, network exposure, peer
-   authorization model, or upstream input source changes.
-4. A finding enters CISA KEV, credible exploitation is reported, or reachability analysis shows an
-   affected path is exercised by this service.
-5. The dependency audit becomes complete and changes the severity or disposition of a finding.
-
-At each trigger, rebuild if applicable, regenerate the SBOM and vulnerability reports, rerun the
-container smoke harness and release dependency audit, and either remediate or obtain a new explicit
-acceptance. Publication and deployment still require their own authorization.
-
-## Approval record
-
-| Decision | Name / role | Date | Notes |
-|---|---|---|---|
-| Pending | — | — | No risk has been accepted by creating this draft. |
+| Decision | Date | Notes |
+|---|---|---|
+| Closed without acceptance | 2026-08-14 | Vulnerable image replaced; exact remediated image scan has zero findings. |

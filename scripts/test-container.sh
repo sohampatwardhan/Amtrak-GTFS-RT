@@ -29,6 +29,8 @@
 set -euo pipefail
 
 IMAGE="${1:-amtrak-gtfs-rt:local}"
+# Smoke-only curl/shell helper. The production image deliberately contains neither utility.
+HELPER_IMAGE="${HELPER_IMAGE:-curlimages/curl:8.21.0@sha256:7c12af72ceb38b7432ab85e1a265cff6ae58e06f95539d539b654f2cfa64bb13}"
 
 # Bounded deadline (seconds) for the live fetch + static validation + first generation. The
 # packaged Java validator plus a live Amtrak download dominate this; keep it generous so a slow
@@ -126,16 +128,17 @@ run_guarded() { # docker-run-args... (must not include -d/--name; $GUARD is used
   return 1
 }
 
-# curl from a throwaway peer container at a fixed bridge IP. Prints the HTTP status on the last
-# line so callers can assert it; the image already ships curl, so no extra image is pulled.
+# curl from a throwaway, digest-pinned helper container at a fixed bridge IP. Prints the HTTP
+# status on the last line so callers can assert it. No diagnostic utilities enter the service
+# image itself.
 peer_status() { # ip name url [extra curl args...]
   local ip="$1" name="$2" url="$3"; shift 3
-  docker run --rm --name "$name" --network "$NET" --ip "$ip" --entrypoint curl "$IMAGE" \
+  docker run --rm --name "$name" --network "$NET" --ip "$ip" --entrypoint curl "$HELPER_IMAGE" \
     -s -o /dev/null -w '%{http_code}' "$@" "$url"
 }
 peer_fetch() { # ip name url outfile
   local ip="$1" name="$2" url="$3" out="$4"
-  docker run --rm --name "$name" --network "$NET" --ip "$ip" --entrypoint curl "$IMAGE" \
+  docker run --rm --name "$name" --network "$NET" --ip "$ip" --entrypoint curl "$HELPER_IMAGE" \
     -fsS "$url" >"$out"
 }
 
@@ -154,6 +157,7 @@ ARTIFACTS="static.zip trip-updates.pb vehicle-positions.pb alerts.pb"
 
 command -v docker >/dev/null || die "docker is required"
 docker image inspect "$IMAGE" >/dev/null 2>&1 || die "image not found: $IMAGE (build it first)"
+docker image inspect "$HELPER_IMAGE" >/dev/null 2>&1 || docker pull "$HELPER_IMAGE" >/dev/null
 mkdir -p "$REPORT_DIR"
 
 # -----------------------------------------------------------------------------------------------
@@ -346,7 +350,7 @@ docker rm -f "$SVC" >/dev/null
 # id sorts after every real generation but which has no manifest.txt and only garbage bytes. Per
 # R4.4 the service must still expose only the older *valid* generation, never this candidate. A
 # root helper writes it (the volume dirs are owned by uid 10001) and hands ownership back.
-docker run --rm --name "$SEED" --user 0 -v "$VOL":/data --entrypoint sh "$IMAGE" -c '
+docker run --rm --name "$SEED" --user 0 -v "$VOL":/data --entrypoint sh "$HELPER_IMAGE" -c '
   cand=/data/generations/9999999999999999999-0
   mkdir -p "$cand"
   echo "corrupt-incomplete-candidate" > "$cand/static.zip"
@@ -356,7 +360,7 @@ pass "planted incomplete newest generation candidate 9999999999999999999-0"
 
 # --network none removes all connectivity, so no refresh can succeed; the service must recover the
 # retained last-good generation from the volume. Default env => loopback bind + empty allowlist,
-# so a container-loopback request (via docker exec) is admitted for the manifest read.
+# so a helper sharing the service network namespace is admitted as a loopback peer.
 docker run -d --name "$SVC" --network none -v "$VOL":/data "$IMAGE" >/dev/null
 started="$(date +%s)"
 while :; do
@@ -370,7 +374,8 @@ while :; do
 done
 pass "offline container healthy from retained volume in $(( $(date +%s) - started ))s"
 
-docker exec "$SVC" curl -fsS "http://127.0.0.1:8080/v1/feed-set.json" >"$WORKDIR/recovered-manifest.json"
+docker run --rm --network "container:$SVC" --entrypoint curl "$HELPER_IMAGE" \
+  -fsS "http://127.0.0.1:8080/v1/feed-set.json" >"$WORKDIR/recovered-manifest.json"
 REC_ID="$(jq -r '.generation_id' "$WORKDIR/recovered-manifest.json")"
 if [ "$REC_ID" = "$GEN_ID" ]; then
   pass "recovered generation_id matches ($REC_ID)"
@@ -381,7 +386,8 @@ fi
 
 for name in $ARTIFACTS; do
   url_path="$(jq -r "$(manifest_key "$name")" "$WORKDIR/manifest.json")"
-  docker exec "$SVC" curl -fsS "http://127.0.0.1:8080${url_path}" >"$WORKDIR/rec-$name"
+  docker run --rm --network "container:$SVC" --entrypoint curl "$HELPER_IMAGE" \
+    -fsS "http://127.0.0.1:8080${url_path}" >"$WORKDIR/rec-$name"
   rec_sha="$(shasum -a 256 "$WORKDIR/rec-$name" | awk '{print $1}')"
   good_sha="$(cat "$WORKDIR/$name.goodsha")"
   [ "$rec_sha" = "$good_sha" ] && pass "recovered $name bytes identical" \

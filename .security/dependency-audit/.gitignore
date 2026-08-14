@@ -1,4 +1,8 @@
 *
 !/.gitignore
+!/pre-remediation.json
+!/pre-remediation.md
+!/post-remediation.json
+!/post-remediation.md
 !/release.json
 !/release.md

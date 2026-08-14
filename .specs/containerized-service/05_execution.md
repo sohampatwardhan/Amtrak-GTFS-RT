@@ -8,12 +8,21 @@
 
 | Task | Stage | Mode | Branch / worktree | State |
 |---|---:|---|---|---|
-| none | complete | controller | `containerized-service` / current checkout | all tasks verified; PR open; rollout blocked pending risk-owner decision |
+| 3.1 | 3 | controller | `containerized-service` / current checkout | complete; implementation/runtime verification and authorized pre/post dependency audits passed with reviewed inherited warnings |
 
 | Task | Status | Commit / diff | Verification | Reviewer | Notes |
 |---|---|---|---|---|---|
 | 1.1 | passed | `9954de2` | build → 156 MB image; 24 image/runtime assertions; wrong-validator digest build fails; `git diff --check` clean | 1 independent reviewer | [report](execution/task-1.1-report.md) · [review](execution/task-1.1-review.md); no repair round needed |
 | 2.1 | passed | working tree diff | smoke harness PASSED after repair round 2 (guards, live health 7s, 4 artifacts decoded, denied/spoofed 403, R4.4 incomplete-newest, offline recovery byte-identical); fmt/clippy/54 tests/doc; offline + live feed gates; SBOM exported; fresh reviewable grype evidence (33C/74H/146M — not clean) | 1 independent reviewer + pre-approval review | [report](execution/task-2.1-report.md) · [review](execution/task-2.1-review.md); round 1 bounded guards and added R4.4/R6.6 coverage; round 2 made Docker rejection evidence fail closed and scan publication fresh/atomic |
+| 3.1 | passed | current working tree | scratch/musl rebuild; reproducible hardened validator; upstream 69-task suite; Rust 57 passed/2 ignored; exact-image Grype zero findings; full smoke/recovery PASS, 79 MiB, healthy in 13s; complete pre/post inventories each reviewed with ten unchanged warnings, no blocked result, and no KEV match | controller verification | audit fingerprints `36998877…a75` → `725e3837…fc8`; four malformed GitHub CVSS enrichments retained as partial-source diagnostics; no image publication or deployment performed |
+
+## Follow-up Security Remediation
+
+After PR #2 merged, the user chose remediation rather than approving the proposed 401-finding
+exception. Task 3.1 supersedes the rollout block described in the historical integration section:
+the container-specific Critical/High findings and all lower-severity matches are absent from the
+exact rebuilt image. The authorized Cargo comparison found ten inherited warning records in both
+snapshots, no blocked result, and no KEV match; these remain explicit base-service technical debt.
 
 ## Baseline
 

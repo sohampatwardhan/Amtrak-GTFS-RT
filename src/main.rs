@@ -18,8 +18,10 @@ use async_trait::async_trait;
 use std::collections::HashMap;
 use std::fmt;
 use std::future::Future;
-use std::net::SocketAddr;
+use std::io::{Read, Write};
+use std::net::{SocketAddr, TcpStream};
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::task::JoinSet;
 
 /// One long-lived activity owned by the service supervisor.
@@ -154,8 +156,44 @@ async fn initial_snapshots(
     Ok(bootstrap_static(static_url, validator).await?)
 }
 
+fn container_healthcheck() -> std::io::Result<()> {
+    let bind_address =
+        std::env::var("AMTRAK_BIND_ADDR").unwrap_or_else(|_| "127.0.0.1:8080".to_string());
+    let address = healthcheck_address(&bind_address)?;
+    let timeout = Duration::from_secs(4);
+    let mut stream = TcpStream::connect_timeout(&address, timeout)?;
+    stream.set_read_timeout(Some(timeout))?;
+    stream.set_write_timeout(Some(timeout))?;
+    stream.write_all(b"GET /livez HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n")?;
+
+    let mut response = [0_u8; 64];
+    let bytes_read = stream.read(&mut response)?;
+    if response[..bytes_read].starts_with(b"HTTP/1.1 200 ")
+        || response[..bytes_read].starts_with(b"HTTP/1.0 200 ")
+    {
+        Ok(())
+    } else {
+        Err(std::io::Error::other("/livez did not return HTTP 200"))
+    }
+}
+
+fn healthcheck_address(bind_address: &str) -> std::io::Result<SocketAddr> {
+    let configured: SocketAddr = bind_address.parse().map_err(|error| {
+        std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            format!("invalid AMTRAK_BIND_ADDR for healthcheck: {error}"),
+        )
+    })?;
+    Ok(SocketAddr::from(([127, 0, 0, 1], configured.port())))
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    if std::env::args_os().nth(1).as_deref() == Some(std::ffi::OsStr::new("--healthcheck")) {
+        container_healthcheck()?;
+        return Ok(());
+    }
+
     tracing_subscriber::fmt::init();
 
     // Validation and durable recovery finish before any task or listener exists.
@@ -433,4 +471,16 @@ mod tests {
 
         std::fs::remove_dir_all(output).unwrap();
     }
+}
+#[test]
+fn healthcheck_uses_configured_port_on_loopback() {
+    assert_eq!(
+        healthcheck_address("0.0.0.0:9000").unwrap(),
+        "127.0.0.1:9000".parse::<SocketAddr>().unwrap()
+    );
+    assert_eq!(
+        healthcheck_address("[::1]:7000").unwrap(),
+        "127.0.0.1:7000".parse::<SocketAddr>().unwrap()
+    );
+    assert!(healthcheck_address("not-an-address").is_err());
 }

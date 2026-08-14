@@ -93,6 +93,7 @@ dependencies = [
  "reqwest 0.13.4",
  "rustix",
  "serde_json",
+ "sha2 0.10.9",
  "tokio",
  "tower",
  "tracing",

@@ -1,16 +1,21 @@
 use std::collections::BTreeSet;
 use std::fmt;
+use std::io::Read;
 use std::net::{IpAddr, SocketAddr};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::thread;
 use std::time::{Duration, Instant};
 
+use sha2::{Digest, Sha256};
+
 const DEFAULT_STATIC_URL: &str = "https://content.amtrak.com/content/gtfs/GTFS.zip";
 const DEFAULT_VALIDATOR_JAR: &str = "./tools/gtfs-validator-v8.0.1-cli.jar";
 const REQUIRED_VALIDATOR_VERSION: &str = "8.0.1";
-const REQUIRED_VALIDATOR_SHA256: &str =
+const OFFICIAL_VALIDATOR_SHA256: &str =
     "19293ddd9b6f954f216d4f12054bd8a3232921751c4484339e339764a91000e2";
+const HARDENED_VALIDATOR_SHA256: &str =
+    "24ca7e890ca15bfbb36fa889fcb16200f7276995b7e6ec75551a8b7175e818d7";
 const MINIMUM_JAVA_MAJOR: u32 = 17;
 const PROBE_TIMEOUT: Duration = Duration::from_secs(10);
 
@@ -292,29 +297,16 @@ fn parse_peer_ips(value: Option<String>) -> Result<BTreeSet<IpAddr>, ConfigError
 }
 
 fn probe_validator_runtime(path: &Path) -> Result<(), ConfigError> {
-    std::fs::File::open(path).map_err(|error| {
+    let digest = sha256_file(path).map_err(|error| {
         ConfigError::new(
             "AMTRAK_GTFS_VALIDATOR_JAR",
             format!("{} is not a readable file: {error}", path.display()),
         )
     })?;
-    let digest_output = run_with_timeout(
-        Command::new("shasum").args(["-a", "256"]).arg(path),
-        PROBE_TIMEOUT,
-        true,
-    )
-    .map_err(|reason| ConfigError::new("AMTRAK_GTFS_VALIDATOR_JAR", reason))?;
-    let digest = String::from_utf8_lossy(&digest_output.stdout)
-        .split_whitespace()
-        .next()
-        .unwrap_or("")
-        .to_ascii_lowercase();
-    if digest != REQUIRED_VALIDATOR_SHA256 {
+    if !validator_digest_is_approved(&digest) {
         return Err(ConfigError::new(
             "AMTRAK_GTFS_VALIDATOR_JAR",
-            format!(
-                "must match the published MobilityData {REQUIRED_VALIDATOR_VERSION} CLI SHA-256"
-            ),
+            format!("must match an approved MobilityData {REQUIRED_VALIDATOR_VERSION} CLI SHA-256"),
         ));
     }
 
@@ -344,6 +336,24 @@ fn probe_validator_runtime(path: &Path) -> Result<(), ConfigError> {
     )
     .map_err(|reason| ConfigError::new("AMTRAK_GTFS_VALIDATOR_JAR", reason))?;
     Ok(())
+}
+
+fn validator_digest_is_approved(digest: &str) -> bool {
+    digest == OFFICIAL_VALIDATOR_SHA256 || digest == HARDENED_VALIDATOR_SHA256
+}
+
+fn sha256_file(path: &Path) -> std::io::Result<String> {
+    let mut file = std::fs::File::open(path)?;
+    let mut hasher = Sha256::new();
+    let mut buffer = [0_u8; 64 * 1024];
+    loop {
+        let bytes_read = file.read(&mut buffer)?;
+        if bytes_read == 0 {
+            break;
+        }
+        hasher.update(&buffer[..bytes_read]);
+    }
+    Ok(format!("{:x}", hasher.finalize()))
 }
 
 #[derive(Debug)]
@@ -600,6 +610,25 @@ mod tests {
         assert_eq!(parse_java_major("openjdk 17.0.12 2024-07-16"), Some(17));
         assert_eq!(parse_java_major("java 21.0.5 2024-10-15 LTS"), Some(21));
         assert_eq!(parse_java_major("unparseable"), None);
+    }
+
+    #[test]
+    fn sha256_file_hashes_bytes_without_external_utilities() {
+        let path = std::env::temp_dir().join(format!("sha256-file-{}", std::process::id()));
+        std::fs::write(&path, b"abc").unwrap();
+        let digest = sha256_file(&path).unwrap();
+        std::fs::remove_file(path).unwrap();
+        assert_eq!(
+            digest,
+            "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+        );
+    }
+
+    #[test]
+    fn official_and_hardened_validator_digests_are_approved() {
+        assert!(validator_digest_is_approved(OFFICIAL_VALIDATOR_SHA256));
+        assert!(validator_digest_is_approved(HARDENED_VALIDATOR_SHA256));
+        assert!(!validator_digest_is_approved(&"0".repeat(64)));
     }
 
     #[test]

@@ -1,155 +1,150 @@
 # syntax=docker/dockerfile:1
 #
-# Multi-stage image for the Amtrak GTFS-RT service.
+# Hardened multi-stage image for the Amtrak GTFS-RT service.
 #
-# WHY multi-stage: the build toolchain (Rust, Cargo, protoc, C compiler, the whole
-# repository checkout) must never reach the runtime image. Only two artifacts cross the
-# boundary into the final stage: the locked release binary and a digest-verified validator
-# JAR. Everything else — compilers, package indexes, source, build caches — stays behind.
-#
-# WHY digest pins: every base `FROM` is pinned to an immutable index digest in addition to a
-# human-readable tag. The tag documents intent; the digest is what actually resolves, so a
-# retag or a poisoned mirror cannot silently change the bytes we build and ship. See
-# .specs/containerized-service/03_design.md ("Current Technology Evidence") for provenance.
-#
-# Build:  docker build --tag amtrak-gtfs-rt:local .
-# Requires BuildKit (default on modern Docker) for the bind/cache mounts and secrets-free
-# reproducible caching below.
+# The final image is assembled from scratch. Build tools, package databases, shells, download
+# clients, and the source tree stay in disposable stages. The only executable application
+# artifacts copied forward are the locked Rust service and a byte-reproducible validator built
+# from the pinned MobilityData v8.0.1 source with reviewed dependency fixes.
 
-# ---------------------------------------------------------------------------------------------
-# Stage 1 — Rust release builder
-#
-# WHY these packages only: pkg-config + libssl-dev satisfy the native OpenSSL link path present
-# in Cargo.lock; protobuf-compiler (protoc) is required to compile the GTFS-RT .proto bindings;
-# git lets Cargo resolve any git dependencies; build-essential provides the C toolchain; and
-# ca-certificates lets Cargo and git fetch over HTTPS. None of these are installed in the final
-# image.
-# ---------------------------------------------------------------------------------------------
-FROM rust:1.96-slim-bookworm@sha256:e18a79fc84dfcfc3ab5ba72290398a644c135c97eaa881447fddc354ee4701a3 AS builder
+# -------------------------------------------------------------------------------------------------
+# Stage 1 — locked Rust release builder
+# -------------------------------------------------------------------------------------------------
+FROM rust:1.96-alpine@sha256:a41f7740f8b45d45795624eec13a8b42263cc700f19f7e4e86e04d3dda08a479 AS builder
 
-RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
-    --mount=type=cache,target=/var/lib/apt,sharing=locked \
-    apt-get update && \
-    apt-get install --yes --no-install-recommends \
-        build-essential \
+RUN --mount=type=cache,target=/var/cache/apk,sharing=locked \
+    apk add \
+        build-base \
         ca-certificates \
         git \
-        libssl-dev \
-        pkg-config \
-        protobuf-compiler
+        openssl-dev \
+        openssl-libs-static \
+        pkgconf \
+        protobuf-dev
 
 WORKDIR /build
 
-# WHY read-only bind mounts instead of COPY: only the three declared source inputs
-# (Cargo.toml, Cargo.lock, src/) are exposed to the compiler, so no unrelated tracked or
-# untracked host file can influence the build. WHY the cp inside the same RUN: the Cargo
-# registry/git/target directories are BuildKit cache mounts that vanish when the layer
-# finishes, so the freshly built binary must be copied to a real path (/out) before then.
-# `--locked` forbids any Cargo.lock drift; a stale or edited lockfile fails the build.
+# Build against musl and statically link the inherited native-tls/OpenSSL path. The only native
+# runtime dependency is then musl itself, shared with the Java runtime below.
 RUN --mount=type=bind,source=Cargo.toml,target=Cargo.toml \
     --mount=type=bind,source=Cargo.lock,target=Cargo.lock \
     --mount=type=bind,source=src,target=src \
     --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/usr/local/cargo/git \
-    --mount=type=cache,target=/build/target \
+    --mount=type=cache,id=amtrak-target-musl-static-openssl,target=/build/target \
+    OPENSSL_STATIC=1 \
+    OPENSSL_LIB_DIR="$(pkg-config --variable=libdir openssl)" \
+    OPENSSL_INCLUDE_DIR="$(pkg-config --variable=includedir openssl)" \
     cargo build --locked --release && \
     mkdir -p /out && \
-    cp /build/target/release/amtrak-gtfs-rt-service /out/amtrak-gtfs-rt-service
+    cp /build/target/release/amtrak-gtfs-rt-service /out/amtrak-gtfs-rt-service && \
+    ! ldd /out/amtrak-gtfs-rt-service | grep -E 'lib(ssl|crypto|gcc_s|stdc\+\+)\.so'
 
-# ---------------------------------------------------------------------------------------------
-# Stage 2 — Validator acquisition gate
-#
-# WHY a separate stage on the runtime base: the MobilityData GTFS validator is a mutable
-# external download, so it is fetched and verified in isolation and only the accepted bytes are
-# copied forward. WHY the SHA-256 is hardcoded and the URL is an ARG: the URL may be overridden
-# for a mirror or for negative testing, but the expected digest is the identity of the artifact
-# and is intentionally NOT configurable — any mismatch fails the build here, before the byte can
-# reach the runtime image. This mirrors the runtime startup probe, which re-verifies the JAR.
-# ---------------------------------------------------------------------------------------------
-FROM debian:bookworm-slim@sha256:abd67ffcfa541b485a3dff59865ab629aa048a6c613e639d36e7456b0b229241 AS validator
-
-RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
-    --mount=type=cache,target=/var/lib/apt,sharing=locked \
-    apt-get update && \
-    apt-get install --yes --no-install-recommends \
-        ca-certificates \
-        curl \
-        libdigest-sha-perl
-
-# The URL is overridable (ARG) only for a mirror or for negative testing. The expected digest is
-# deliberately a literal in the RUN below, NOT an ARG: it is the artifact's identity, so no
-# --build-arg can weaken or replace it. Overriding the URL with different bytes therefore fails
-# the digest check and aborts the build.
-ARG VALIDATOR_URL=https://github.com/MobilityData/gtfs-validator/releases/download/v8.0.1/gtfs-validator-8.0.1-cli.jar
-
-RUN mkdir -p /out && \
-    curl --fail --location --silent --show-error --output /tmp/gtfs-validator.jar "${VALIDATOR_URL}" && \
-    echo "19293ddd9b6f954f216d4f12054bd8a3232921751c4484339e339764a91000e2  /tmp/gtfs-validator.jar" | shasum -a 256 -c - && \
-    cp /tmp/gtfs-validator.jar /out/gtfs-validator-v8.0.1-cli.jar
-
-# ---------------------------------------------------------------------------------------------
-# Stage 3 — Debian slim runtime image
-#
-# WHY Debian slim (glibc) over Alpine (musl): the resolved dependency graph uses a native
-# OpenSSL/TLS path and the service shells out to a Java validator; a glibc runtime minimizes
-# native-compatibility risk. Alpine is retained in the design as a future *measured*
-# optimization, not a second implementation path.
-#
-# WHY these packages only: libssl3 for the native TLS path, ca-certificates so outbound HTTPS to
-# Amtrak/GitHub trusts real roots, openjdk-17-jre-headless to run the validator, curl for the
-# healthcheck probe, and libdigest-sha-perl so the running service can re-verify the JAR digest.
-# Package indexes are removed so they cannot age into the shipped layer.
-# ---------------------------------------------------------------------------------------------
-FROM debian:bookworm-slim@sha256:abd67ffcfa541b485a3dff59865ab629aa048a6c613e639d36e7456b0b229241 AS runtime
+# -------------------------------------------------------------------------------------------------
+# Stage 2 — validator source, test, reproducibility, and digest gate
+# -------------------------------------------------------------------------------------------------
+FROM eclipse-temurin:17-jdk@sha256:f9b295135b39ed8c650c713c6116600dd4c39ac5f3883f566d96fdec917ce3b2 AS validator
 
 RUN apt-get update && \
-    apt-get install --yes --no-install-recommends \
-        ca-certificates \
-        curl \
-        libdigest-sha-perl \
-        libssl3 \
-        openjdk-17-jre-headless && \
+    apt-get install --yes --no-install-recommends git && \
     rm -rf /var/lib/apt/lists/*
 
-# WHY a fixed unprivileged UID/GID 10001: the service never needs root, and a stable numeric
-# identity lets an operator pre-own a bind-mounted /data on the host. The binary and JAR are
-# copied root-owned (the default), so this user can execute but never modify them.
-RUN groupadd --system --gid 10001 amtrak && \
-    useradd --system --uid 10001 --gid 10001 --no-create-home --shell /usr/sbin/nologin amtrak
+# The commit is the v8.0.1 release. The archive and the rebuilt CLI JAR are both immutable gates;
+# overriding the URL cannot change accepted bytes.
+ARG VALIDATOR_SOURCE_URL=https://github.com/MobilityData/gtfs-validator/archive/d74d7177f9f7c6bc7adc69508bb939362f2cf770.tar.gz
 
-COPY --from=builder /out/amtrak-gtfs-rt-service /usr/local/bin/amtrak-gtfs-rt-service
-COPY --from=validator /out/gtfs-validator-v8.0.1-cli.jar /opt/amtrak/gtfs-validator-v8.0.1-cli.jar
+COPY container/validator-dependency-overrides.gradle /opt/amtrak/validator-dependency-overrides.gradle
+COPY container/validator-verification-metadata.xml /opt/amtrak/validator-verification-metadata.xml
 
-# WHY /data is created and chowned to the service user: a fresh named volume inherits this
-# path's ownership, so the unprivileged process can persist generations without any runtime
-# chown. GenerationStore::open (src/writer.rs) remains the sole authority for path safety and
-# last-good recovery; the container layer never touches generation bytes directly.
-RUN mkdir -p /data && chown 10001:10001 /data
+WORKDIR /build
+RUN --mount=type=cache,target=/root/.gradle \
+    curl --fail --location --silent --show-error \
+      --output /tmp/validator-source.tar.gz "${VALIDATOR_SOURCE_URL}" && \
+    echo "651872b1a7abbde5b999d7261f875532eebaee22a9d7ce4946b8f764cdf7b8a3  /tmp/validator-source.tar.gz" \
+      | sha256sum --check --strict && \
+    mkdir -p /build/validator && \
+    tar --extract --gzip --file /tmp/validator-source.tar.gz \
+      --directory /build/validator --strip-components=1 && \
+    cd /build/validator && \
+    printf '\ndistributionSha256Sum=8cc27038d5dbd815759851ba53e70cf62e481b87494cc97cfd97982ada5ba634\n' \
+      >> gradle/wrapper/gradle-wrapper.properties && \
+    cp /opt/amtrak/validator-verification-metadata.xml gradle/verification-metadata.xml && \
+    git init --quiet && \
+    git config user.name container-build && \
+    git config user.email container-build@invalid && \
+    git add --all && \
+    git commit --quiet --message 'pinned MobilityData v8.0.1 source' && \
+    git tag v8.0.1 && \
+    ./gradlew --no-daemon \
+      --dependency-verification=strict \
+      --init-script /opt/amtrak/validator-dependency-overrides.gradle \
+      test :cli:shadowJar && \
+    echo "24ca7e890ca15bfbb36fa889fcb16200f7276995b7e6ec75551a8b7175e818d7  cli/build/libs/gtfs-validator-8.0.1-cli.jar" \
+      | sha256sum --check --strict && \
+    mkdir -p /out && \
+    cp cli/build/libs/gtfs-validator-8.0.1-cli.jar \
+      /out/gtfs-validator-v8.0.1-amtrak-hardened.1-cli.jar
 
-# WHY these defaults: /data is the persistence boundary; the JAR path matches the copy above;
-# and the bind address is loopback-only. A loopback default is the safe posture — it works
-# directly with host networking but is intentionally unreachable through a plain bridge port
-# map. Bridged operation must explicitly set AMTRAK_BIND_ADDR=0.0.0.0:8080 AND an exact
-# AMTRAK_ALLOWED_PEER_IPS allowlist; the binary fails closed at startup otherwise. No wildcard
-# allowlist is baked into the image.
-ENV AMTRAK_OUTPUT_DIR=/data \
-    AMTRAK_GTFS_VALIDATOR_JAR=/opt/amtrak/gtfs-validator-v8.0.1-cli.jar \
+# -------------------------------------------------------------------------------------------------
+# Stage 3 — construct the package-manager-free runtime filesystem
+# -------------------------------------------------------------------------------------------------
+FROM amazoncorretto:17-alpine-jdk@sha256:e1138bf0cca62e04692de650ffe8923f35c39fcb554458c7acd98efc2d135144 AS runtime-files
+
+USER 0
+
+# Generate a Java 17 runtime containing only the four modules used by the validator, then copy its
+# musl/zlib closure and minimal identity/configuration files. BusyBox, apk, libssl, and libcrypto
+# are intentionally excluded from the final image.
+RUN set -eu; \
+    /usr/lib/jvm/java-17-amazon-corretto/bin/jlink \
+      --module-path /usr/lib/jvm/java-17-amazon-corretto/jmods \
+      --add-modules java.base,java.desktop,java.logging,java.xml \
+      --no-man-pages \
+      --no-header-files \
+      --compress=2 \
+      --output /runtime/opt/java; \
+    mkdir -p \
+      /runtime/opt/amtrak \
+      /runtime/usr/lib \
+      /runtime/lib \
+      /runtime/etc/ssl/certs \
+      /runtime/data \
+      /runtime/tmp; \
+    chmod 0555 /runtime/opt/amtrak; \
+    cp -a /lib/ld-musl-*.so.1 /runtime/lib/; \
+    cp -a /usr/lib/libz.so.1* /runtime/usr/lib/; \
+    cp /etc/ssl/certs/ca-certificates.crt /runtime/etc/ssl/certs/ca-certificates.crt; \
+    printf 'amtrak:x:10001:10001:Amtrak service:/data:/sbin/nologin\n' > /runtime/etc/passwd; \
+    printf 'amtrak:x:10001:\n' > /runtime/etc/group; \
+    chown 10001:10001 /runtime/data; \
+    chmod 1777 /runtime/tmp
+
+# -------------------------------------------------------------------------------------------------
+# Stage 4 — final scratch image
+# -------------------------------------------------------------------------------------------------
+FROM scratch AS runtime
+
+COPY --from=runtime-files /runtime/ /
+COPY --from=builder --chmod=0555 /out/amtrak-gtfs-rt-service /usr/local/bin/amtrak-gtfs-rt-service
+COPY --from=validator --chmod=0444 \
+    /out/gtfs-validator-v8.0.1-amtrak-hardened.1-cli.jar \
+    /opt/amtrak/gtfs-validator-v8.0.1-amtrak-hardened.1-cli.jar
+
+ENV JAVA_HOME=/opt/java \
+    PATH=/opt/java/bin \
+    SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt \
+    AMTRAK_OUTPUT_DIR=/data \
+    AMTRAK_GTFS_VALIDATOR_JAR=/opt/amtrak/gtfs-validator-v8.0.1-amtrak-hardened.1-cli.jar \
     AMTRAK_BIND_ADDR=127.0.0.1:8080
 
-# Documents the persistence boundary and the served port; neither grants access on its own.
 VOLUME ["/data"]
 EXPOSE 8080/tcp
 
 USER 10001:10001
 
-# WHY /livez and not /readyz: the Docker healthcheck reports process *liveness* — is PID 1 up and
-# serving HTTP at all. /livez is public by design and never gated by peer policy, so it works over
-# loopback inside the container. Feed *readiness* (/readyz) is a separate, peer-gated signal that
-# an operator checks explicitly; conflating them would make Docker restart a healthy process that
-# is merely waiting for its first good generation. Grace/interval/timeout/retries match the design.
+# The service performs its own bounded loopback HTTP probe, so the production image does not need
+# curl, a shell, or another general-purpose utility.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=120s --retries=3 \
-    CMD curl --fail --silent --show-error http://127.0.0.1:8080/livez || exit 1
+    CMD ["/usr/local/bin/amtrak-gtfs-rt-service", "--healthcheck"]
 
-# WHY exec form and no wrapper: the Rust binary stays PID 1, so signal handling, exit codes, and
-# process supervision behave exactly as the host-run binary. No entrypoint shim is introduced.
 ENTRYPOINT ["/usr/local/bin/amtrak-gtfs-rt-service"]
