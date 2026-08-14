@@ -52,6 +52,9 @@ present transitively, became a direct dependency for internal validator hashing.
 enrichments with invalid CVSS metrics remain explicit partial-source diagnostics. Closing this
 container exception does not waive or relabel those warnings as clean.
 
+The protected-main [audit report](../dependency-audit/main.md) repeats that complete inventory at
+remediation commit `20f7be7`: ten warnings, zero blocking findings, and no CISA KEV match.
+
 ## Ongoing controls
 
 - Every base, source archive, helper image, and delivered validator artifact is digest-pinned.
