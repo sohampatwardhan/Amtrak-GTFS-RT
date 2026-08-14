@@ -1,27 +1,15 @@
 {
   "concurrency": {
-    "active_stage": 2,
+    "active_stage": null,
     "blocked": {},
     "parallel_candidates": [],
-    "ready": [
-      "2.1"
-    ],
-    "serial_candidates": [
-      "2.1"
-    ],
-    "waves": [
-      {
-        "mode": "serial",
-        "tasks": [
-          "2.1"
-        ],
-        "wave": 1
-      }
-    ]
+    "ready": [],
+    "serial_candidates": [],
+    "waves": []
   },
   "generated_from": {
     "file": "04_tasks.md",
-    "sha256": "e6b8df1275dadc5b1d0f832e172a42e85abf3c957c27d8175e6be55d422bb9db"
+    "sha256": "a8f647b87eb47c136d6ab741c69a6707feddf6a4aa7fba01c08cf66ef259c1ef"
   },
   "requirement_count": 38,
   "schema_version": 1,
@@ -81,7 +69,7 @@
     },
     {
       "capability_tier": "frontier",
-      "checked": false,
+      "checked": true,
       "delegation": "controller",
       "dependency_delivery": "none",
       "dependency_resolution": "none",
@@ -93,7 +81,7 @@
         "README.md"
       ],
       "id": "2.1",
-      "interfaces": "Consumes: task 1.1 image `amtrak-gtfs-rt:local`, UID/GID `10001:10001`, persistent path `/data`, port `8080`, `/livez`, `/readyz`, `/v1/feed-set.json`, four manifest-selected artifacts, direct-peer authorization, and existing validation commands; Produces: `scripts/test-container.sh`, a bounded bridge/volume/restart smoke result, independently inspected feed artifacts, image SBOM and CVE evidence, measured image size and time-to-health, and an operator runbook that preserves the deployment block",
+      "interfaces": "Consumes: task 1.1 image `amtrak-gtfs-rt:local`, UID/GID `10001:10001`, persistent path `/data`, port `8080`, `/livez`, `/readyz`, `/v1/feed-set.json`, four manifest-selected artifacts, direct-peer authorization, and existing validation commands; Produces: [scripts/test-container.sh](../../scripts/test-container.sh), a bounded bridge/volume/restart smoke result, independently inspected feed artifacts, image SBOM and CVE evidence, measured image size and time-to-health, and an operator runbook that preserves the deployment block",
       "optional": false,
       "reasoning_level": "extra_high",
       "requirements": [

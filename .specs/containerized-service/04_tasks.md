@@ -10,7 +10,6 @@
 %%{init: {'flowchart': {'defaultRenderer': 'elk'}}}%%
 flowchart TD
   classDef done fill:#dcfce7,stroke:#22c55e,stroke-width:1.5px,color:#14532d
-  classDef pending fill:#f1f5f9,stroke:#94a3b8,stroke-width:1.5px,color:#334155
   subgraph n_stage_1["Stage 1"]
     n_1_1@{ shape: rect, label: "1.1: Implement the multi-stage Docker image" }
   end
@@ -19,7 +18,7 @@ flowchart TD
   end
   n_1_1 --> n_2_1
   class n_1_1 done
-  class n_2_1 pending
+  class n_2_1 done
 ```
 ## Implementation Checklist
 
@@ -44,19 +43,19 @@ flowchart TD
     - **Delegation:** controller
     - _Requirements: 1.1, 1.2, 1.3, 1.4, 1.5, 2.1, 2.2, 2.3, 2.4, 2.5, 3.1, 3.2, 3.3, 3.4, 3.5, 3.6, 4.1, 5.1, 5.2, 6.1, 6.2_
 
-- [ ] 2. Prove and document container operation
-  - [ ] 2.1 Add the smoke harness and operator runbook
-    - Add `scripts/test-container.sh` as a fail-closed, non-interactive harness that uses a dedicated bridge network with an explicit gateway, an isolated named volume, and a uniquely named container. It must clean up the container and network on every exit while preserving the named volume long enough to exercise restart recovery.
+- [x] 2. Prove and document container operation
+  - [x] 2.1 Add the smoke harness and operator runbook
+    - Add [scripts/test-container.sh](../../scripts/test-container.sh) as a fail-closed, non-interactive harness that uses a dedicated bridge network with an explicit gateway, an isolated named volume, and a uniquely named container. It must clean up the container and network on every exit while preserving the named volume long enough to exercise restart recovery.
     - Start `amtrak-gtfs-rt:local` with `AMTRAK_BIND_ADDR=0.0.0.0:8080`, the exact observed bridge peer allowlist, `/data`, and host-loopback-only port publication. Wait within a bounded deadline for Docker health, readiness, and manifest availability; fetch all four manifest-selected artifacts and independently inspect the static ZIP and three protobuf messages.
     - Exercise denied peer and spoofed forwarding-header requests, non-loopback-without-policy rejection, a non-writable data mount, and container recreation with the same volume while upstream refresh is unavailable. Require recovered generation identity and artifact bytes to match the retained last-good generation.
     - Update [`README.md`](../../README.md) with image build, safe host-network and dedicated-bridge run examples, required container environment differences, health/readiness/manifest/artifact commands, volume retention, rollback, and the unchanged deployment block. Keep anonymous public exposure, proxy trust, registry publication, and orchestration out of scope.
     - Run the existing Rust and feed gates, record image size and time-to-health, export a Docker Scout SBOM and CVE report for the exact local image, and review all warnings without describing unavailable or warning-bearing evidence as clean. Do not publish or deploy the image.
-    - **Files:** `scripts/test-container.sh`, [README.md](../../README.md)
+    - **Files:** [scripts/test-container.sh](../../scripts/test-container.sh), [README.md](../../README.md)
     - **Dependency resolution:** none
     - **Dependency delivery:** none
     - **Depends on:** 1.1
     - **Stage:** 2
-    - **Interfaces:** Consumes: task 1.1 image `amtrak-gtfs-rt:local`, UID/GID `10001:10001`, persistent path `/data`, port `8080`, `/livez`, `/readyz`, `/v1/feed-set.json`, four manifest-selected artifacts, direct-peer authorization, and existing validation commands; Produces: `scripts/test-container.sh`, a bounded bridge/volume/restart smoke result, independently inspected feed artifacts, image SBOM and CVE evidence, measured image size and time-to-health, and an operator runbook that preserves the deployment block
+    - **Interfaces:** Consumes: task 1.1 image `amtrak-gtfs-rt:local`, UID/GID `10001:10001`, persistent path `/data`, port `8080`, `/livez`, `/readyz`, `/v1/feed-set.json`, four manifest-selected artifacts, direct-peer authorization, and existing validation commands; Produces: [scripts/test-container.sh](../../scripts/test-container.sh), a bounded bridge/volume/restart smoke result, independently inspected feed artifacts, image SBOM and CVE evidence, measured image size and time-to-health, and an operator runbook that preserves the deployment block
     - **Documentation:** Document every operator-controlled network and volume value, why `/livez` is the Docker health signal while `/readyz` is the feed-availability signal, why forwarded identity is ignored, and how retained volumes enable rollback; review shell comments and [README.md](../../README.md) with `code-documenting`.
     - **Verification:** `bash -n scripts/test-container.sh`; `scripts/test-container.sh amtrak-gtfs-rt:local`; `cargo fmt --check`; `cargo clippy --all-targets --all-features -- -D warnings`; `cargo test --all-targets --all-features`; `RUSTDOCFLAGS='-D warnings' cargo doc --no-deps`; run the offline and live feed validation gates; inspect Docker Scout SBOM/CVE output and confirm no registry push or deployment occurred; `git diff --check`; review operator documentation.
     - **Estimated effort:** 1–3 hours

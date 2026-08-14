@@ -8,12 +8,12 @@
 
 | Task | Stage | Mode | Branch / worktree | State |
 |---|---:|---|---|---|
-| 2.1 | 2 | controller | `containerized-service` / current checkout | ready |
+| none | complete | controller | `containerized-service` / current checkout | all tasks verified; awaiting integration choice; rollout blocked |
 
 | Task | Status | Commit / diff | Verification | Reviewer | Notes |
 |---|---|---|---|---|---|
-| 1.1 | passed | working tree diff | build → 156 MB image; 24 image/runtime assertions; wrong-validator digest build fails; `git diff --check` clean | 1 independent reviewer | [report](execution/task-1.1-report.md) · [review](execution/task-1.1-review.md); no repair round needed |
-| 2.1 | pending | — | — | — | Smoke harness and operator runbook; depends on 1.1 |
+| 1.1 | passed | `9954de2` | build → 156 MB image; 24 image/runtime assertions; wrong-validator digest build fails; `git diff --check` clean | 1 independent reviewer | [report](execution/task-1.1-report.md) · [review](execution/task-1.1-review.md); no repair round needed |
+| 2.1 | passed | working tree diff | smoke harness PASSED (guards, live health 6s, 4 artifacts decoded, denied/spoofed 403, R4.4 incomplete-newest, offline recovery byte-identical); fmt/clippy/54 tests/doc; offline + live feed gates; SBOM exported, CVE unavailable | 1 independent reviewer | [report](execution/task-2.1-report.md) · [review](execution/task-2.1-review.md); repair round 1 bounded the fail-closed guards and added R4.4/R6.6 coverage |
 
 ## Baseline
 
@@ -49,22 +49,22 @@ Docker Engine `29.6.2` is available for the build and smoke tasks.
 
 ```mermaid
 kanban
-  pending[Pending]
-    t_kanban_2_1[⚪ 2.1: Add the smoke harness and operator runbook]
   done[Done]
     t_kanban_1_1[🟢 1.1: Implement the multi-stage Docker image]
+    t_kanban_2_1[🟢 2.1: Add the smoke harness and operator runbook]
 ```
 ### Run Intervals
 
 | Run ID | Started UTC | Stopped UTC | Elapsed Seconds | Outcome |
 |---|---|---|---:|---|
-| run-20260814T164102Z | 2026-08-14T16:41:02Z | pending | pending | active |
+| run-20260814T164102Z | 2026-08-14T16:41:02Z | 2026-08-14T17:15:58Z | 2096 | complete |
 
 ### Task Attempt Intervals
 
 | Run ID | Stage/Wave | Task | Attempt | Started UTC | Stopped UTC | Elapsed Seconds | Outcome |
 |---|---|---|---:|---|---|---:|---|
 | run-20260814T164102Z | Stage 1 | 1.1 | 1 | 2026-08-14T16:43:18Z | 2026-08-14T16:50:05Z | 407 | verified |
+| run-20260814T164102Z | Stage 2 | 2.1 | 1 | 2026-08-14T16:55:57Z | 2026-08-14T17:15:58Z | 1201 | verified after repair round 1 |
 
 ### Execution Gantt
 
@@ -72,6 +72,10 @@ kanban
 gantt
     dateFormat YYYY-MM-DDTHH:mm:ss
     axisFormat %m-%d %H:%M
+    section Execution Runs
+    run-20260814T164102Z (complete, 2096s) :done, run_20260814T164102Z, 2026-08-14T16:41:02, 2026-08-14T17:15:58
     section Stage 1
     1.1 attempt 1 (verified, 407s) :done, b_1_1_attempt1, 2026-08-14T16:43:18, 2026-08-14T16:50:05
+    section Stage 2
+    2.1 attempt 1 (verified after repair round 1, 1201s) :done, b_2_1_attempt1, 2026-08-14T16:55:57, 2026-08-14T17:15:58
 ```
