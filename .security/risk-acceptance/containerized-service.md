@@ -4,7 +4,7 @@
 |---|---|
 | Status | **Proposed — not yet accepted** |
 | Prepared | 2026-08-14 |
-| Scope | Container image `sha256:7d6eb07c8c220607de64ec9fbef8d6aeabda94b076ad8c687f4bb4a3365517e1` and the Cargo resolution recorded by the release dependency audit |
+| Scope | Local image reference digest `sha256:b182f0d453431a70d0e30f3643f9b0a5bd687723f46c03214f4558328eb25785` (linux/arm64 image ID `sha256:71c5a199b9cc60aa112354812ee22c79b727e18635d91e21f4292520dd9c0439`) and the Cargo resolution recorded by the release dependency audit |
 | Proposed review deadline | 2026-11-12 (90 days), or earlier on any review trigger below |
 | Risk owner / approver | Pending explicit owner designation and approval |
 | Deployment authority | Not granted by this record |
@@ -18,12 +18,13 @@ authorize deployment. Those decisions remain explicit owner actions.
 
 ## Evidence and remediation assessment
 
-The local image was scanned with grype 0.117.0 on 2026-08-14. The retained machine-readable report
-is [`validation-reports/container/cves-grype.json`](../../validation-reports/container/cves-grype.json)
-and the human-readable report is
-[`validation-reports/container/cves-grype.txt`](../../validation-reports/container/cves-grype.txt).
-The scan contains 401 matches: 33 Critical, 74 High, 146 Medium, 10 Low, 122 Negligible, and 16
-Unknown.
+The rebuilt local image was scanned with grype 0.117.0 on 2026-08-14 using vulnerability database
+v6.1.9, built 2026-08-14T06:39:10Z. Reviewable evidence is committed as a
+[machine-readable summary](evidence/containerized-service-scan-summary.json) and the complete
+[human-readable finding table](evidence/containerized-service-cves-grype.txt). The summary records
+the exact image identities, architecture, scanner/database provenance, evidence checksums, severity
+and fix-state counts, and every fixable Critical/High match. The scan contains 401 matches: 33
+Critical, 74 High, 146 Medium, 10 Low, 122 Negligible, and 16 Unknown.
 
 The Critical and High findings were classified by fix state:
 
@@ -65,8 +66,8 @@ affected code paths are unreachable.
 - Scanner severity is not proof of exploitability, but lack of demonstrated reachability is also
   not proof of safety. The residual risk is therefore material and must be owned explicitly.
 - Rebuilding from the same Dockerfile can produce a different image because Debian package
-  resolution occurs at build time. This acceptance applies only to the image digest above; a new
-  digest requires a new scan and review.
+  resolution occurs at build time. This acceptance applies only to the image identities above; a
+  new identity requires a new scan and review.
 
 ## Compensating controls
 

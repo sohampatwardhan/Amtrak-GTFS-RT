@@ -80,16 +80,45 @@ trap cleanup EXIT
 # Run a guard container in the background and wait a bounded time for it to exit on its own. A
 # correctly fail-closed image refuses the unsafe config and exits within a second or two; a
 # regression that wrongly starts serving would otherwise block the whole (unattended) harness
-# forever, so this never blocks longer than GUARD_DEADLINE. Returns 0 if the container exited by
-# itself (failed closed), 1 if it had to be killed (did NOT fail closed).
+# forever, so this never blocks longer than GUARD_DEADLINE. Returns 0 only when the container
+# exits by itself with a non-zero status (failed closed), 1 if it had to be killed (did NOT fail
+# closed), and 2 when Docker could not start or reliably inspect the guard. Infrastructure errors
+# must never count as security evidence.
 run_guarded() { # docker-run-args... (must not include -d/--name; $GUARD is used)
   docker rm -f "$GUARD" >/dev/null 2>&1 || true
-  docker run -d --name "$GUARD" "$@" >/dev/null 2>&1 || return 0  # immediate refusal == exited
+  if ! docker run -d --name "$GUARD" "$@" >/dev/null; then
+    printf 'ERROR Docker could not create guard container %s\n' "$GUARD" >&2
+    return 2
+  fi
   local waited=0
   while [ "$waited" -lt "$GUARD_DEADLINE" ]; do
-    case "$(docker inspect -f '{{.State.Status}}' "$GUARD" 2>/dev/null || echo gone)" in
+    local state
+    if ! state="$(docker inspect -f '{{.State.Status}}' "$GUARD")"; then
+      printf 'ERROR Docker could not inspect guard container %s\n' "$GUARD" >&2
+      docker rm -f "$GUARD" >/dev/null 2>&1 || true
+      return 2
+    fi
+    case "$state" in
       running) ;;
-      *) docker rm -f "$GUARD" >/dev/null 2>&1 || true; return 0 ;;
+      exited)
+        local exit_code
+        if ! exit_code="$(docker inspect -f '{{.State.ExitCode}}' "$GUARD")"; then
+          printf 'ERROR Docker could not read guard exit status for %s\n' "$GUARD" >&2
+          docker rm -f "$GUARD" >/dev/null 2>&1 || true
+          return 2
+        fi
+        docker rm -f "$GUARD" >/dev/null 2>&1 || true
+        if [ "$exit_code" -ne 0 ]; then
+          return 0
+        fi
+        printf 'ERROR Guard container %s exited successfully; expected startup rejection\n' "$GUARD" >&2
+        return 2
+        ;;
+      *)
+        printf 'ERROR Guard container %s entered unexpected state %s\n' "$GUARD" "$state" >&2
+        docker rm -f "$GUARD" >/dev/null 2>&1 || true
+        return 2
+        ;;
     esac
     sleep 1; waited=$((waited + 1))
   done
@@ -140,7 +169,12 @@ step "wildcard bind without a peer policy must refuse to start"
 if run_guarded --network "$NET" -e AMTRAK_BIND_ADDR=0.0.0.0:8080 "$IMAGE"; then
   pass "startup rejected 0.0.0.0 bind without AMTRAK_ALLOWED_PEER_IPS"
 else
-  bad "container did not fail closed on 0.0.0.0 bind without an allowlist (still running at deadline)"
+  guard_status=$?
+  if [ "$guard_status" -eq 1 ]; then
+    bad "container did not fail closed on 0.0.0.0 bind without an allowlist (still running at deadline)"
+  else
+    bad "wildcard-bind guard produced no valid rejection evidence (Docker/exit-status error)"
+  fi
 fi
 
 step "non-writable /data must refuse to start"
@@ -149,7 +183,12 @@ step "non-writable /data must refuse to start"
 if run_guarded --network "$NET" -v "$VOL":/data:ro "$IMAGE"; then
   pass "startup rejected a non-writable /data mount"
 else
-  bad "container did not fail closed on a non-writable /data (still running at deadline)"
+  guard_status=$?
+  if [ "$guard_status" -eq 1 ]; then
+    bad "container did not fail closed on a non-writable /data (still running at deadline)"
+  else
+    bad "non-writable-data guard produced no valid rejection evidence (Docker/exit-status error)"
+  fi
 fi
 
 step "no recoverable generation and no upstream must fail closed (not serve an empty feed set)"
@@ -162,7 +201,12 @@ docker volume create "$EMPTY_VOL" >/dev/null
 if run_guarded --network none -v "$EMPTY_VOL":/data "$IMAGE"; then
   pass "startup failed closed with no recoverable generation and no upstream"
 else
-  bad "container kept running with no generation and no upstream (should fail closed)"
+  guard_status=$?
+  if [ "$guard_status" -eq 1 ]; then
+    bad "container kept running with no generation and no upstream (should fail closed)"
+  else
+    bad "empty-offline guard produced no valid rejection evidence (Docker/exit-status error)"
+  fi
 fi
 
 # -----------------------------------------------------------------------------------------------
@@ -349,9 +393,17 @@ step "image size, SBOM, and CVE evidence for the exact image"
 IMG_SIZE_MB="$(docker image inspect "$IMAGE" --format '{{.Size}}' | awk '{printf "%.0f", $1/1048576}')"
 pass "image size ${IMG_SIZE_MB} MB (uncompressed); time-to-health ${TIME_TO_HEALTH}s"
 
+# Generate every report into this run's private work directory and publish it only after the
+# scanner succeeds and the output is structurally valid. Remove canonical outputs first so a
+# failed scanner can never leave a prior run looking current.
+rm -f "$REPORT_DIR/sbom.spdx.json" "$REPORT_DIR/cves.md" \
+  "$REPORT_DIR/cves-grype.txt" "$REPORT_DIR/cves-grype.json"
+
 # SBOM: Docker Scout analyzes the image locally and does not need auth.
 if docker scout version >/dev/null 2>&1 &&
-   docker scout sbom --format spdx --output "$REPORT_DIR/sbom.spdx.json" "$IMAGE" >/dev/null 2>&1; then
+   docker scout sbom --format spdx --output "$WORKDIR/sbom.spdx.json" "$IMAGE" >/dev/null 2>&1 &&
+   jq -e '.spdxVersion and (.packages | type == "array")' "$WORKDIR/sbom.spdx.json" >/dev/null 2>&1; then
+  mv "$WORKDIR/sbom.spdx.json" "$REPORT_DIR/sbom.spdx.json"
   pass "SBOM written to validation-reports/container/sbom.spdx.json"
 else
   printf 'NOTE  SBOM evidence unavailable (docker scout sbom did not complete); not clean\n'
@@ -361,16 +413,24 @@ fi
 # Scout service and needs `docker login`. Fall back to grype, which scans the local image against
 # its own database with no registry auth. Either way, never call unavailable evidence "clean".
 cve_done=""
-scout_err="$(docker scout cves --format markdown --output "$REPORT_DIR/cves.md" "$IMAGE" 2>&1 >/dev/null || true)"
-if [ -s "$REPORT_DIR/cves.md" ]; then
+if scout_err="$(docker scout cves --format markdown --output "$WORKDIR/cves.md" "$IMAGE" 2>&1 >/dev/null)"; then
+  scout_status=0
+else
+  scout_status=$?
+fi
+if [ "$scout_status" -eq 0 ] && [ -s "$WORKDIR/cves.md" ]; then
+  mv "$WORKDIR/cves.md" "$REPORT_DIR/cves.md"
   pass "CVE report (docker scout) written to validation-reports/container/cves.md (review it; do not assume clean)"
   cve_done=1
 elif command -v grype >/dev/null 2>&1; then
   # grype: auth-free local scan. Save both a human table and JSON, and surface the counts so the
   # result is reviewed, not assumed clean.
-  if grype "$IMAGE" -o table >"$REPORT_DIR/cves-grype.txt" 2>/dev/null &&
-     grype "$IMAGE" -o json  >"$REPORT_DIR/cves-grype.json" 2>/dev/null; then
-    counts="$(grype "$IMAGE" -o json 2>/dev/null | jq -r '[.matches[].vulnerability.severity] | group_by(.) | map("\(length) \(.[0])") | join(", ")' 2>/dev/null || true)"
+  if grype "$IMAGE" -o table >"$WORKDIR/cves-grype.txt" 2>/dev/null &&
+     grype "$IMAGE" -o json  >"$WORKDIR/cves-grype.json" 2>/dev/null &&
+     jq -e '.descriptor.version and (.matches | type == "array")' "$WORKDIR/cves-grype.json" >/dev/null 2>&1; then
+    counts="$(jq -r '[.matches[].vulnerability.severity] | group_by(.) | map("\(length) \(.[0])") | join(", ")' "$WORKDIR/cves-grype.json")"
+    mv "$WORKDIR/cves-grype.txt" "$REPORT_DIR/cves-grype.txt"
+    mv "$WORKDIR/cves-grype.json" "$REPORT_DIR/cves-grype.json"
     pass "CVE report (grype) written to validation-reports/container/cves-grype.{txt,json}; findings: ${counts:-see report} (review it; do not assume clean)"
     cve_done=1
   fi

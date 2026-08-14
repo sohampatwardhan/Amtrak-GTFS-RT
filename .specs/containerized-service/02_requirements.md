@@ -115,4 +115,4 @@ Containerization does not change the API routes, feed semantics, freshness thres
 
 ## Approval
 
-Status: **Awaiting approval**
+Status: **Approved on 2026-08-14**

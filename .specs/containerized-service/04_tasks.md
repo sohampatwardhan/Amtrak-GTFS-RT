@@ -75,4 +75,4 @@ Critical-path estimate: **2–5 hours**, excluding external image, package, Carg
 
 ## Approval
 
-Status: **Awaiting approval**
+Status: **Approved on 2026-08-14**

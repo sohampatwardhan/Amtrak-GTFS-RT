@@ -102,6 +102,28 @@ findings. It could reduce OS-package surface, but would require redesigning the 
 resulting residual risk is documented in a
 [proposed risk-acceptance record](../../../.security/risk-acceptance/containerized-service.md).
 
+## Review resolution (repair round 2)
+
+Pre-approval review found two false-positive evidence paths; both were repaired and exercised:
+
+1. **Docker invocation failure counted as fail-closed.** `run_guarded` previously returned success
+   when `docker run` itself failed. It now accepts only an observed `exited` container with a
+   non-zero exit code as rejection evidence, distinguishes a timeout from Docker/inspection errors,
+   and rejects an unexpected successful exit. Focused Docker cases returned the expected statuses:
+   invocation failure `2`, successful exit `2`, timeout `1`, genuine non-zero rejection `0`.
+2. **A stale CVE report could look current.** The harness now removes the four canonical report
+   paths before scanning, writes each candidate into its private per-run directory, validates JSON
+   structure, and atomically publishes only successful output. Grype counts are read from the same
+   JSON that is retained rather than from a third scan.
+
+The rebuilt image was then re-verified by the complete harness: **CONTAINER SMOKE HARNESS PASSED**
+(exit 0), healthy in 7s, four artifacts decoded, denied/spoofed requests returned `403`, corrupt
+newest generation remained hidden, and offline recovery was byte-identical. A fresh SBOM and grype
+report were produced. The reviewable [scan summary](../../../.security/risk-acceptance/evidence/containerized-service-scan-summary.json)
+and [complete finding table](../../../.security/risk-acceptance/evidence/containerized-service-cves-grype.txt)
+are committed; the raw JSON/SBOM remain local generated reports whose SHA-256 values are recorded
+in the summary.
+
 ## Notes / shipping posture
 
 Local container verification is complete and CVE evidence now exists (grype). Available

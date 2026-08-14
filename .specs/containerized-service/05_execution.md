@@ -13,7 +13,7 @@
 | Task | Status | Commit / diff | Verification | Reviewer | Notes |
 |---|---|---|---|---|---|
 | 1.1 | passed | `9954de2` | build → 156 MB image; 24 image/runtime assertions; wrong-validator digest build fails; `git diff --check` clean | 1 independent reviewer | [report](execution/task-1.1-report.md) · [review](execution/task-1.1-review.md); no repair round needed |
-| 2.1 | passed | working tree diff | smoke harness PASSED (guards, live health 6s, 4 artifacts decoded, denied/spoofed 403, R4.4 incomplete-newest, offline recovery byte-identical); fmt/clippy/54 tests/doc; offline + live feed gates; SBOM exported; CVE evidence via grype (33C/74H/146M — not clean, inherited from JRE OS deps + validator JAR) | 1 independent reviewer | [report](execution/task-2.1-report.md) · [review](execution/task-2.1-review.md); repair round 1 bounded the fail-closed guards and added R4.4/R6.6 coverage; harness gained an auth-free grype CVE fallback |
+| 2.1 | passed | working tree diff | smoke harness PASSED after repair round 2 (guards, live health 7s, 4 artifacts decoded, denied/spoofed 403, R4.4 incomplete-newest, offline recovery byte-identical); fmt/clippy/54 tests/doc; offline + live feed gates; SBOM exported; fresh reviewable grype evidence (33C/74H/146M — not clean) | 1 independent reviewer + pre-approval review | [report](execution/task-2.1-report.md) · [review](execution/task-2.1-review.md); round 1 bounded guards and added R4.4/R6.6 coverage; round 2 made Docker rejection evidence fail closed and scan publication fresh/atomic |
 
 ## Baseline
 
@@ -60,6 +60,18 @@ Docker Engine `29.6.2` is available for the build and smoke tasks.
   all 10 fixable High findings are embedded in the latest upstream validator JAR. A smaller
   runtime would not address those findings and would require a compatibility redesign. Image
   publication and deployment are out of scope and not authorized.
+
+## Post-Task Security Evidence Repair
+
+- Pre-approval review found that a Docker invocation error could count as a successful startup
+  rejection and an earlier CVE file could survive a failed scan. Both false-positive paths were
+  repaired in [the harness](../../scripts/test-container.sh).
+- Focused Docker tests proved the guard distinguishes invocation failure, zero exit, timeout, and
+  genuine non-zero rejection (`2`, `2`, `1`, `0` respectively).
+- The complete harness passed against the rebuilt image. The fresh
+  [scan summary](../../.security/risk-acceptance/evidence/containerized-service-scan-summary.json)
+  and [finding table](../../.security/risk-acceptance/evidence/containerized-service-cves-grype.txt)
+  are committed for PR review; the summary records checksums for the local raw grype JSON and SBOM.
 
 ## Execution Timing
 
