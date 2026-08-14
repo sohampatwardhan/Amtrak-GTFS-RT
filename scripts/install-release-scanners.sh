@@ -49,5 +49,9 @@ install_tool() {
 install_tool grype "$GRYPE_VERSION" "$GRYPE_SHA256"
 install_tool syft "$SYFT_VERSION" "$SYFT_SHA256"
 
-"$DESTDIR/grype" version | grep -F "Version:             $GRYPE_VERSION" >/dev/null
-"$DESTDIR/syft" version | grep -F "Version:             $SYFT_VERSION" >/dev/null
+installed_version() {
+  "$1" version | awk -F: '$1 == "Version" { value = $2; gsub(/[[:space:]]/, "", value); print value }'
+}
+
+test "$(installed_version "$DESTDIR/grype")" = "$GRYPE_VERSION"
+test "$(installed_version "$DESTDIR/syft")" = "$SYFT_VERSION"
