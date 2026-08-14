@@ -220,7 +220,7 @@ git commit -m "feat: add licensed public image contract"
 
 ### Task 3: Fail-closed scanner installation and release workflow
 
-- [ ] **Task status:** Complete and reviewed
+- [x] **Task status:** Complete and reviewed
 
 **Files:**
 - Create: `scripts/install-release-scanners.sh`
@@ -233,7 +233,7 @@ git commit -m "feat: add licensed public image contract"
 - Consumes: exact tag `v0.2.0`, `scripts/test-container.sh IMAGE`, `scripts/verify-release-image.sh IMAGE VERSION REVISION ARCH`, GHCR credentials via `GITHUB_TOKEN`, and native matrix runners.
 - Produces: canonical per-platform GHCR digests, per-platform evidence artifacts, semantic manifest tags, provenance, and GitHub Release assets.
 
-- [ ] **Step 1: Add the scanner installer with immutable release-asset checksums**
+- [x] **Step 1: Add the scanner installer with immutable release-asset checksums**
 
 Create `scripts/install-release-scanners.sh DESTDIR` supporting `x86_64`/`amd64` and `aarch64`/`arm64`. Download the matching official archives and verify these exact SHA-256 values before extracting only `syft` and `grype`:
 
@@ -242,15 +242,17 @@ grype 0.117.0 linux_amd64 38525dab1e06f162ebaa02f94d82d1f807076b011a44180cf2777e
 grype 0.117.0 linux_arm64 935f628bdf9331ffdd946931ea5fdb50045d3970ba52670cbeb44a88f127291b
 syft  1.51.0  linux_amd64 2a2e837a2c8d59ec9af5472ee22d3b04ee463c4e44476ecf993fd1e5ab6ebc7f
 syft  1.51.0  linux_arm64 6c0466811541ea03add5213a60a1562f0851e4c0b0ecfdee1a694a9455285900
+grype 0.117.0 darwin_arm64 bfcefa3f3b1690d9c77d847841b32ebd6106ab0e0e32f810924707e704d53584
+syft  1.51.0  darwin_arm64 4f37f4c7fefce0a68e4cf71ba3f5f9829a99e65d89b29f7ee41b8c2c10ea8c59
 ```
 
 The script must fail for unsupported architectures, checksum mismatch, failed download, missing executable, or version mismatch.
 
-- [ ] **Step 2: Add deterministic changelog note extraction**
+- [x] **Step 2: Add deterministic changelog note extraction**
 
 Create `scripts/extract-release-notes.sh VERSION OUTPUT`. Use `awk` to copy content strictly after `## [VERSION] - 2026-08-14` and before the next `## [` heading. Require non-empty output and fail if the heading occurs other than once.
 
-- [ ] **Step 3: Test support scripts locally**
+- [x] **Step 3: Test support scripts locally**
 
 ```bash
 bash -n scripts/install-release-scanners.sh scripts/extract-release-notes.sh
@@ -265,7 +267,7 @@ test -s "$notes"
 
 Expected: all commands exit 0 and report Syft 1.51.0 / Grype 0.117.0.
 
-- [ ] **Step 4: Create the tag-gated matrix workflow**
+- [x] **Step 4: Create the tag-gated matrix workflow**
 
 Create `.github/workflows/release.yml` triggered only by `push.tags: ['v*.*.*']`. Add concurrency `release-${{ github.ref }}` without cancel-in-progress. Start with `contents: read`; grant only job-specific `packages: write`, `id-token: write`, `attestations: write`, or `contents: write` where required. A failed run is retried with GitHub's rerun mechanism against the same immutable tag.
 
@@ -300,7 +302,7 @@ docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302   # v6.2.0
 
 The validation job must check tag/Cargo/changelog consistency, log in to GHCR, build one platform using `docker/build-push-action` with `tags: $IMAGE`, `outputs: type=image,name=$IMAGE,push-by-digest=true,name-canonical=true,push=true`, `sbom: true`, `provenance: mode=max`, and OCI build args. Pull `$IMAGE@$DIGEST`, tag it locally, install scanners, run the complete harness, require both report files, assert `.matches | length == 0`, require at least one SPDX package, run the image metadata verifier, and upload evidence plus a digest file named by platform slug.
 
-- [ ] **Step 5: Add manifest, provenance, and GitHub Release publication**
+- [x] **Step 5: Add manifest, provenance, and GitHub Release publication**
 
 Make a publication job depend on every matrix job. Download digest/evidence artifacts, log in, and create tags only from the two recorded digests:
 
@@ -322,7 +324,7 @@ gh release create "$TAG" --verify-tag --title "$TAG" --notes-file release-notes.
 
 If the release already exists, compare its target commit and attached `image-release.txt`; fail on any mismatch rather than replacing immutable evidence.
 
-- [ ] **Step 6: Validate workflow structure and release guards**
+- [x] **Step 6: Validate workflow structure and release guards**
 
 Run:
 
@@ -336,7 +338,7 @@ git diff --check
 
 Expected: YAML/actionlint/metadata/diff checks pass and the major-tag scan finds nothing.
 
-- [ ] **Step 7: Commit Task 3**
+- [x] **Step 7: Commit Task 3**
 
 ```bash
 git add .github/workflows/release.yml README.md scripts/install-release-scanners.sh \
