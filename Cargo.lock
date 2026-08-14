@@ -91,9 +91,13 @@ dependencies = [
  "gtfs-structures",
  "prost",
  "reqwest 0.13.4",
+ "rustix",
+ "serde_json",
  "tokio",
+ "tower",
  "tracing",
  "tracing-subscriber",
+ "zip",
 ]
 
 [[package]]
