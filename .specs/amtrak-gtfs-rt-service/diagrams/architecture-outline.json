@@ -1,0 +1,79 @@
+{
+  "diagram": "graph",
+  "target": "block",
+  "columns": 3,
+  "groups": [
+    {
+      "id": "internal_service",
+      "label": "Internal Amtrak GTFS RT Service"
+    }
+  ],
+  "nodes": [
+    {
+      "id": "amtrak_sources",
+      "label": "Amtrak static and realtime data",
+      "kind": "io"
+    },
+    {
+      "id": "static_feed",
+      "label": "Versioned static GTFS",
+      "kind": "store",
+      "group": "internal_service"
+    },
+    {
+      "id": "realtime_conversion",
+      "label": "Realtime fetch match and conversion",
+      "kind": "process",
+      "group": "internal_service"
+    },
+    {
+      "id": "last_good",
+      "label": "Validated last good feed set",
+      "kind": "store",
+      "group": "internal_service"
+    },
+    {
+      "id": "controlled_http",
+      "label": "Controlled HTTP feed boundary",
+      "kind": "process",
+      "group": "internal_service"
+    },
+    {
+      "id": "internal_consumers",
+      "label": "Authorized internal consumers",
+      "kind": "io"
+    }
+  ],
+  "edges": [
+    {
+      "from": "amtrak_sources",
+      "to": "static_feed",
+      "label": "schedule"
+    },
+    {
+      "from": "amtrak_sources",
+      "to": "realtime_conversion",
+      "label": "live status"
+    },
+    {
+      "from": "static_feed",
+      "to": "realtime_conversion",
+      "label": "matching context"
+    },
+    {
+      "from": "realtime_conversion",
+      "to": "last_good",
+      "label": "validated feed set"
+    },
+    {
+      "from": "last_good",
+      "to": "controlled_http",
+      "label": "serve"
+    },
+    {
+      "from": "controlled_http",
+      "to": "internal_consumers",
+      "label": "GTFS and GTFS RT"
+    }
+  ]
+}

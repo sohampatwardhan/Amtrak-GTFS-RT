@@ -1,0 +1,28 @@
+{
+  "generated_at": "2026-08-14T01:18:49Z",
+  "generation_id": "1786670322000000000-0",
+  "gtfs_validator": "8.0.1",
+  "gtfs_validator_sha256": "19293ddd9b6f954f216d4f12054bd8a3232921751c4484339e339764a91000e2",
+  "gtfs_realtime_validator_commit": "7041fa3fcaf674bf730e17325c179d329cdff6f2",
+  "manifest": "feed-set.json",
+  "artifacts": [
+    "feed-set-artifacts/static.zip",
+    "feed-set-artifacts/trip-updates.pb",
+    "feed-set-artifacts/vehicle-positions.pb",
+    "feed-set-artifacts/alerts.pb"
+  ],
+  "independent_decode": {
+    "implementation": "MobilityData GTFS-Realtime validator Java protobuf runtime",
+    "feeds": [
+      "trip-updates",
+      "vehicle-positions",
+      "alerts"
+    ],
+    "result_files": [
+      "rt/trip-updates/trip-updates.pb.results.json",
+      "rt/vehicle-positions/vehicle-positions.pb.results.json",
+      "rt/alerts/alerts.pb.results.json"
+    ]
+  },
+  "release_decision": "release-decision.json"
+}

@@ -45,6 +45,10 @@ pub mod mock {
     use super::*;
     use gtfs_realtime::{FeedEntity, FeedMessage};
 
+    #[expect(
+        clippy::large_enum_variant,
+        reason = "test fixture ergonomics are clearer with an inline successful batch"
+    )]
     pub enum Behavior {
         Ok(RtBatch),
         Empty,
@@ -75,7 +79,10 @@ pub mod mock {
     pub fn batch_with(n: usize) -> RtBatch {
         let mut m = FeedMessage::default();
         for i in 0..n {
-            m.entity.push(FeedEntity { id: i.to_string(), ..Default::default() });
+            m.entity.push(FeedEntity {
+                id: i.to_string(),
+                ..Default::default()
+            });
         }
         RtBatch {
             trip_updates: m.clone(),
@@ -102,7 +109,10 @@ mod tests {
 
     #[tokio::test]
     async fn mock_source_reports_name_and_batch() {
-        let src = MockSource { name: "mock", behavior: Behavior::Ok(batch_with(1)) };
+        let src = MockSource {
+            name: "mock",
+            behavior: Behavior::Ok(batch_with(1)),
+        };
         assert_eq!(src.name(), "mock");
         let batch = src.fetch(&Gtfs::default()).await.unwrap();
         assert_eq!(batch.trip_updates.entity.len(), 1);
@@ -110,7 +120,10 @@ mod tests {
 
     #[tokio::test]
     async fn mock_source_can_fail() {
-        let src = MockSource { name: "bad", behavior: Behavior::Fail };
+        let src = MockSource {
+            name: "bad",
+            behavior: Behavior::Fail,
+        };
         assert!(src.fetch(&Gtfs::default()).await.is_err());
     }
 }

@@ -5,26 +5,26 @@
     "It deliberately does not gate on occurrence COUNTS: those track how many trains",
     "are running and fluctuate legitimately between runs. A new error CODE is a real",
     "regression; a changing count is not.",
-    "Entries here are technical debt to burn down, not permanent exemptions.",
-    "Remove a code once it is fixed so the gate ratchets tighter."
+    "Entries here are owned, review-dated technical debt rather than permanent exemptions.",
+    "Remove a code once it is fixed so the gate ratchets tighter; expired records fail closed."
   ],
   "static": {
-    "allowed_error_codes": {},
+    "allowed_errors": [],
     "_note": "Amtrak's official GTFS currently produces zero ERROR notices, so any error here is a genuine regression."
   },
   "realtime": {
-    "allowed_error_codes": {
-      "E003": "trip_id not in GTFS. Amtrak operates extra sections and trains absent from the published schedule.",
-      "E004": "route_id not in GTFS. Same root cause as E003.",
-      "E011": "stop_id not in GTFS. Live data references stations missing from the static feed.",
-      "E022": "Sequential stop_time_update times not increasing. Upstream Amtrak estimate ordering.",
-      "E025": "departure time before arrival time. Upstream Amtrak estimate inconsistency.",
-      "E029": "Vehicle position far from trip shape. Also flagged as a WARNING-level data issue (stop_too_far_from_shape) in Amtrak's own static feed.",
-      "E035": "trip_id does not belong to route_id in trips.txt. Upstream matching mismatch.",
-      "E039": "FULL_DATASET feed includes entity.is_deleted. Emitted by the upstream transform; fixable on our side by stripping the field.",
-      "E041": "trip has no stop_time_updates. Trains with no remaining predicted stops.",
-      "E043": "stop_time_update has neither arrival nor departure. Upstream omits both for some stops.",
-      "E049": "header incrementality not populated. Fixable on our side by setting it explicitly."
-    }
+    "allowed_errors": [
+      {"code":"E003","upstream_cause":"Amtrak operates extra sections and trains absent from the published schedule.","owner":"amtrak-gtfs-rt maintainers","review_on":"2026-11-01"},
+      {"code":"E004","upstream_cause":"Realtime route identifiers accompany trips absent from the published schedule.","owner":"amtrak-gtfs-rt maintainers","review_on":"2026-11-01"},
+      {"code":"E011","upstream_cause":"Live data references stations missing from the static feed.","owner":"amtrak-gtfs-rt maintainers","review_on":"2026-11-01"},
+      {"code":"E022","upstream_cause":"Upstream Amtrak estimates are not always temporally increasing.","owner":"amtrak-gtfs-rt maintainers","review_on":"2026-11-01"},
+      {"code":"E025","upstream_cause":"Upstream Amtrak estimates can place departure before arrival.","owner":"amtrak-gtfs-rt maintainers","review_on":"2026-11-01"},
+      {"code":"E029","upstream_cause":"Vehicle coordinates can be far from the published trip shape.","owner":"amtrak-gtfs-rt maintainers","review_on":"2026-11-01"},
+      {"code":"E035","upstream_cause":"Upstream trip and route matching can disagree with the static schedule.","owner":"amtrak-gtfs-rt maintainers","review_on":"2026-11-01"},
+      {"code":"E039","upstream_cause":"The legacy transform retained deletion markers in a FULL_DATASET feed.","owner":"amtrak-gtfs-rt maintainers","review_on":"2026-11-01"},
+      {"code":"E041","upstream_cause":"The legacy transform emitted trains with no remaining predicted stops.","owner":"amtrak-gtfs-rt maintainers","review_on":"2026-11-01"},
+      {"code":"E043","upstream_cause":"Some upstream stop updates omit both arrival and departure predictions.","owner":"amtrak-gtfs-rt maintainers","review_on":"2026-11-01"},
+      {"code":"E049","upstream_cause":"The legacy transform omitted explicit feed incrementality.","owner":"amtrak-gtfs-rt maintainers","review_on":"2026-11-01"}
+    ]
   }
 }

@@ -16,3 +16,11 @@ axum = "0.8"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "sync", "fs", "signal"] }
 tracing = "0.1"
 tracing-subscriber = "0.3"
+serde_json = "1.0"
+
+[target.'cfg(unix)'.dependencies]
+rustix = { version = "1.1.4", features = ["fs", "process"] }
+
+[dev-dependencies]
+tower = { version = "0.5", features = ["util"] }
+zip = { version = "6.0", default-features = false, features = ["deflate"] }

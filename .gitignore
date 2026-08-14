@@ -2,4 +2,6 @@
 /out
 .DS_Store
 .validator-cache/
-validation-reports/
+/validation-reports/*
+!/validation-reports/release-decision.json
+!/validation-reports/release-evidence.json

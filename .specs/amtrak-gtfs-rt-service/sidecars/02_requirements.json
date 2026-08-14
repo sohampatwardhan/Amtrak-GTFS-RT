@@ -1,0 +1,530 @@
+{
+  "schema_version": 1,
+  "generated_from": {
+    "file": "02_requirements.md",
+    "sha256": "810e21e1192b4521a07905bbeb3f4bd1ca973c11838b05d4310f1a03da6c6ffd"
+  },
+  "requirements": [
+    {
+      "id": "1",
+      "user_story": {
+        "role": "internal transit-data consumer",
+        "capability": "conventional GTFS and GTFS-Realtime feed products",
+        "benefit": "I can use Amtrak status without an Amtrak-specific integration"
+      },
+      "criteria": [
+        {
+          "id": "1.1",
+          "kind": "event",
+          "trigger": "valid static and realtime source data are available",
+          "actor": "Feed_Service",
+          "behavior": "publish one coherent feed generation containing static GTFS, TripUpdates, VehiclePositions, and Alerts"
+        },
+        {
+          "id": "1.2",
+          "kind": "unconditional",
+          "trigger": "",
+          "actor": "Static_Feed",
+          "behavior": "be parseable as GTFS by the selected standards validator"
+        },
+        {
+          "id": "1.3",
+          "kind": "unconditional",
+          "trigger": "",
+          "actor": "Trip_Updates_Feed",
+          "behavior": "be decodable as a GTFS-Realtime FeedMessage"
+        },
+        {
+          "id": "1.4",
+          "kind": "unconditional",
+          "trigger": "",
+          "actor": "Vehicle_Positions_Feed",
+          "behavior": "be decodable as a GTFS-Realtime FeedMessage"
+        },
+        {
+          "id": "1.5",
+          "kind": "unconditional",
+          "trigger": "",
+          "actor": "Alerts_Feed",
+          "behavior": "be decodable as a GTFS-Realtime FeedMessage"
+        },
+        {
+          "id": "1.6",
+          "kind": "unconditional",
+          "trigger": "",
+          "actor": "Trip_Updates_Feed",
+          "behavior": "contain only entities carrying trip-update payloads"
+        },
+        {
+          "id": "1.7",
+          "kind": "unconditional",
+          "trigger": "",
+          "actor": "Vehicle_Positions_Feed",
+          "behavior": "contain only entities carrying vehicle-position payloads"
+        },
+        {
+          "id": "1.8",
+          "kind": "unconditional",
+          "trigger": "",
+          "actor": "Alerts_Feed",
+          "behavior": "contain only entities carrying alert payloads"
+        }
+      ]
+    },
+    {
+      "id": "2",
+      "user_story": {
+        "role": "internal transit-data consumer",
+        "capability": "live Amtrak observations represented with GTFS-Realtime semantics",
+        "benefit": "trip status and train location remain useful to downstream transit applications"
+      },
+      "criteria": [
+        {
+          "id": "2.1",
+          "kind": "event",
+          "trigger": "a live train is matched to a scheduled trip",
+          "actor": "Trip_Updates_Feed",
+          "behavior": "identify that scheduled trip"
+        },
+        {
+          "id": "2.2",
+          "kind": "event",
+          "trigger": "a matched train has a source-provided stop-time prediction",
+          "actor": "Trip_Updates_Feed",
+          "behavior": "publish the corresponding stop-time update"
+        },
+        {
+          "id": "2.3",
+          "kind": "event",
+          "trigger": "a matched train has a valid geographic observation",
+          "actor": "Vehicle_Positions_Feed",
+          "behavior": "publish that observation's coordinates"
+        },
+        {
+          "id": "2.4",
+          "kind": "event",
+          "trigger": "a vehicle position is published for a matched train",
+          "actor": "Vehicle_Positions_Feed",
+          "behavior": "identify the matching scheduled trip"
+        },
+        {
+          "id": "2.5",
+          "kind": "event",
+          "trigger": "an active source alert applies to an Amtrak route, trip, or stop",
+          "actor": "Alerts_Feed",
+          "behavior": "publish an informed entity for that target"
+        },
+        {
+          "id": "2.6",
+          "kind": "event",
+          "trigger": "an active source alert is published",
+          "actor": "Alerts_Feed",
+          "behavior": "include non-empty human-readable alert text"
+        },
+        {
+          "id": "2.7",
+          "kind": "unwanted",
+          "trigger": "a live train cannot be matched to the active static feed",
+          "actor": "Feed_Service",
+          "behavior": "omit any realtime entity that would claim a nonexistent scheduled trip"
+        }
+      ]
+    },
+    {
+      "id": "3",
+      "user_story": {
+        "role": "internal transit-data consumer",
+        "capability": "realtime identifiers bound to the served static schedule",
+        "benefit": "every published reference has a consistent interpretation"
+      },
+      "criteria": [
+        {
+          "id": "3.1",
+          "kind": "unconditional",
+          "trigger": "",
+          "actor": "Feed_Service",
+          "behavior": "ensure every published realtime trip identifier resolves in the served static feed"
+        },
+        {
+          "id": "3.2",
+          "kind": "unconditional",
+          "trigger": "",
+          "actor": "Feed_Service",
+          "behavior": "ensure every published realtime stop identifier resolves in the served static feed"
+        },
+        {
+          "id": "3.3",
+          "kind": "unconditional",
+          "trigger": "",
+          "actor": "Feed_Service",
+          "behavior": "identify the served static feed version in each realtime feed header"
+        },
+        {
+          "id": "3.4",
+          "kind": "event",
+          "trigger": "a replacement static feed is accepted",
+          "actor": "Feed_Service",
+          "behavior": "withhold it until a realtime generation has been produced against that replacement"
+        },
+        {
+          "id": "3.5",
+          "kind": "event",
+          "trigger": "a replacement static/realtime generation becomes current",
+          "actor": "Feed_Service",
+          "behavior": "make the generation observable as one consistent publication state"
+        },
+        {
+          "id": "3.6",
+          "kind": "unwanted",
+          "trigger": "a static refresh fails validation or loading",
+          "actor": "Feed_Service",
+          "behavior": "retain the preceding coherent feed generation"
+        }
+      ]
+    },
+    {
+      "id": "4",
+      "user_story": {
+        "role": "operator",
+        "capability": "readiness to reflect realtime feed age",
+        "benefit": "internal consumers are not told stale train status is healthy"
+      },
+      "criteria": [
+        {
+          "id": "4.1",
+          "kind": "event",
+          "trigger": "a realtime refresh succeeds",
+          "actor": "Feed_Service",
+          "behavior": "record that refresh as the latest successful realtime generation"
+        },
+        {
+          "id": "4.2",
+          "kind": "state",
+          "trigger": "the latest successful realtime generation is less than 300 seconds old",
+          "actor": "Readiness_Status",
+          "behavior": "report ready"
+        },
+        {
+          "id": "4.3",
+          "kind": "unwanted",
+          "trigger": "the latest successful realtime generation reaches 300 seconds of age",
+          "actor": "Readiness_Status",
+          "behavior": "report not ready"
+        },
+        {
+          "id": "4.4",
+          "kind": "event",
+          "trigger": "a successful realtime refresh follows a not-ready freshness state",
+          "actor": "Readiness_Status",
+          "behavior": "report ready"
+        },
+        {
+          "id": "4.5",
+          "kind": "unconditional",
+          "trigger": "",
+          "actor": "Readiness_Status",
+          "behavior": "expose the age of the latest successful realtime generation"
+        },
+        {
+          "id": "4.6",
+          "kind": "unconditional",
+          "trigger": "",
+          "actor": "Liveness_Status",
+          "behavior": "report whether the service process can answer health checks independently of feed readiness"
+        },
+        {
+          "id": "4.7",
+          "kind": "unconditional",
+          "trigger": "",
+          "actor": "Realtime_Feed_Headers",
+          "behavior": "expose generation timestamps that allow consumers to detect last-good data age"
+        }
+      ]
+    },
+    {
+      "id": "5",
+      "user_story": {
+        "role": "operator",
+        "capability": "failed refreshes isolated from current output",
+        "benefit": "transient upstream or processing failures do not corrupt the feed set"
+      },
+      "criteria": [
+        {
+          "id": "5.1",
+          "kind": "unwanted",
+          "trigger": "a realtime source request fails",
+          "actor": "Feed_Service",
+          "behavior": "retain the current feed generation unchanged"
+        },
+        {
+          "id": "5.2",
+          "kind": "unwanted",
+          "trigger": "a realtime source returns an empty candidate generation",
+          "actor": "Feed_Service",
+          "behavior": "retain the current feed generation unchanged"
+        },
+        {
+          "id": "5.3",
+          "kind": "unwanted",
+          "trigger": "conversion or validation of a candidate generation fails",
+          "actor": "Feed_Service",
+          "behavior": "retain the current feed generation unchanged"
+        },
+        {
+          "id": "5.4",
+          "kind": "unwanted",
+          "trigger": "publication of a candidate generation fails",
+          "actor": "Feed_Service",
+          "behavior": "retain the current feed generation unchanged"
+        },
+        {
+          "id": "5.5",
+          "kind": "unconditional",
+          "trigger": "",
+          "actor": "Feed_Service",
+          "behavior": "prevent consumers from observing a partially written feed artifact"
+        },
+        {
+          "id": "5.6",
+          "kind": "unconditional",
+          "trigger": "",
+          "actor": "Feed_Service",
+          "behavior": "prevent consumers from observing realtime feed types from different refresh generations"
+        },
+        {
+          "id": "5.7",
+          "kind": "unwanted",
+          "trigger": "no successful generation has ever been published",
+          "actor": "Feed_Endpoints",
+          "behavior": "report that feed content is unavailable"
+        },
+        {
+          "id": "5.8",
+          "kind": "unwanted",
+          "trigger": "no successful generation has ever been published",
+          "actor": "Readiness_Status",
+          "behavior": "report not ready"
+        },
+        {
+          "id": "5.9",
+          "kind": "event",
+          "trigger": "a recoverable refresh failure occurs",
+          "actor": "Feed_Service",
+          "behavior": "attempt later scheduled refreshes without operator intervention"
+        }
+      ]
+    },
+    {
+      "id": "6",
+      "user_story": {
+        "role": "operator",
+        "capability": "feed access limited to controlled consumers",
+        "benefit": "the service does not become an unplanned public API with uncontrolled demand"
+      },
+      "criteria": [
+        {
+          "id": "6.1",
+          "kind": "event",
+          "trigger": "an authorized internal consumer requests an available feed",
+          "actor": "Access_Boundary",
+          "behavior": "return that feed"
+        },
+        {
+          "id": "6.2",
+          "kind": "unwanted",
+          "trigger": "a caller is not authorized by the configured internal access policy",
+          "actor": "Access_Boundary",
+          "behavior": "deny access to feed content"
+        },
+        {
+          "id": "6.3",
+          "kind": "unwanted",
+          "trigger": "the service starts without explicit network-exposure configuration",
+          "actor": "Access_Boundary",
+          "behavior": "accept feed requests only from the local host"
+        },
+        {
+          "id": "6.4",
+          "kind": "unwanted",
+          "trigger": "a non-local listening interface is configured without a corresponding access policy",
+          "actor": "Feed_Service",
+          "behavior": "refuse to become ready"
+        },
+        {
+          "id": "6.5",
+          "kind": "event",
+          "trigger": "access is denied",
+          "actor": "Access_Boundary",
+          "behavior": "emit an audit event without recording caller credentials"
+        }
+      ]
+    },
+    {
+      "id": "7",
+      "user_story": {
+        "role": "operator",
+        "capability": "configurable inputs and actionable runtime evidence",
+        "benefit": "I can operate the service safely without changing its source code"
+      },
+      "criteria": [
+        {
+          "id": "7.1",
+          "kind": "unconditional",
+          "trigger": "",
+          "actor": "Operator_Configuration",
+          "behavior": "allow the static-data source to be selected without a source-code change"
+        },
+        {
+          "id": "7.2",
+          "kind": "unconditional",
+          "trigger": "",
+          "actor": "Operator_Configuration",
+          "behavior": "allow the realtime polling interval to be selected without a source-code change"
+        },
+        {
+          "id": "7.3",
+          "kind": "unconditional",
+          "trigger": "",
+          "actor": "Operator_Configuration",
+          "behavior": "allow the publication location to be selected without a source-code change"
+        },
+        {
+          "id": "7.4",
+          "kind": "unconditional",
+          "trigger": "",
+          "actor": "Operator_Configuration",
+          "behavior": "allow the listening interface to be selected without a source-code change"
+        },
+        {
+          "id": "7.5",
+          "kind": "event",
+          "trigger": "a refresh attempt completes",
+          "actor": "Operational_Telemetry",
+          "behavior": "record its success or failure outcome"
+        },
+        {
+          "id": "7.6",
+          "kind": "event",
+          "trigger": "a refresh succeeds",
+          "actor": "Operational_Telemetry",
+          "behavior": "record the selected source"
+        },
+        {
+          "id": "7.7",
+          "kind": "event",
+          "trigger": "a refresh succeeds",
+          "actor": "Operational_Telemetry",
+          "behavior": "record each published feed's entity count"
+        },
+        {
+          "id": "7.8",
+          "kind": "event",
+          "trigger": "a refresh fails",
+          "actor": "Operational_Telemetry",
+          "behavior": "identify the failed processing stage"
+        },
+        {
+          "id": "7.9",
+          "kind": "unwanted",
+          "trigger": "operator configuration is invalid",
+          "actor": "Feed_Service",
+          "behavior": "reject startup with an actionable configuration error"
+        },
+        {
+          "id": "7.10",
+          "kind": "unwanted",
+          "trigger": "a required long-running service activity terminates unexpectedly",
+          "actor": "Feed_Service",
+          "behavior": "terminate with a failure status"
+        },
+        {
+          "id": "7.11",
+          "kind": "unconditional",
+          "trigger": "",
+          "actor": "Operational_Telemetry",
+          "behavior": "exclude configured credentials and access secrets"
+        }
+      ]
+    },
+    {
+      "id": "8",
+      "user_story": {
+        "role": "maintainer",
+        "capability": "objective release evidence",
+        "benefit": "an internal deployment does not introduce malformed or newly regressed feeds"
+      },
+      "criteria": [
+        {
+          "id": "8.1",
+          "kind": "event",
+          "trigger": "a release candidate is evaluated",
+          "actor": "Release_Gate",
+          "behavior": "validate the candidate static feed with the selected GTFS validator"
+        },
+        {
+          "id": "8.2",
+          "kind": "event",
+          "trigger": "a release candidate is evaluated",
+          "actor": "Release_Gate",
+          "behavior": "validate each realtime feed type with the selected GTFS-Realtime validator"
+        },
+        {
+          "id": "8.3",
+          "kind": "unwanted",
+          "trigger": "the static feed has any ERROR finding",
+          "actor": "Release_Gate",
+          "behavior": "reject the release candidate"
+        },
+        {
+          "id": "8.4",
+          "kind": "unwanted",
+          "trigger": "a realtime feed has an ERROR finding without an approved validator exception",
+          "actor": "Release_Gate",
+          "behavior": "reject the release candidate"
+        },
+        {
+          "id": "8.5",
+          "kind": "unconditional",
+          "trigger": "",
+          "actor": "Validator_Exception_Record",
+          "behavior": "identify the accepted error code"
+        },
+        {
+          "id": "8.6",
+          "kind": "unconditional",
+          "trigger": "",
+          "actor": "Validator_Exception_Record",
+          "behavior": "identify the upstream cause"
+        },
+        {
+          "id": "8.7",
+          "kind": "unconditional",
+          "trigger": "",
+          "actor": "Validator_Exception_Record",
+          "behavior": "identify an owner"
+        },
+        {
+          "id": "8.8",
+          "kind": "unconditional",
+          "trigger": "",
+          "actor": "Validator_Exception_Record",
+          "behavior": "identify a review date"
+        },
+        {
+          "id": "8.9",
+          "kind": "event",
+          "trigger": "a release candidate is evaluated",
+          "actor": "Release_Gate",
+          "behavior": "verify that an independent GTFS-Realtime consumer can decode each realtime feed"
+        },
+        {
+          "id": "8.10",
+          "kind": "unwanted",
+          "trigger": "any required deterministic verification fails",
+          "actor": "Release_Gate",
+          "behavior": "reject the release candidate"
+        }
+      ]
+    }
+  ]
+}

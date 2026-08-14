@@ -11,22 +11,28 @@ It loads Amtrak's official static `GTFS.zip`, then on an interval delegates the
 decrypt → parse → match → encode work to the
 [`catenarytransit/amtrak-gtfs-rt`](https://github.com/catenarytransit/amtrak-gtfs-rt)
 crate (which fetches and decrypts Amtrak's `getTrainsData`, matches each train to a GTFS
-trip, and returns ready-made protobuf feeds). The feeds are written atomically to disk and
-served by a small `axum` HTTP server. A neutral `RtSource` trait wraps the data source so
+trip, and returns ready-made protobuf feeds). Complete static and realtime generations are
+persisted immutably and served by a small `axum` HTTP server. A neutral `RtSource` trait wraps the data source so
 fallback sources (TransitDocs, RailRat) can be added later without touching the core.
 
 ## Endpoints
 
-| Path | Content-Type | Description |
-|------|--------------|-------------|
-| `/trip-updates.pb` | `application/protobuf` | GTFS-RT TripUpdates (delays/predictions) |
-| `/vehicle-positions.pb` | `application/protobuf` | GTFS-RT VehiclePositions (live train locations) |
-| `/alerts.pb` | `application/protobuf` | GTFS-RT Alerts (service disruptions) |
-| `/static.zip` | `application/zip` | The static GTFS the RT feeds bind to |
-| `/health` | `text/plain` | Liveness check (`ok`) |
+| Path | Access | Content-Type | Description |
+|------|--------|--------------|-------------|
+| `/livez` | public | `application/json` | Process liveness, independent of feed readiness |
+| `/readyz` | controlled | `application/json` | `200` only while the current generation is less than 300 seconds old |
+| `/v1/feed-set.json` | controlled | `application/json` | Current generation ID, timestamp, static version, entity counts, and four immutable URLs |
+| `/v1/generations/{id}/static.zip` | controlled | `application/zip` | Static GTFS for exactly generation `{id}` |
+| `/v1/generations/{id}/{trip-updates,vehicle-positions,alerts}.pb` | controlled | `application/x-protobuf` | One GTFS-Realtime product from exactly generation `{id}` |
 
-Each RT feed's header is stamped with the static feed's `feed_version` so consumers can
-confirm the realtime and static feeds match.
+Fetch `/v1/feed-set.json` first and then use only the URLs it returns. Do not construct
+generation URLs or substitute a newer ID between artifact requests. Every realtime header is
+stamped with the manifest's static version and generation timestamp.
+
+Feed, manifest, and readiness routes authorize the direct socket peer. With no explicit
+allowlist, only loopback peers are admitted. `Forwarded` and `X-Forwarded-For` are ignored;
+placing a reverse proxy at this authorization boundary requires a separately designed trusted-
+proxy policy.
 
 ## Running
 
@@ -44,11 +50,13 @@ sudo apt-get install -y protobuf-compiler   # Debian/Ubuntu
 cargo run
 ```
 
-On startup the service downloads the static GTFS, then begins polling. Within one
-poll interval the feeds are available:
+On startup the service recovers a retained last-good generation, validates a newly fetched static
+schedule when needed, and begins polling. Query the manifest rather than a mutable feed URL:
 
 ```bash
-curl -s http://localhost:8080/vehicle-positions.pb --output vp.pb
+manifest=$(curl -fsS http://127.0.0.1:8080/v1/feed-set.json)
+vehicle_url=$(printf '%s' "$manifest" | jq -r '.urls.vehicle_positions')
+curl -fsS "http://127.0.0.1:8080${vehicle_url}" --output vehicle-positions.pb
 ```
 
 ## Deployment
@@ -64,9 +72,9 @@ Environment=AMTRAK_OUTPUT_DIR=/var/lib/amtrak-gtfs-rt
 Restart=on-failure
 ```
 
-Because the poller and the HTTP layer are decoupled through the output directory,
-you can also skip the built-in server entirely and point any static file server, or
-sync the directory to object storage behind a CDN.
+The built-in HTTP layer is the supported access boundary. Do not expose the generation directory
+through a generic file server: that would bypass peer authorization, readiness semantics, strict
+identifier parsing, and manifest-first discovery.
 
 ## Configuration (environment variables)
 
@@ -77,22 +85,22 @@ sync the directory to object storage behind a CDN.
 | `AMTRAK_POLL_SECS` | `45` | Realtime poll interval (seconds) |
 | `AMTRAK_STATIC_REFRESH_SECS` | `86400` | Static feed refresh interval (seconds) |
 | `AMTRAK_FILTER_CAPITAL_CORRIDOR` | `false` | Drop Capital Corridor (route 84); a better feed exists via 511.org |
-| `AMTRAK_BIND_ADDR` | `0.0.0.0:8080` | HTTP bind address |
+| `AMTRAK_BIND_ADDR` | `127.0.0.1:8080` | HTTP bind address; non-loopback requires an allowlist |
+| `AMTRAK_ALLOWED_PEER_IPS` | empty | Comma-separated exact peer IPs; empty admits loopback only |
+| `AMTRAK_GTFS_VALIDATOR_JAR` | `./tools/gtfs-validator-v8.0.1-cli.jar` | Readable, officially pinned MobilityData validator 8.0.1 CLI JAR |
 
 ## Resilience
 
-- **Fallback chain.** Sources are tried in order; the first fresh, non-empty batch
-  wins. Empty and failing sources are logged and skipped.
-- **Last-good serving.** If no source produces data in a cycle, the previous files
-  are left in place (their header timestamp reveals their age) — the service never
-  serves empty or malformed feeds. A failed static refresh likewise keeps the
-  last-good schedule.
-- **Atomic group writes.** The three `.pb` files are written to temp files and only
-  renamed into place once all three have been written, so a mid-write failure can
-  never leave a mix of fresh and stale feeds, and consumers never read a partial file.
-- **Version consistency.** `static.zip` is written before the in-memory schedule is
-  swapped, so the `feed_version` stamped on RT feeds always matches the static feed
-  actually being served.
+- **Fallback chain.** Sources are tried in order; the first fresh, non-empty batch wins.
+- **Last-good serving.** Source, conversion, validation, static, or publication failure leaves the
+  current immutable generation unchanged and the scheduled poller retries later.
+- **Atomic publication.** Static GTFS, three realtime feeds, and the manifest become visible only
+  after durable generation-directory and current-marker commits. Readers see a complete old or
+  complete new generation, never a mixture.
+- **Version consistency.** A valid replacement static snapshot remains pending until realtime has
+  been built, validated, and committed against it.
+- **Freshness semantics.** Readiness becomes false at exactly 300 seconds of generation age while
+  liveness remains independently available.
 
 ## Project layout
 
@@ -101,10 +109,10 @@ sync the directory to object storage behind a CDN.
 | `src/config.rs` | Environment-driven configuration |
 | `src/sources/mod.rs` | `RtSource` trait and the `RtBatch` normalization model |
 | `src/sources/amtrak.rs` | Amtrak source, wrapping the catenary crate |
-| `src/static_gtfs.rs` | Static GTFS ingest, shared store, periodic refresh |
-| `src/orchestrator.rs` | Poll loop, source selection, protobuf encoding and writing |
-| `src/serve.rs` | HTTP layer |
-| `src/writer.rs` | Atomic file write primitive |
+| `src/static_gtfs.rs` | Exact-byte static GTFS validation and pending/active lifecycle |
+| `src/orchestrator.rs` | Source selection, coherent generation build/validation, and recoverable polling |
+| `src/serve.rs` | Controlled immutable HTTP delivery and freshness health |
+| `src/writer.rs` | Durable immutable generation persistence and recovery |
 
 ## Testing
 
@@ -149,12 +157,14 @@ is gated at zero.
 CI runs this nightly, on pushes that touch the pipeline, and on demand — not on
 pull requests, since an Amtrak outage would otherwise block unrelated work.
 
-### Known issue
+## Consumer migration
 
-`trip-updates.pb` and `vehicle-positions.pb` are currently byte-identical: the
-upstream transform emits unified entities carrying both `trip_update` and `vehicle`,
-and both feeds are served from that same message. Consumers of either endpoint get
-correct data, but each feed carries payload the consumer ignores.
+The mutable `/trip-updates.pb`, `/vehicle-positions.pb`, `/alerts.pb`, `/static.zip`, and `/health`
+routes are removed from the generation API. Controlled consumers must switch atomically to
+manifest-first discovery, accept `application/x-protobuf` for realtime products, and treat `403`,
+`404`, and `503` distinctly: unauthorized peer, unknown immutable generation/artifact, and no
+current or fresh generation respectively. Rollback uses the preceding service binary and retained
+generation directory; it never rewrites immutable artifacts.
 
 ## Changelog
 

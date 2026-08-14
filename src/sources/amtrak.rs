@@ -11,7 +11,9 @@ pub struct AmtrakSource {
 
 impl AmtrakSource {
     pub fn new() -> AmtrakSource {
-        AmtrakSource { client: reqwest::Client::new() }
+        AmtrakSource {
+            client: reqwest::Client::new(),
+        }
     }
 }
 
@@ -52,10 +54,9 @@ mod tests {
     #[tokio::test]
     #[ignore]
     async fn live_fetch_returns_batch() {
-        let gtfs =
-            Gtfs::from_url_async("https://content.amtrak.com/content/gtfs/GTFS.zip")
-                .await
-                .unwrap();
+        let gtfs = Gtfs::from_url_async("https://content.amtrak.com/content/gtfs/GTFS.zip")
+            .await
+            .unwrap();
         let src = AmtrakSource::new();
         let batch = src.fetch(&gtfs).await.unwrap();
         // At virtually any hour some Amtrak trains are running.
