@@ -1,0 +1,342 @@
+{
+  "concurrency": {
+    "active_stage": null,
+    "blocked": {},
+    "parallel_candidates": [],
+    "ready": [],
+    "serial_candidates": [],
+    "waves": []
+  },
+  "generated_from": {
+    "file": "04_tasks.md",
+    "sha256": "47c2be437dc0d9d136b60efa33945ac58fb6f1a471975f33e4da0331b5fcb414"
+  },
+  "requirement_count": 63,
+  "schema_version": 1,
+  "stages": {
+    "1": [
+      "1.1",
+      "1.2",
+      "1.3"
+    ],
+    "2": [
+      "2.1"
+    ],
+    "3": [
+      "3.1",
+      "3.2"
+    ],
+    "4": [
+      "4.1"
+    ],
+    "5": [
+      "5.1"
+    ]
+  },
+  "tasks": [
+    {
+      "capability_tier": "frontier",
+      "checked": true,
+      "delegation": "controller",
+      "dependency_delivery": "none",
+      "dependency_resolution": "none",
+      "depends_on": [],
+      "files": [
+        "src/config.rs",
+        "src/main.rs",
+        "src/static_gtfs.rs"
+      ],
+      "id": "1.1",
+      "interfaces": "Consumes: environment keys `AMTRAK_STATIC_URL`, `AMTRAK_OUTPUT_DIR`, `AMTRAK_POLL_SECS`, `AMTRAK_STATIC_REFRESH_SECS`, `AMTRAK_BIND_ADDR`, `AMTRAK_ALLOWED_PEER_IPS`, and `AMTRAK_GTFS_VALIDATOR_JAR`; Produces: `ValidatedConfig`, pinned validator configuration, `AccessPolicy`, `AccessDecision`, `Config::validate(self) -> Result<ValidatedConfig, ConfigError>`, and `authorize(&AccessPolicy, IpAddr) -> AccessDecision`",
+      "optional": false,
+      "reasoning_level": "extra_high",
+      "requirements": [
+        "6.2",
+        "6.3",
+        "6.4",
+        "7.1",
+        "7.2",
+        "7.3",
+        "7.4",
+        "7.9",
+        "7.11"
+      ],
+      "resolved_model": "claude-opus-5",
+      "risk": "high; an authorization-default regression can expose feeds publicly, so rollback is the preceding loopback-safe configuration implementation.",
+      "stage": 1,
+      "task_category": "heavy_reasoning",
+      "title": "Implement safe configuration and peer access policy",
+      "verification": "`cargo test config -- --nocapture`; inspect assertions for the exact bind/policy matrix and review public documentation."
+    },
+    {
+      "capability_tier": "frontier",
+      "checked": true,
+      "delegation": "controller",
+      "dependency_delivery": "none",
+      "dependency_resolution": "none",
+      "depends_on": [],
+      "files": [
+        "src/orchestrator.rs",
+        "src/sources/mod.rs"
+      ],
+      "id": "1.2",
+      "interfaces": "Consumes: existing `RtSource::fetch(&Gtfs) -> Result<RtBatch, SourceError>`, `RtBatch`, parsed `Gtfs`, static ZIP bytes, static version, and injected `SystemTime`; Produces: `StaticSnapshot`, `SelectedBatch`, `CandidateGeneration`, `ValidatedGeneration`, `GenerationBuilder::build`, `CandidateValidator::validate`, three separated GTFS-Realtime `FeedMessage` values, and one coherent `FeedSetManifest`",
+      "optional": false,
+      "reasoning_level": "extra_high",
+      "requirements": [
+        "1.3",
+        "1.4",
+        "1.5",
+        "1.6",
+        "1.7",
+        "1.8",
+        "2.1",
+        "2.2",
+        "2.3",
+        "2.4",
+        "2.5",
+        "2.6",
+        "2.7",
+        "3.1",
+        "3.2",
+        "3.3",
+        "4.7"
+      ],
+      "resolved_model": "claude-opus-5",
+      "risk": "high; incorrect filtering can silently misstate train status, so retain the pre-change converter until all semantic fixtures pass.",
+      "stage": 1,
+      "task_category": "heavy_reasoning",
+      "title": "Build and validate coherent candidate generations",
+      "verification": "`cargo test orchestrator -- --nocapture`; `cargo test sources -- --nocapture`; decode every encoded feed with `prost::Message`, assert exact entity-type partitioning/reference closure, and review public documentation."
+    },
+    {
+      "capability_tier": "frontier",
+      "checked": true,
+      "delegation": "controller",
+      "dependency_delivery": "none",
+      "dependency_resolution": "none",
+      "depends_on": [],
+      "files": [
+        "validation/baseline.json",
+        "scripts/validate-feeds.sh"
+      ],
+      "id": "1.3",
+      "interfaces": "Consumes: validator reports and the approved exception fields `code`, `upstream_cause`, `owner`, and `review_on`; Produces: a fail-closed exception parser and validator-ratchet decision for static and realtime error codes",
+      "optional": false,
+      "reasoning_level": "high",
+      "requirements": [
+        "8.3",
+        "8.4",
+        "8.5",
+        "8.6",
+        "8.7",
+        "8.8",
+        "8.10"
+      ],
+      "resolved_model": "claude-opus-5",
+      "risk": "medium; a permissive parser could normalize away real regressions, so rollback is the prior baseline plus a blocked release.",
+      "stage": 1,
+      "task_category": "code_analysis",
+      "title": "Make validator exceptions accountable",
+      "verification": "Run the gate's offline fixture mode for valid, malformed, expired, and unapproved findings; run `bash -n` against [scripts/validate-feeds.sh](../../scripts/validate-feeds.sh); review inline contract comments."
+    },
+    {
+      "capability_tier": "frontier",
+      "checked": true,
+      "delegation": "controller",
+      "dependency_delivery": "none",
+      "dependency_resolution": "none",
+      "depends_on": [
+        "1.2"
+      ],
+      "files": [
+        "src/writer.rs"
+      ],
+      "id": "2.1",
+      "interfaces": "Consumes: task 1.2 `ValidatedGeneration`, `GenerationId`, `FeedSetManifest`, and output directory; Produces: `PublishedGeneration`, `GenerationStore::{open,current,get,commit}`, durable current marker/recovery, and `GenerationPublisher::publish` with immutable `Arc<[u8]>` artifacts and a single commit point",
+      "optional": false,
+      "reasoning_level": "extra_high",
+      "requirements": [
+        "1.1",
+        "3.5",
+        "5.4",
+        "5.5",
+        "5.6",
+        "5.7",
+        "5.8"
+      ],
+      "resolved_model": "claude-opus-5",
+      "risk": "high; filesystem ordering and concurrency errors can corrupt the publication contract, so preserve the previous last-good directory and never delete the current generation during rollback.",
+      "stage": 2,
+      "task_category": "heavy_reasoning",
+      "title": "Implement immutable generation persistence and store",
+      "verification": "`cargo test writer -- --nocapture`; run failure-injection and concurrent-reader tests repeatedly; inspect that no test can observe partial or mixed generations; review public documentation."
+    },
+    {
+      "capability_tier": "frontier",
+      "checked": true,
+      "delegation": "controller",
+      "dependency_delivery": "none",
+      "dependency_resolution": "none",
+      "depends_on": [
+        "1.1",
+        "1.2",
+        "2.1"
+      ],
+      "files": [
+        "src/static_gtfs.rs",
+        "src/orchestrator.rs",
+        "src/main.rs"
+      ],
+      "id": "3.1",
+      "interfaces": "Consumes: task 1.1 pinned validator configuration, task 1.2 `GenerationBuilder`/`CandidateValidator`, task 2.1 `GenerationPublisher`/`GenerationStore`, existing `RtSource` list, configured intervals, and static URL; Produces: `StaticSnapshot`, `StaticStandardsValidator`, the MobilityData subprocess adapter, exact-byte `fetch_static`, standards-gated `bootstrap_static`, `stage_static`, a recoverable `run_poller`, pending-static promotion only through committed generations, and structured refresh outcomes",
+      "optional": false,
+      "reasoning_level": "extra_high",
+      "requirements": [
+        "1.2",
+        "3.4",
+        "3.6",
+        "4.1",
+        "5.1",
+        "5.2",
+        "5.3",
+        "5.9",
+        "7.5",
+        "7.6",
+        "7.7",
+        "7.8",
+        "7.11"
+      ],
+      "resolved_model": "claude-opus-5",
+      "risk": "high; migration from two stores can expose mismatched identifiers, so rollback keeps the last persisted coherent generation and restores the preceding poller.",
+      "stage": 3,
+      "task_category": "heavy_reasoning",
+      "title": "Stage static feeds and orchestrate recoverable refreshes",
+      "verification": "`cargo test static_gtfs -- --nocapture`; `cargo test orchestrator -- --nocapture`; prove one fetch supplies retained/parser/validator bytes, two versionless snapshots receive distinct identifiers, pinned validator fixtures accept zero errors and retain last-good for errors/tool failures, and mock sources/static loaders plus injected failures preserve current state, pending-static promotion, retries, and credential-free telemetry; review public documentation."
+    },
+    {
+      "capability_tier": "frontier",
+      "checked": true,
+      "delegation": "controller",
+      "dependency_delivery": "none",
+      "dependency_resolution": "none",
+      "depends_on": [
+        "1.1",
+        "2.1"
+      ],
+      "files": [
+        "src/serve.rs",
+        "src/main.rs",
+        "README.md"
+      ],
+      "id": "3.2",
+      "interfaces": "Consumes: task 1.1 `ValidatedConfig`/`AccessPolicy`, task 2.1 `GenerationStore`/`PublishedGeneration`, Axum `State<AppState>`, peer `SocketAddr`, and injected time; Produces: `router(AppState) -> Router`, `/livez`, `/readyz`, `/v1/feed-set.json`, immutable `/v1/generations/{id}/...` routes, and documented consumer cutover",
+      "optional": false,
+      "reasoning_level": "extra_high",
+      "requirements": [
+        "4.2",
+        "4.3",
+        "4.4",
+        "4.5",
+        "4.6",
+        "5.6",
+        "5.7",
+        "5.8",
+        "6.1",
+        "6.2",
+        "6.3",
+        "6.4",
+        "6.5"
+      ],
+      "resolved_model": "claude-opus-5",
+      "risk": "high; route migration can interrupt internal consumers or bypass access control, so coordinate cutover and roll back to the previous binary without rewriting generation artifacts.",
+      "stage": 3,
+      "task_category": "heavy_reasoning",
+      "title": "Serve controlled immutable feed generations",
+      "verification": "`cargo test serve::tests -- --nocapture`; exercise the router for allowed/denied/missing peers, spoofed forwarding headers, traversal-shaped identifiers, every health boundary, manifest coherence, immutable lookup, content types, and removed routes; review public documentation."
+    },
+    {
+      "capability_tier": "frontier",
+      "checked": true,
+      "delegation": "controller",
+      "dependency_delivery": "none",
+      "dependency_resolution": "none",
+      "depends_on": [
+        "3.1",
+        "3.2"
+      ],
+      "files": [
+        "src/main.rs",
+        "src/writer.rs",
+        "src/static_gtfs.rs",
+        "src/orchestrator.rs",
+        "src/serve.rs",
+        "README.md"
+      ],
+      "id": "4.1",
+      "interfaces": "Consumes: task 3.1 refresh futures, task 3.2 `router(AppState) -> Router`, and task 2.1 durable recovery; Produces: one startup composition root, `supervise(...) -> Result<(), ServiceError>`, transport-peer propagation, nonzero failure propagation for each required activity, and an end-to-end coherent generation path",
+      "optional": false,
+      "reasoning_level": "extra_high",
+      "requirements": [
+        "1.1",
+        "1.2",
+        "3.5",
+        "4.1",
+        "5.9",
+        "7.5",
+        "7.8",
+        "7.10",
+        "7.11"
+      ],
+      "resolved_model": "claude-opus-5",
+      "risk": "high; wiring errors can make the service appear alive while core work has stopped, so retain the previous binary and persisted last-good generation for rollback.",
+      "stage": 4,
+      "task_category": "heavy_reasoning",
+      "title": "Wire startup, shared state, and fail-fast task supervision",
+      "verification": "`cargo test --all-targets --all-features`; run targeted supervision tests for each succeeding/failing future with sibling-cancellation assertions, restart against a retained generation while refresh fails, and run the mocked manifest-to-artifact flow; review composition comments."
+    },
+    {
+      "capability_tier": "frontier",
+      "checked": true,
+      "delegation": "controller",
+      "dependency_delivery": "release",
+      "dependency_resolution": "none",
+      "depends_on": [
+        "1.3",
+        "4.1"
+      ],
+      "files": [
+        "scripts/validate-feeds.sh",
+        "validation/baseline.json",
+        "validation-reports",
+        ".security/dependency-audit"
+      ],
+      "id": "5.1",
+      "interfaces": "Consumes: task 1.3 accountable exception schema, task 4.1 release candidate, `/v1/feed-set.json`, MobilityData GTFS validator `8.0.1`, GTFS-Realtime validator commit `7041fa3`, and dependency audit reports; Produces: deterministic validation reports, independent decode evidence, a fresh reviewed `release` dependency record, and an explicit ship-or-block decision",
+      "optional": false,
+      "reasoning_level": "high",
+      "requirements": [
+        "1.2",
+        "1.3",
+        "1.4",
+        "1.5",
+        "8.1",
+        "8.2",
+        "8.3",
+        "8.4",
+        "8.5",
+        "8.6",
+        "8.7",
+        "8.8",
+        "8.9",
+        "8.10"
+      ],
+      "resolved_model": "claude-opus-5",
+      "risk": "high; stale, incomplete, warning-unreviewed, blocked, unavailable, invalid, or failing evidence stops release and leaves deployment unchanged.",
+      "stage": 5,
+      "task_category": "review",
+      "title": "Run the independent release gate",
+      "verification": "`cargo fmt --check`; `cargo clippy --all-targets --all-features -- -D warnings`; `cargo test --all-targets --all-features`; run [scripts/validate-feeds.sh](../../scripts/validate-feeds.sh); verify report timestamps/inventory/status and manually review linked JSON and Markdown dependency reports plus documentation."
+    }
+  ]
+}

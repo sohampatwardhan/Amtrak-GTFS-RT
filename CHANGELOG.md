@@ -9,29 +9,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **Feed validation gate** (`scripts/validate-feeds.sh`) running MobilityData's
-  `gtfs-validator` 8.0.1 and `gtfs-realtime-validator` against feeds generated
-  from live data. Fails on any ERROR code absent from
-  `validation/baseline.json`; occurrence counts are not gated, since they track
-  how many trains are running. Each RT feed type is validated in its own
-  directory so the batch processor does not treat them as successive iterations
-  of one feed. Runs on Java 17 + Maven, or Docker as a fallback.
+- **Immutable feed generations** containing one static GTFS snapshot, separated
+  TripUpdates, VehiclePositions, Alerts, and a manifest that identifies their
+  shared generation and static version.
+- **Manifest-first API** at `/v1/feed-set.json` with generation-pinned artifact
+  URLs, plus independent `/livez` and freshness-aware `/readyz` health routes.
+- **Durable recovery** through an atomically replaced current marker and validated
+  generation scan, preserving the last-good feed set across process restarts and
+  upstream outages.
+- **Internal peer access policy** with loopback-only defaults, exact-IP allowlists,
+  fail-closed transport-peer identity, and no trust in forwarding headers.
+- **Feed validation gate** running content-pinned MobilityData `gtfs-validator`
+  8.0.1 and a commit-pinned `gtfs-realtime-validator` against exactly one
+  manifest-selected feed set. It independently decodes all three realtime feeds
+  and rejects malformed, expired, or unapproved validator exceptions.
 - **CI workflows**: `ci.yml` (build and offline tests on every push and pull
   request) and `validate-feeds.yml` (the validation gate, nightly plus on
   pipeline changes and on demand — kept off pull requests so an Amtrak outage
   cannot block unrelated work).
-- **`validation/baseline.json`** recording the eleven known GTFS-Realtime error
-  codes with their causes, as debt to burn down.
+- **Spec-driven delivery record** under `.specs/amtrak-gtfs-rt-service`, including
+  approved requirements, design, task execution evidence, and rollout decision.
+
+### Changed
+
+- Replaced mutable top-level feed files with immutable generation routes.
+- Split mixed upstream entities into type-correct GTFS-Realtime products, removed
+  invalid FULL_DATASET deletions, normalized headers, and filtered unresolved
+  static references.
+- Static GTFS replacements now pass the same pinned standards validator at
+  runtime before they can participate in a committed generation.
+- Long-lived task supervision now cancels and drains sibling activities when the
+  poller, static refresher, or HTTP server exits or fails.
 
 ### Known issues
 
-- `trip-updates.pb` and `vehicle-positions.pb` are byte-identical: the upstream
-  transform emits unified entities carrying both `trip_update` and `vehicle`.
-  Both endpoints serve correct data, but each carries payload its consumer
-  ignores.
-- `E039` (`is_deleted` present on a FULL_DATASET feed) and `E049` (header
-  incrementality not populated) are emitted by our own pipeline and are fixable
-  here.
+- Production rollout remains blocked until a fresh dependency audit has complete,
+  shippable evidence. The current audit includes an unavailable CISA KEV source
+  and a critical advisory inherited through the upstream `amtrak-gtfs-rt` crate.
 
 ### Planned
 

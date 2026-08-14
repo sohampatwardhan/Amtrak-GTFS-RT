@@ -1,0 +1,34 @@
+{
+  "diagram": "graph",
+  "target": "block",
+  "columns": 2,
+  "groups": [
+    { "id": "ingestion", "label": "Candidate ingestion" },
+    { "id": "publication", "label": "Coherent publication" },
+    { "id": "delivery", "label": "Controlled delivery" }
+  ],
+  "nodes": [
+    { "id": "amtrak", "label": "Amtrak static and realtime sources", "kind": "io" },
+    { "id": "schedule", "label": "Active or pending StaticSnapshot", "kind": "store", "group": "ingestion" },
+    { "id": "source", "label": "RtSource selection", "kind": "process", "group": "ingestion" },
+    { "id": "builder", "label": "GenerationBuilder split match sanitize", "kind": "process", "group": "publication" },
+    { "id": "validator", "label": "CandidateValidator", "kind": "process", "group": "publication" },
+    { "id": "publisher", "label": "GenerationPublisher atomic commit", "kind": "process", "group": "publication" },
+    { "id": "store", "label": "GenerationStore current Arc and immutable artifacts", "kind": "store", "group": "publication" },
+    { "id": "access", "label": "AccessPolicy middleware", "kind": "process", "group": "delivery" },
+    { "id": "http", "label": "Manifest pinned feeds livez readyz", "kind": "process", "group": "delivery" },
+    { "id": "consumer", "label": "Authorized internal consumer", "kind": "io" }
+  ],
+  "edges": [
+    { "from": "amtrak", "to": "schedule", "label": "static ZIP" },
+    { "from": "amtrak", "to": "source", "label": "live observations" },
+    { "from": "schedule", "to": "builder", "label": "matching context and bytes" },
+    { "from": "source", "to": "builder", "label": "RtBatch" },
+    { "from": "builder", "to": "validator", "label": "CandidateGeneration" },
+    { "from": "validator", "to": "publisher", "label": "validated candidate" },
+    { "from": "publisher", "to": "store", "label": "single commit point" },
+    { "from": "store", "to": "http", "label": "one pinned generation" },
+    { "from": "access", "to": "http", "label": "admit or deny" },
+    { "from": "http", "to": "consumer", "label": "GTFS and GTFS RT" }
+  ]
+}

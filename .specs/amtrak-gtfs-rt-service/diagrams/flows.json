@@ -1,0 +1,35 @@
+{
+  "diagram": "sequence",
+  "target": "sequenceDiagram",
+  "actors": [
+    { "id": "Poller", "kind": "participant" },
+    { "id": "Builder", "kind": "participant" },
+    { "id": "Validator", "kind": "participant" },
+    { "id": "Publisher", "kind": "participant" },
+    { "id": "Store", "kind": "participant" },
+    { "id": "Consumer", "kind": "actor" },
+    { "id": "HTTP", "kind": "participant" }
+  ],
+  "steps": [
+    { "type": "message", "from": "Poller", "to": "Builder", "label": "build schedule plus RtBatch", "kind": "sync" },
+    { "type": "message", "from": "Builder", "to": "Validator", "label": "validate candidate generation", "kind": "sync" },
+    { "type": "alt", "branches": [
+      { "label": "candidate valid", "steps": [
+        { "type": "message", "from": "Validator", "to": "Publisher", "label": "validated candidate", "kind": "sync" },
+        { "type": "message", "from": "Publisher", "to": "Store", "label": "persist immutable artifacts then swap current Arc", "kind": "sync" }
+      ] },
+      { "label": "fetch build validation or persistence failure", "steps": [
+        { "type": "message", "from": "Validator", "to": "Poller", "label": "stage error keep current generation", "kind": "reply" }
+      ] }
+    ] },
+    { "type": "message", "from": "Consumer", "to": "HTTP", "label": "GET /v1/feed-set.json", "kind": "sync" },
+    { "type": "message", "from": "HTTP", "to": "Store", "label": "load current Arc once", "kind": "sync" },
+    { "type": "message", "from": "HTTP", "to": "Consumer", "label": "generation id and four immutable URLs", "kind": "reply" },
+    { "type": "loop", "label": "each required artifact", "steps": [
+      { "type": "message", "from": "Consumer", "to": "HTTP", "label": "GET /v1/generations/id/artifact", "kind": "sync" },
+      { "type": "message", "from": "HTTP", "to": "Store", "label": "resolve immutable generation id", "kind": "sync" },
+      { "type": "message", "from": "HTTP", "to": "Consumer", "label": "bytes from the pinned generation", "kind": "reply" }
+    ] },
+    { "type": "note", "position": "over", "actors": ["Consumer", "HTTP"], "text": "One manifest pins the complete immutable feed set" }
+  ]
+}
