@@ -87,6 +87,8 @@ dependencies = [
  "amtrak-gtfs-rt",
  "async-trait",
  "axum",
+ "chrono",
+ "chrono-tz",
  "gtfs-realtime",
  "gtfs-structures",
  "prost",
