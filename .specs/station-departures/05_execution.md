@@ -57,7 +57,7 @@ checker's "owns a resolution path ⇒ change" rule does not apply. The incomplet
 - Status: pull-request
 - Base: `main`
 - Result: commit `7b792f8` on branch `station-departures`; [PR #7](https://github.com/sohampatwardhan/Amtrak-GTFS-RT/pull/7)
-- The commit stages only the feature (Cargo manifest/lock, `src/bin/`, `.specs/station-departures/`, `examples/station_departures.rs`); the pre-existing unrelated `.specs/amtrak-gtfs-rt-service/03_design.md` edit, `.codebase-memory/`, and a throwaway live speed-check script were deliberately left uncommitted.
+- The commit stages only the feature: the Cargo manifest and lockfile, the consumer sources, this spec directory, and the validation example. Deliberately left uncommitted: the pre-existing unrelated [`03_design.md`](../amtrak-gtfs-rt-service/03_design.md) edit under another spec, the local codebase-memory index directory, and a throwaway live speed-check script.
 - Post-integration verification: passed on the branch (75 tests pass + 2 ignored; service/container unchanged; live verification confirmed). Merge and any deployment remain separate, explicitly-authorized steps.
 
 ## Execution Timing
