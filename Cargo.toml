@@ -5,6 +5,11 @@ edition = "2021"
 license = "AGPL-3.0-only"
 description = "Serves live GTFS-Realtime feeds for Amtrak"
 
+[features]
+# Opt-in consumer tooling. The shipped service (`cargo build --locked --release`) does not enable
+# this feature, so `chrono-tz` and the `amtrak-status` binary stay out of the released artifact.
+status = ["dep:chrono-tz", "dep:chrono"]
+
 [dependencies]
 amtrak-gtfs-rt = { git = "https://github.com/catenarytransit/amtrak-gtfs-rt" }
 gtfs-structures = "0.46.1"
@@ -18,6 +23,10 @@ tracing = "0.1"
 tracing-subscriber = "0.3"
 serde_json = "1.0"
 sha2 = "0.10.9"
+# Consumer-only (station & train status): per-station local-time rendering with DST. Optional so
+# the released service binary and container link no additional code. Already in the resolved graph.
+chrono-tz = { version = "0.10", optional = true }
+chrono = { version = "0.4", optional = true }
 
 [target.'cfg(unix)'.dependencies]
 rustix = { version = "1.1.4", features = ["fs", "process"] }
@@ -25,3 +34,10 @@ rustix = { version = "1.1.4", features = ["fs", "process"] }
 [dev-dependencies]
 tower = { version = "0.5", features = ["util"] }
 zip = { version = "6.0", default-features = false, features = ["deflate"] }
+
+# Station & train status consumer CLI. Gated behind the `status` feature so the default build and
+# the container image (which build no features) never compile this target or `chrono-tz`.
+[[bin]]
+name = "amtrak-status"
+path = "src/bin/amtrak_status.rs"
+required-features = ["status"]
