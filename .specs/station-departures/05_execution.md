@@ -52,6 +52,14 @@ checker's "owns a resolution path ⇒ change" rule does not apply. The incomplet
   observation. Two ignored live tests were added ([`src/bin/status/live_tests.rs`](../../src/bin/status/live_tests.rs))
   and confirmed present-but-ignored by default.
 
+## Integration Decision
+
+- Status: pull-request
+- Base: `main`
+- Result: commit `7b792f8` on branch `station-departures`; [PR #7](https://github.com/sohampatwardhan/Amtrak-GTFS-RT/pull/7)
+- The commit stages only the feature (Cargo manifest/lock, `src/bin/`, `.specs/station-departures/`, `examples/station_departures.rs`); the pre-existing unrelated `.specs/amtrak-gtfs-rt-service/03_design.md` edit, `.codebase-memory/`, and the `examples/train_speed.rs` throwaway were deliberately left uncommitted.
+- Post-integration verification: passed on the branch (75 tests pass + 2 ignored; service/container unchanged; live verification confirmed). Merge and any deployment remain separate, explicitly-authorized steps.
+
 ## Execution Timing
 
 
