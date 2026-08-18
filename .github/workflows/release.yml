@@ -238,11 +238,10 @@ jobs:
           if docker buildx imagetools inspect "$IMAGE:$version" >/dev/null 2>&1; then
             printf 'Version tag already exists; verifying immutable rerun state.\n'
           else
-            if docker buildx imagetools inspect "$IMAGE:$minor" >/dev/null 2>&1 || \
-               docker buildx imagetools inspect "$IMAGE:latest" >/dev/null 2>&1; then
-              printf 'A moving tag exists without the immutable version tag; refusing publication.\n' >&2
-              exit 1
-            fi
+            # The immutable version tag does not exist yet, so this is a first publish of it.
+            # `minor` and `latest` are moving tags that legitimately already point at an earlier
+            # release, so their presence is expected on every release after the first — the
+            # imagetools create below atomically (re)points them at this version's manifest.
             docker buildx imagetools create \
               --tag "$IMAGE:$version" \
               --tag "$IMAGE:$minor" \
