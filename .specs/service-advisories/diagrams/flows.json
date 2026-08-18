@@ -1,0 +1,29 @@
+{
+  "diagram": "sequence",
+  "target": "sequenceDiagram",
+  "actors": [
+    { "id": "Poller" },
+    { "id": "WithAdvisories" },
+    { "id": "AmtrakSource" },
+    { "id": "AdvisoryPage" }
+  ],
+  "steps": [
+    { "type": "message", "from": "Poller", "to": "WithAdvisories", "label": "fetch(gtfs)", "kind": "sync" },
+    { "type": "message", "from": "WithAdvisories", "to": "AmtrakSource", "label": "fetch: RT feeds plus ASM trip alerts", "kind": "sync" },
+    { "type": "message", "from": "AmtrakSource", "to": "WithAdvisories", "label": "RtBatch with trip-scoped alerts", "kind": "reply" },
+    { "type": "alt", "branches": [
+      { "label": "cache fresh", "steps": [
+        { "type": "message", "from": "WithAdvisories", "to": "WithAdvisories", "label": "reuse cached advisory alerts", "kind": "sync" }
+      ] },
+      { "label": "cache stale, scrape ok", "steps": [
+        { "type": "message", "from": "WithAdvisories", "to": "AdvisoryPage", "label": "GET advisories page", "kind": "sync" },
+        { "type": "message", "from": "AdvisoryPage", "to": "WithAdvisories", "label": "HTML", "kind": "reply" },
+        { "type": "message", "from": "WithAdvisories", "to": "WithAdvisories", "label": "parse station and passenger advisories, map via AdvisoryIndex, cache", "kind": "sync" }
+      ] },
+      { "label": "cache stale, fetch or parse fails (fail-open)", "steps": [
+        { "type": "message", "from": "WithAdvisories", "to": "WithAdvisories", "label": "diagnostic, reuse last-good else zero advisories", "kind": "sync" }
+      ] }
+    ] },
+    { "type": "message", "from": "WithAdvisories", "to": "Poller", "label": "RtBatch with ASM plus advisory alerts merged", "kind": "reply" }
+  ]
+}
