@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-08-18
+
+### Added
+
+- **Service advisories as scoped GTFS-RT alerts** (default-off). When enabled, the
+  service turns Amtrak's Service Alerts & Notices into alert entities: station
+  advisories become stop-scoped (`stop_id`) and passenger advisories become
+  route-scoped (`route_id`). It is fail-open — an unreachable source, unexpected
+  markup, or an unmappable station never fails feed generation — and is configured
+  through `AMTRAK_ADVISORIES` and `AMTRAK_ADVISORIES_URL`.
+- **`advisory-fetcher` sidecar** (`advisory-fetcher/`): a standalone Python +
+  Playwright container that runs a headless Chromium to defeat Amtrak's Akamai bot
+  gate (which blocks plain requests) and serves the advisories HTML over HTTP for
+  the service to consume. It is memory-efficient (launch-per-poll, a single browser
+  per cycle with none resident between polls, subresource-blocking) and fail-open,
+  and ships as its own image so the service keeps its scratch/musl,
+  no-vulnerabilities posture. Verified end-to-end on a Raspberry Pi 5.
+
 ## [0.2.0] - 2026-08-14
 
 ### Added
