@@ -53,6 +53,14 @@ plan: ship the service-side code **fail-open and default-off** now, and build a 
 sidecar** (real browser earns the sensor cookie) as a separate follow-up spec, starting with an
 Akamai-bypass spike.
 
+## Integration Decision
+
+- Status: pull-request
+- Base: `main`
+- Result: commit `f2e1075` on branch `service-advisories`; [PR #8](https://github.com/sohampatwardhan/Amtrak-GTFS-RT/pull/8)
+- Shipped **fail-open, default-off**: the parsing/mapping/decorator code is complete and unit-tested, but `AMTRAK_ADVISORIES` defaults off because the direct fetch is Akamai-blocked (see Blocker). The commit stages only the feature (Cargo manifest/lock, the config/main/sources changes, and this spec directory); a pre-existing unrelated design edit under the amtrak-gtfs-rt-service spec, the local codebase-memory index, and the throwaway example scripts were left uncommitted.
+- Follow-up: a separate `advisory-fetcher` spec (Playwright sidecar) will provide the reachable source, starting with an Akamai-bypass spike. Merge and the fresh protected-main dependency audit remain the CI/merge gate.
+
 ## Execution Timing
 
 

@@ -3,7 +3,8 @@
     "This feature **changes the shipped feed-producer service**: it scrapes Amtrak's Service Alerts & Notices page and injects **stop-scoped** (station advisories) and **route-scoped** (passenger advisories) GTFS-RT alerts into the published generation's alerts feed. It therefore re-opens the service's container-scan, dependency-audit, and release gates.",
     "The pivotal placement decision was made by the user on 2026-08-17: **producer emits** (scrape in the service) \u2014 not a consumer-side scrape. Consumer-side surfacing of the new route/stop-scoped alerts is a separate follow-up that depends on the station-departures consumer ([PR #7](https://github.com/sohampatwardhan/Amtrak-GTFS-RT/pull/7)).",
     "A change that alters the immutable-generation contract, the direct-peer authorization, or makes the scrape a hard dependency of generation success returns to discovery.",
-    "Precedent in-repo: the `amtrak-gtfs-rt` crate already scrapes the Pacific Surfliner website into GTFS-RT alerts using `scraper` 0.22; this feature mirrors that pattern at national scale in our own service."
+    "Precedent in-repo: the `amtrak-gtfs-rt` crate already scrapes the Pacific Surfliner website into GTFS-RT alerts using `scraper` 0.22; this feature mirrors that pattern at national scale in our own service.",
+    "On 2026-08-18, execution completed and integrated via **[PR #8](https://github.com/sohampatwardhan/Amtrak-GTFS-RT/pull/8)** (commit `f2e1075`, branch `service-advisories` \u2192 `main`). Live verification proved the direct in-service fetch is Akamai-blocked (IP-independent; confirmed after ruling out a Proton VPN confound), so the feature ships **fail-open and default-off**; the real data acquisition moves to a separate `advisory-fetcher` (Playwright sidecar) spec beginning with an Akamai-bypass spike."
   ],
   "gates": {
     "audit": {
@@ -33,7 +34,7 @@
   },
   "generated_from": {
     "file": "00_state.md",
-    "sha256": "fbe2a33c9b12e860475de3c16d51b040fdfc3b15f6fa764b79a5573471e6a468"
+    "sha256": "90715529aa4bfa655107fafe8fb8760d648467269f5c6c2cd92ed11613ea1b31"
   },
   "schema_version": 1
 }
