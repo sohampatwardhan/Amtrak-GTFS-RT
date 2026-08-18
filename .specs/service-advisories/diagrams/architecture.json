@@ -1,0 +1,29 @@
+{
+  "diagram": "graph",
+  "target": "block",
+  "groups": [
+    { "id": "ext", "label": "External" },
+    { "id": "svc", "label": "Feed-producer service (generation build)" },
+    { "id": "out", "label": "Output" }
+  ],
+  "nodes": [
+    { "id": "page", "label": "Amtrak Service Alerts & Notices page (HTML)", "group": "ext" },
+    { "id": "amtrak", "label": "AmtrakSource: ASM trip-scoped alerts + RT feeds", "group": "svc" },
+    { "id": "deco", "label": "WithAdvisories decorator (TTL cache, fail-open)", "group": "svc" },
+    { "id": "scraper", "label": "AdvisoryScraper: parse station + passenger advisories", "group": "svc" },
+    { "id": "index", "label": "AdvisoryIndex: station code to stop_id, route name to route_id", "group": "svc" },
+    { "id": "merge", "label": "merge into RtBatch.alerts", "group": "svc" },
+    { "id": "publish", "label": "validate + publish one immutable generation", "group": "svc" },
+    { "id": "alerts", "label": "alerts.pb: trip + stop + route scoped", "group": "out" }
+  ],
+  "edges": [
+    { "from": "amtrak", "to": "deco" },
+    { "from": "page", "to": "scraper" },
+    { "from": "deco", "to": "scraper" },
+    { "from": "index", "to": "scraper" },
+    { "from": "scraper", "to": "merge" },
+    { "from": "deco", "to": "merge" },
+    { "from": "merge", "to": "publish" },
+    { "from": "publish", "to": "alerts" }
+  ]
+}

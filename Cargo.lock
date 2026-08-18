@@ -92,6 +92,7 @@ dependencies = [
  "prost",
  "reqwest 0.13.4",
  "rustix",
+ "scraper",
  "serde_json",
  "sha2 0.10.9",
  "tokio",

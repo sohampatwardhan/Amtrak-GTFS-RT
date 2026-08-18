@@ -4,6 +4,9 @@ use gtfs_structures::Gtfs;
 
 pub type SourceError = Box<dyn std::error::Error + Send + Sync>;
 
+pub mod advisories;
+#[cfg(test)]
+mod advisories_live_tests;
 pub mod amtrak;
 
 #[derive(Clone, Debug)]
