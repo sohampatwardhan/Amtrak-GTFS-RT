@@ -1,0 +1,20 @@
+# Spec State: Advisory Fetcher (Playwright sidecar)
+
+<!-- spec-nav:start -->
+**Spec navigation:** [State](00_state.md) · [Discovery](01_discovery.md) · [Requirements](02_requirements.md) · [Design](03_design.md) · [Tasks](04_tasks.md) · [Execution](05_execution.md)
+<!-- spec-nav:end -->
+
+| Gate | Status | Evidence |
+|---|---|---|
+| Discovery | approved | Approved 2026-08-18; spike-first Playwright sidecar, Pi/OOM-bounded |
+| Requirements | approved | Approved 2026-08-18; 8 requirements / 22 criteria, Pi 5 confirmed on-device |
+| Design | approved | Approved 2026-08-18; spike-gated Playwright sidecar, HTTP snapshot, 1 GB cap |
+| Tasks | approved | Approved 2026-08-18; 10 tasks / 8 stages, spike-gated, throwaway Pi container |
+| Audit | not_run | Not requested |
+| Execution | complete | All 10 tasks verified; final review clean (2 findings fixed). Spike bypass 10/10; 34 tests; arm64 image serves + fetches; no resident browser, ~50 MiB idle, auto-restart. PR #8 merged to main; join yields 13 scoped alerts (9 stop + 6 route). **Delivered: PR #9** (push+PR, operator-selected) |
+
+## Change Control
+
+- This is a **new, standalone component** (advisory-fetcher/), not part of the Rust service. It uses a real browser (Playwright) to earn Amtrak's Akamai sensor cookie, fetch the Service Alerts & Notices page, and write a **snapshot** the feed-producer service consumes via `AdvisoryConfig` (established by [service-advisories PR #8](https://github.com/sohampatwardhan/Amtrak-GTFS-RT/pull/8)). It runs in its own container image; the service keeps its scratch/musl posture.
+- **Spike-first.** The load-bearing assumption — that a headless (or Xvfb-headful) browser from a server IP actually defeats Amtrak's Akamai Bot Manager and returns the advisory markup — is **unproven**. The first phase is a spike that proves or disproves it before any sidecar is built. A failed spike returns to discovery (different bypass, managed scraping API, or shelve the feature).
+- Depends on service-advisories (PR #8) for the snapshot-consumption contract; that work already ships fail-open and default-off, so this component is what turns advisories on in a deployment.

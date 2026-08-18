@@ -1,0 +1,36 @@
+# Advisory-fetcher deployment (Raspberry Pi 5 / ARM64).
+#
+# The fetcher runs a real headless browser to defeat Amtrak's Akamai gate and serves the advisories
+# HTML over HTTP on the internal network. The feed-producer service GETs that endpoint and turns it
+# into scoped GTFS-RT alerts. No hard memory limit (operator decision); efficiency comes from
+# launch-per-poll, a single browser at a time, and subresource-blocking.
+services:
+  advisory-fetcher:
+    build: .
+    image: advisory-fetcher:latest
+    restart: unless-stopped        # auto-restart on crash (R4.3)
+    shm_size: "1gb"                # ample /dev/shm for Chromium, without sharing the host IPC ns
+    environment:
+      POLL_INTERVAL_SECS: "900"    # respectful cadence (R6)
+      BROWSER_MODE: "headless-shell"
+      BLOCK_SUBRESOURCES: "true"
+    # No published ports: only the service (same network) reaches it.
+    networks: [advisory]
+
+  # The feed-producer service. REQUIRES the service-advisories work (PR #8), which adds the
+  # AdvisoryConfig snapshot consumption; it is not on the main branch yet. Once merged, build it
+  # from the repo root and point it at the fetcher:
+  amtrak-gtfs-rt-service:
+    build:
+      context: ..                  # repo root Dockerfile (the Rust service)
+    restart: unless-stopped
+    depends_on: [advisory-fetcher]
+    environment:
+      AMTRAK_ADVISORIES: "on"
+      AMTRAK_ADVISORIES_URL: "http://advisory-fetcher:8080/service-alerts-and-notices"
+      # ...plus the service's own settings (AMTRAK_STATIC_URL, bind address, peer policy, etc.)
+    networks: [advisory]
+
+networks:
+  advisory:
+    driver: bridge
