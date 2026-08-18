@@ -146,6 +146,12 @@ switched to `shm_size: "1gb"` (per-container `/dev/shm`), updating the design/ta
 Re-verified: 34 tests pass, `docker compose config` valid, and a fresh arm64 image build + run still
 serves `/healthz`=200 and fetches advisories (200, 76 hits). No load-bearing findings remain.
 
+**Integration — DONE (operator chose push + PR).** Committed only the feature files
+(the advisory-fetcher and .specs/advisory-fetcher trees, 33 files; unrelated working-tree changes
+left untouched) as `dfa6135`, pushed the branch, and opened **[PR #9](https://github.com/sohampatwardhan/Amtrak-GTFS-RT/pull/9)**
+against `main` (MERGEABLE; `BEHIND` base — disjoint, so clean; CI running). Branch left un-updated to
+avoid touching the operator's unrelated uncommitted changes. Execution complete.
+
 ## Execution Timing
 
 

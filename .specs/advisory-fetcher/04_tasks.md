@@ -241,7 +241,7 @@ flowchart TD
     - **Delegation:** controller
     - _Requirements: 2.4, 3.2, 4.1, 4.2, 4.3, 5.1, 8.1_
 
-- [ ] 6. Checkpoint — Delivery gate: with the on-device end-to-end passing and the service image verified unchanged, hand off to spec-finish for the PR to main. The service's Rust surface is untouched, so there is no protected-main code change.
+- [x] 6. Checkpoint — Delivery gate: with the on-device end-to-end passing and the service image verified unchanged, hand off to spec-finish for the PR to main. The service's Rust surface is untouched, so there is no protected-main code change. **Delivered: PR #9 (https://github.com/sohampatwardhan/Amtrak-GTFS-RT/pull/9), operator-selected push+PR.**
 
 ## Delivery Schedule
 

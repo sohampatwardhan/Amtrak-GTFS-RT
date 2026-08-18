@@ -18,7 +18,7 @@
       "status": "approved"
     },
     "execution": {
-      "evidence": "All 10 tasks verified. Spike bypass 10/10; fetcher built (34 tests); arm64 image serves + fetches; no resident browser, ~50 MiB idle, auto-restart. PR #8 merged to main; join yields 13 scoped alerts (9 stop + 6 route). Hard cap dropped per operator; Chromium + subresource-blocking. Awaiting spec-finish delivery decision",
+      "evidence": "All 10 tasks verified; final review clean (2 findings fixed). Spike bypass 10/10; 34 tests; arm64 image serves + fetches; no resident browser, ~50 MiB idle, auto-restart. PR #8 merged to main; join yields 13 scoped alerts (9 stop + 6 route). **Delivered: PR #9** (push+PR, operator-selected)",
       "status": "complete"
     },
     "requirements": {
@@ -32,7 +32,7 @@
   },
   "generated_from": {
     "file": "00_state.md",
-    "sha256": "54bc172300bf8ce1b655086a453d03ec8f9f7fbfeb077caee59d7f6777746007"
+    "sha256": "22eec5af79be233a10d4f019c256a089efc026493aebc228c5de64ddba08be0e"
   },
   "schema_version": 1
 }

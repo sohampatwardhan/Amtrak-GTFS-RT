@@ -11,7 +11,7 @@
 | Design | approved | Approved 2026-08-18; spike-gated Playwright sidecar, HTTP snapshot, 1 GB cap |
 | Tasks | approved | Approved 2026-08-18; 10 tasks / 8 stages, spike-gated, throwaway Pi container |
 | Audit | not_run | Not requested |
-| Execution | complete | All 10 tasks verified. Spike bypass 10/10; fetcher built (34 tests); arm64 image serves + fetches; no resident browser, ~50 MiB idle, auto-restart. PR #8 merged to main; join yields 13 scoped alerts (9 stop + 6 route). Hard cap dropped per operator; Chromium + subresource-blocking. Awaiting spec-finish delivery decision |
+| Execution | complete | All 10 tasks verified; final review clean (2 findings fixed). Spike bypass 10/10; 34 tests; arm64 image serves + fetches; no resident browser, ~50 MiB idle, auto-restart. PR #8 merged to main; join yields 13 scoped alerts (9 stop + 6 route). **Delivered: PR #9** (push+PR, operator-selected) |
 
 ## Change Control
 
