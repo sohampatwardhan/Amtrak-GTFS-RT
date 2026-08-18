@@ -1,0 +1,160 @@
+{
+  "schema_version": 1,
+  "generated_from": {
+    "file": "02_requirements.md",
+    "sha256": "d083b29274fa5ef4b5dc4f8eeffdcd1e14efdcfd2df9d88e4f21dc046753d1fe"
+  },
+  "requirements": [
+    {
+      "id": "1",
+      "user_story": {
+        "role": "feed consumer",
+        "capability": "each station facility advisory as a stop-scoped alert",
+        "benefit": "a station's board can display it"
+      },
+      "criteria": [
+        {
+          "id": "1.1",
+          "kind": "event",
+          "trigger": "the Service builds a generation",
+          "actor": "Service",
+          "behavior": "emit each parsed station advisory as an alert whose informed-entity stop identifier is the advisory's station code resolved to its GTFS stop"
+        },
+        {
+          "id": "1.2",
+          "kind": "unwanted",
+          "trigger": "a station advisory's station code resolves to no GTFS stop",
+          "actor": "Service",
+          "behavior": "skip that advisory and record a diagnostic rather than emit an alert against an incorrect stop"
+        }
+      ]
+    },
+    {
+      "id": "2",
+      "user_story": {
+        "role": "feed consumer",
+        "capability": "each route-level service advisory as a route-scoped alert",
+        "benefit": "any train or board of the affected route can display it"
+      },
+      "criteria": [
+        {
+          "id": "2.1",
+          "kind": "event",
+          "trigger": "the Service builds a generation",
+          "actor": "Service",
+          "behavior": "emit each parsed passenger advisory as an alert whose informed entities are the advisory's affected route names resolved to GTFS route identifiers"
+        },
+        {
+          "id": "2.2",
+          "kind": "event",
+          "trigger": "a passenger advisory affects more than one route",
+          "actor": "Service",
+          "behavior": "include one informed entity per resolved route"
+        },
+        {
+          "id": "2.3",
+          "kind": "unwanted",
+          "trigger": "a passenger advisory's route name resolves to no GTFS route",
+          "actor": "Service",
+          "behavior": "omit that route and record a diagnostic rather than emit against an incorrect route"
+        }
+      ]
+    },
+    {
+      "id": "3",
+      "user_story": {
+        "role": "feed consumer",
+        "capability": "each advisory alert to carry its title, detail, and active window",
+        "benefit": "the alert is self-describing"
+      },
+      "criteria": [
+        {
+          "id": "3.1",
+          "kind": "event",
+          "trigger": "the Service emits an advisory alert",
+          "actor": "Service",
+          "behavior": "set its header text to the advisory title and its description text to the advisory title together with the effective-date text"
+        },
+        {
+          "id": "3.2",
+          "kind": "optional",
+          "trigger": "an advisory's effective dates parse to a definite start-and-end range",
+          "actor": "Service",
+          "behavior": "set the alert's active period to that range"
+        },
+        {
+          "id": "3.3",
+          "kind": "unwanted",
+          "trigger": "an advisory's effective dates do not parse to a definite range",
+          "actor": "Service",
+          "behavior": "omit the active period and retain the effective-date text in the description"
+        }
+      ]
+    },
+    {
+      "id": "4",
+      "user_story": {
+        "role": "operator",
+        "capability": "advisory alerts to ride in the same coherent generation as the existing alerts",
+        "benefit": "consumers get one authoritative alerts feed"
+      },
+      "criteria": [
+        {
+          "id": "4.1",
+          "kind": "event",
+          "trigger": "the Service publishes a generation",
+          "actor": "Service",
+          "behavior": "include the advisory alerts in that generation's alerts feed alongside the existing trip-scoped ASM alerts"
+        },
+        {
+          "id": "4.2",
+          "kind": "event",
+          "trigger": "advisory alerts are added to a generation",
+          "actor": "Service",
+          "behavior": "preserve every existing trip-scoped ASM alert in that generation"
+        }
+      ]
+    },
+    {
+      "id": "5",
+      "user_story": {
+        "role": "operator",
+        "capability": "advisory scraping to never break the feed",
+        "benefit": "a website change or outage cannot stop the service from publishing"
+      },
+      "criteria": [
+        {
+          "id": "5.1",
+          "kind": "unwanted",
+          "trigger": "fetching the advisories page fails",
+          "actor": "Service",
+          "behavior": "publish the generation with no advisory alerts and record a diagnostic, without failing generation publication"
+        },
+        {
+          "id": "5.2",
+          "kind": "unwanted",
+          "trigger": "the advisories page cannot be parsed into the expected structure",
+          "actor": "Service",
+          "behavior": "emit no advisory alerts and record a diagnostic without failing generation publication"
+        }
+      ]
+    },
+    {
+      "id": "6",
+      "user_story": {
+        "role": "feed consumer",
+        "capability": "advisory alerts delivered through the existing feed without contract changes",
+        "benefit": "current integrations keep working unchanged"
+      },
+      "criteria": [
+        {
+          "id": "6.1",
+          "kind": "unconditional",
+          "trigger": "",
+          "actor": "Service",
+          "behavior": "deliver advisory alerts only through a generation's existing alerts artifact, without adding or changing any feed route or the immutable-generation contract"
+        }
+      ]
+    }
+  ]
+}

@@ -7,6 +7,7 @@ mod writer;
 
 use crate::config::Config;
 use crate::orchestrator::{GenerationCommitter, StoreGenerationCommitter};
+use crate::sources::advisories::WithAdvisories;
 use crate::sources::amtrak::AmtrakSource;
 use crate::sources::{RtBatch, RtSource, SourceError};
 use crate::static_gtfs::{
@@ -204,11 +205,25 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     ));
     let snapshots = initial_snapshots(&store, &config.static_url, validator.as_ref()).await?;
 
-    let sources: Arc<Vec<Box<dyn RtSource>>> = if config.filter_capital_corridor {
-        Arc::new(vec![Box::new(CapitalCorridorFiltered(AmtrakSource::new()))])
-    } else {
-        Arc::new(vec![Box::new(AmtrakSource::new())])
-    };
+    // The Amtrak source (optionally Capital Corridor-filtered) is optionally wrapped with the
+    // best-effort advisory scraper, which appends stop- and route-scoped advisory alerts to the
+    // alerts feed. The wrapper is fail-open, so enabling it never risks generation publication.
+    let advisory_config = crate::config::AdvisoryConfig::from_env()?;
+    let sources: Arc<Vec<Box<dyn RtSource>>> =
+        match (config.filter_capital_corridor, advisory_config.enabled) {
+            (true, true) => Arc::new(vec![Box::new(WithAdvisories::new(
+                CapitalCorridorFiltered(AmtrakSource::new()),
+                advisory_config,
+            ))]),
+            (true, false) => {
+                Arc::new(vec![Box::new(CapitalCorridorFiltered(AmtrakSource::new()))])
+            }
+            (false, true) => Arc::new(vec![Box::new(WithAdvisories::new(
+                AmtrakSource::new(),
+                advisory_config,
+            ))]),
+            (false, false) => Arc::new(vec![Box::new(AmtrakSource::new())]),
+        };
     let committer: Arc<dyn GenerationCommitter> = Arc::new(StoreGenerationCommitter::new(
         config.output_dir.clone(),
         store.clone(),

@@ -18,6 +18,54 @@ const HARDENED_VALIDATOR_SHA256: &str =
     "24ca7e890ca15bfbb36fa889fcb16200f7276995b7e6ec75551a8b7175e818d7";
 const MINIMUM_JAVA_MAJOR: u32 = 17;
 const PROBE_TIMEOUT: Duration = Duration::from_secs(10);
+const DEFAULT_ADVISORIES_URL: &str = "https://www.amtrak.com/service-alerts-and-notices";
+const DEFAULT_ADVISORIES_TTL_SECS: u64 = 900;
+
+/// Configuration for the best-effort Service Alerts & Notices advisory scraper.
+///
+/// The scraper is supplementary and fails open, so this config only tunes where and how often it
+/// runs and whether it runs at all — it never affects whether a generation publishes.
+#[derive(Clone, Debug)]
+pub struct AdvisoryConfig {
+    /// Advisories page URL. Env `AMTRAK_ADVISORIES_URL` (default the public notices page).
+    pub url: String,
+    /// Minimum interval between page fetches. Env `AMTRAK_ADVISORIES_TTL_SECS` (default 900).
+    pub ttl: Duration,
+    /// Whether the advisory scraper is wired in. Env `AMTRAK_ADVISORIES` (default **disabled**; set
+    /// `1`/`true`/`on` to enable). Disabled by default because Amtrak's `www` host blocks the
+    /// server-side fetch (Akamai bot management), so the direct scrape is inert until an operator
+    /// provides a reachable snapshot source; see the `advisory-fetcher` follow-up spec.
+    pub enabled: bool,
+}
+
+impl AdvisoryConfig {
+    /// Reads advisory configuration from the process environment.
+    pub fn from_env() -> Result<AdvisoryConfig, ConfigError> {
+        AdvisoryConfig::from_map(|key| std::env::var(key).ok())
+    }
+
+    /// Parses advisory configuration from an injected environment lookup (deterministic in tests).
+    ///
+    /// # Errors
+    ///
+    /// Returns a string naming the malformed environment field (a non-numeric TTL).
+    pub fn from_map<F: Fn(&str) -> Option<String>>(get: F) -> Result<AdvisoryConfig, ConfigError> {
+        let url = get("AMTRAK_ADVISORIES_URL").unwrap_or_else(|| DEFAULT_ADVISORIES_URL.to_string());
+        let ttl_secs = parse_u64(&get, "AMTRAK_ADVISORIES_TTL_SECS", DEFAULT_ADVISORIES_TTL_SECS)?;
+        let enabled = get("AMTRAK_ADVISORIES")
+            .map(|value| {
+                value == "1"
+                    || value.eq_ignore_ascii_case("true")
+                    || value.eq_ignore_ascii_case("on")
+            })
+            .unwrap_or(false);
+        Ok(AdvisoryConfig {
+            url,
+            ttl: Duration::from_secs(ttl_secs),
+            enabled,
+        })
+    }
+}
 
 /// Operator-provided service configuration before safety validation.
 ///
@@ -442,6 +490,33 @@ fn env_field(key: &str) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // R1.1/R2.1 support (task 1.1): advisory config defaults **off** (the direct www fetch is
+    // Akamai-blocked, so it is inert until an operator supplies a reachable source), and honors
+    // URL/TTL/enable overrides.
+    #[test]
+    fn advisory_config_defaults_and_overrides() {
+        let defaults = AdvisoryConfig::from_map(|_| None).unwrap();
+        assert_eq!(defaults.url, "https://www.amtrak.com/service-alerts-and-notices");
+        assert_eq!(defaults.ttl, Duration::from_secs(900));
+        assert!(!defaults.enabled); // default OFF
+
+        let overridden = AdvisoryConfig::from_map(|key| match key {
+            "AMTRAK_ADVISORIES_URL" => Some("http://svc/adv".to_string()),
+            "AMTRAK_ADVISORIES_TTL_SECS" => Some("60".to_string()),
+            "AMTRAK_ADVISORIES" => Some("on".to_string()),
+            _ => None,
+        })
+        .unwrap();
+        assert_eq!(overridden.url, "http://svc/adv");
+        assert_eq!(overridden.ttl, Duration::from_secs(60));
+        assert!(overridden.enabled); // opt-in via on/true/1
+
+        // A non-numeric TTL is a named error.
+        assert!(AdvisoryConfig::from_map(|key| (key == "AMTRAK_ADVISORIES_TTL_SECS")
+            .then(|| "soon".to_string()))
+        .is_err());
+    }
     use std::collections::HashMap;
 
     fn map(pairs: &[(&str, &str)]) -> impl Fn(&str) -> Option<String> {
