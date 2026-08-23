@@ -1,0 +1,136 @@
+{
+  "schema_version": 1,
+  "artifact_digest": "d6cc03758ef7bf46f3b8a116c8f29df0a9618f4553d5b413c7c42c51c74a724e",
+  "audit_depth": "thorough",
+  "result": "fixes_applied",
+  "findings": [
+    {
+      "id": "AUDIT-1",
+      "severity": "P0",
+      "classification": "CERTAIN",
+      "lens": "technical_factual",
+      "defect": "Manual recovery is not constrained to the default-branch control revision even though discovery and design require corrected controls from main.",
+      "evidence": "GitHub Actions permits workflow_dispatch against another ref; R6.2 rejects only a run without an explicit tag, while the select interface and task fixtures contain no control-ref/default-branch check.",
+      "proposed_fix": "Add an EARS criterion requiring refs/heads/main for manual recovery, pass and verify the dispatch ref/default branch before image validation, add a non-main rejection fixture, and require --ref main in the operator command."
+    },
+    {
+      "id": "AUDIT-2",
+      "severity": "P1",
+      "classification": "CERTAIN",
+      "lens": "technical_factual",
+      "defect": "The design and task plan classify new required CI dependencies as dependency-resolution none.",
+      "evidence": "The feature selects actions/setup-python, CPython 3.12.11, pytest 8.4.2, and Playwright 1.61.0 for a required merge gate; dependency-evidence.md applies whenever a feature selects or integrates a material third-party dependency.",
+      "proposed_fix": "Make the CI task dependency-resolution change, own the workflow resolution path, and record/review ordered pre-change and post-change dependency-security-audit evidence with exact versions and linked reports."
+    },
+    {
+      "id": "AUDIT-3",
+      "severity": "P1",
+      "classification": "CERTAIN",
+      "lens": "technical_factual",
+      "defect": "The design claims all actions retain full commit pins, but the existing CI workflow uses mutable action and toolchain refs and the task says to retain that job.",
+      "evidence": ".github/workflows/ci.yml currently uses actions/checkout@v7, dtolnay/rust-toolchain@stable, and Swatinem/rust-cache@v2; task 2.1 explicitly pins only the new setup-python action.",
+      "proposed_fix": "Resolve, review, and full-SHA-pin every uses reference in ci.yml, record current identities, and add a verification that rejects non-SHA action refs."
+    },
+    {
+      "id": "AUDIT-4",
+      "severity": "P1",
+      "classification": "CERTAIN",
+      "lens": "technical_factual",
+      "defect": "The recovery sequence diagram joins both platform results before attestation, contradicting the per-platform attestation contract in R5.1 and the design prose.",
+      "evidence": "The diagram shows both platforms upload, then a combined gate allows attestation and publication; the prose requires each clean platform to enforce its own report and attest before final publication joins both legs.",
+      "proposed_fix": "Revise the flow IR and sequence so upload, enforce, and attest occur independently in each platform branch, followed by a both-successful join at publication; render-validate the revision."
+    },
+    {
+      "id": "AUDIT-5",
+      "severity": "P1",
+      "classification": "CERTAIN",
+      "lens": "technical_factual",
+      "defect": "The vulnerability helper validates only that matches is an array, not that each finding contains the actionable fields required by R4.4.",
+      "evidence": "The design accepts any matches array, so a report containing an empty object can be summarized instead of rejected as malformed under R4.6.",
+      "proposed_fix": "Define and fixture-test required Grype field types for identifier, severity, artifact, installed version, and fix-version array; render none available for an empty valid fix list and reject missing or wrong-typed fields."
+    },
+    {
+      "id": "AUDIT-6",
+      "severity": "P1",
+      "classification": "CERTAIN",
+      "lens": "technical_factual",
+      "defect": "The task sidecar records three spec-state ownership paths without their .specs prefix.",
+      "evidence": "The Markdown link targets resolve under .specs, but the link labels parsed into 04_tasks.json are containerized-service/00_state.md, amtrak-gtfs-rt-service/00_state.md, and advisory-fetcher/00_state.md.",
+      "proposed_fix": "Use project-root-relative .specs path labels while retaining correct relative targets, regenerate the sidecar, and verify every sidecar file exists or is explicitly planned."
+    },
+    {
+      "id": "AUDIT-7",
+      "severity": "P1",
+      "classification": "CERTAIN",
+      "lens": "traceability",
+      "defect": "The release-context test contract omits a positive verify fixture that proves exact full-SHA emission and a failing metadata fixture.",
+      "evidence": "The design requires revision equal to TAG^{commit}, but its enumerated fixtures cover selection and mismatch failures without asserting the successful revision output or proving tagged metadata validation is invoked.",
+      "proposed_fix": "Add a passing tagged-checkout fixture asserting the 40-character revision equals git rev-parse TAG^{commit}, plus a tagged metadata failure fixture."
+    },
+    {
+      "id": "AUDIT-8",
+      "severity": "P1",
+      "classification": "CERTAIN",
+      "lens": "traceability",
+      "defect": "The task plan authorizes stage-2 concurrency even though only task 2.1 is parallel-safe and task 2.2 is controller-owned.",
+      "evidence": "The plan warning allows concurrency only when every participant is parallel-safe, while the delivery schedule says tasks 2.1 and 2.2 may proceed concurrently.",
+      "proposed_fix": "Remove the concurrency authorization and execute stage 2 serially under the current delegation metadata."
+    },
+    {
+      "id": "AUDIT-9",
+      "severity": "P2",
+      "classification": "CERTAIN",
+      "lens": "traceability",
+      "defect": "The EARS boundary does not explicitly preserve discovery's requirement that current documentation identify both PR #8 and PR #9 as merged and contain no contradictory status claim.",
+      "evidence": "Discovery names both PRs in its success measure; R7.1 describes their source outcomes without naming either PR, and task 3.1 explicitly mentions only the stale PR #8 claim.",
+      "proposed_fix": "Make R7.1 and the documentation verification explicitly name PRs #8 and #9 and reject contradictory current-state claims."
+    },
+    {
+      "id": "AUDIT-10",
+      "severity": "P2",
+      "classification": "UNCERTAIN",
+      "lens": "technical_factual",
+      "defect": "The immutable tagged smoke harness may run its own scanner before the planned canonical Syft/Grype evidence pass, causing duplicate scans and differing database snapshots.",
+      "evidence": "scripts/test-container.sh always enters an image-evidence section and uses Docker Scout or Grype when available; the actual scanner chosen depends on hosted-runner tool availability.",
+      "validation_method": "Record hosted-runner scanner availability and command traces; explicitly distinguish best-effort smoke-harness evidence from the single canonical Grype JSON used by the policy, or define a safe tag-compatible smoke-only strategy."
+    }
+  ],
+  "risk_register": [
+    {
+      "risk": "A non-main control revision obtains release write permissions",
+      "likelihood": "medium",
+      "impact": "high",
+      "mitigation": "Reject manual dispatch unless the control ref is refs/heads/main before platform jobs start."
+    },
+    {
+      "risk": "Malformed vulnerability findings are retained but not actionable",
+      "likelihood": "medium",
+      "impact": "high",
+      "mitigation": "Validate every required Grype match field and fail closed with fixtures."
+    },
+    {
+      "risk": "Mutable CI action refs change required checks unexpectedly",
+      "likelihood": "medium",
+      "impact": "high",
+      "mitigation": "Use reviewed full commit pins and dependency-audit evidence."
+    },
+    {
+      "risk": "Sequence documentation authorizes a different attestation order than implementation",
+      "likelihood": "low",
+      "impact": "high",
+      "mitigation": "Model per-platform upload, enforce, and attest before the publication join."
+    },
+    {
+      "risk": "Hosted registry or attestation behavior differs from local structural checks",
+      "likelihood": "medium",
+      "impact": "high",
+      "mitigation": "Keep feature-branch recovery disabled and treat the reviewed GitHub run as the integration authority after merge."
+    },
+    {
+      "risk": "Duplicate scanner passes waste time or use different vulnerability databases",
+      "likelihood": "medium",
+      "impact": "medium",
+      "mitigation": "Identify one canonical policy report and verify hosted scanner availability and ordering."
+    }
+  ]
+}

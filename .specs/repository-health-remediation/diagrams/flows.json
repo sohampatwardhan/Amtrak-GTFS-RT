@@ -1,0 +1,55 @@
+{
+  "diagram": "sequence",
+  "target": "sequenceDiagram",
+  "actors": [
+    {"id": "S", "label": "Selector"},
+    {"id": "A", "label": "amd64"},
+    {"id": "R", "label": "arm64"},
+    {"id": "E", "label": "Evidence"},
+    {"id": "G", "label": "Gate"},
+    {"id": "P", "label": "Publisher"}
+  ],
+  "steps": [
+    {"type": "message", "from": "S", "to": "S", "label": "Require main ref and resolve tag SHA", "kind": "sync"},
+    {"type": "par", "branches": [
+      {"label": "amd64", "steps": [
+        {"type": "message", "from": "S", "to": "A", "label": "Smoke and scan exact digest", "kind": "sync"},
+        {"type": "message", "from": "A", "to": "E", "label": "Upload amd64 evidence", "kind": "sync"},
+        {"type": "message", "from": "A", "to": "G", "label": "Enforce retained report", "kind": "sync"},
+        {"type": "alt", "branches": [
+          {"label": "clean", "steps": [
+            {"type": "message", "from": "G", "to": "A", "label": "Allow attestation", "kind": "reply"},
+            {"type": "message", "from": "A", "to": "A", "label": "Attest SBOM", "kind": "sync"}
+          ]},
+          {"label": "rejected", "steps": [
+            {"type": "message", "from": "G", "to": "A", "label": "Reject platform", "kind": "cross"}
+          ]}
+        ]}
+      ]},
+      {"label": "arm64", "steps": [
+        {"type": "message", "from": "S", "to": "R", "label": "Smoke and scan exact digest", "kind": "sync"},
+        {"type": "message", "from": "R", "to": "E", "label": "Upload arm64 evidence", "kind": "sync"},
+        {"type": "message", "from": "R", "to": "G", "label": "Enforce retained report", "kind": "sync"},
+        {"type": "alt", "branches": [
+          {"label": "clean", "steps": [
+            {"type": "message", "from": "G", "to": "R", "label": "Allow attestation", "kind": "reply"},
+            {"type": "message", "from": "R", "to": "R", "label": "Attest SBOM", "kind": "sync"}
+          ]},
+          {"label": "rejected", "steps": [
+            {"type": "message", "from": "G", "to": "R", "label": "Reject platform", "kind": "cross"}
+          ]}
+        ]}
+      ]}
+    ]},
+    {"type": "alt", "branches": [
+      {"label": "both attestations succeeded", "steps": [
+        {"type": "message", "from": "G", "to": "P", "label": "Allow manifest and release", "kind": "sync"},
+        {"type": "message", "from": "P", "to": "S", "label": "Record identities and digests", "kind": "reply"}
+      ]},
+      {"label": "either platform rejected", "steps": [
+        {"type": "message", "from": "G", "to": "P", "label": "Block manifest and release", "kind": "cross"},
+        {"type": "message", "from": "E", "to": "S", "label": "Retain diagnostics", "kind": "reply"}
+      ]}
+    ]}
+  ]
+}
