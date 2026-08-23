@@ -96,7 +96,7 @@ kanban
 
 ## Integration Decision
 
-The user selected commit, push, and pull request against `main`. The isolated branch and worktree remain available for PR iteration. Release recovery and deployment remain separate and were not dispatched.
+The user selected commit, push, and pull request against `main`. Verified implementation commit `6c107aa` was pushed on `codex/repository-health-remediation`, and [PR #13](https://github.com/sohampatwardhan/Amtrak-GTFS-RT/pull/13) opened against `main`. The isolated branch and worktree remain available for PR iteration. Release recovery and deployment remain separate and were not dispatched.
 
 ### Execution Gantt
 

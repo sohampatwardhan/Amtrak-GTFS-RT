@@ -19,8 +19,8 @@
       "status": "approved"
     },
     "execution": {
-      "evidence": "All five tasks and 42 criteria passed Rust, exact Python, helper, workflow, dependency-evidence, documentation, and spec freshness gates; integration decision is push + PR against `main`",
-      "status": "verified_complete"
+      "evidence": "All five tasks and 42 criteria passed; commit `6c107aa` was pushed on `codex/repository-health-remediation` and [PR #13](https://github.com/sohampatwardhan/Amtrak-GTFS-RT/pull/13) opened against `main`",
+      "status": "delivered"
     },
     "requirements": {
       "evidence": "Re-approved 2026-08-23: seven requirements / 42 criteria including default-branch recovery authorization and explicit PR #8/#9 state",
@@ -33,7 +33,7 @@
   },
   "generated_from": {
     "file": "00_state.md",
-    "sha256": "0f878c07f92987684e6bd1691cd453a1815dc8b3757dc76862ea71e14e5aaecd"
+    "sha256": "61e81bc220ceeca75ba778cb17a976ba2004b7f9bfc784228e0ae0895362599e"
   },
   "schema_version": 1
 }

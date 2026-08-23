@@ -11,7 +11,7 @@
 | Design | approved | Re-approved 2026-08-23: audit fixes cover main-only controls, typed evidence, immutable CI pins, dependency evidence, and per-platform attestation |
 | Tasks | approved | Re-approved 2026-08-23: five tasks across four serial dependency stages with integrated verification |
 | Audit | fixes_applied | Thorough audit fixes explicitly authorized 2026-08-23 and applied across requirements, design, diagrams, and tasks |
-| Execution | verified_complete | All five tasks and 42 criteria passed Rust, exact Python, helper, workflow, dependency-evidence, documentation, and spec freshness gates; integration decision is push + PR against `main` |
+| Execution | delivered | All five tasks and 42 criteria passed; commit `6c107aa` was pushed on `codex/repository-health-remediation` and [PR #13](https://github.com/sohampatwardhan/Amtrak-GTFS-RT/pull/13) opened against `main` |
 
 ## Change Control
 
