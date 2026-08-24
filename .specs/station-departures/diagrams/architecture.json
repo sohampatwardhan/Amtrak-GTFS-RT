@@ -1,0 +1,37 @@
+{
+  "diagram": "graph",
+  "target": "block",
+  "groups": [
+    { "id": "sources", "label": "Feed sources" },
+    { "id": "core", "label": "Consumer core (library)" },
+    { "id": "modes", "label": "Query modes" },
+    { "id": "outputs", "label": "Outputs" }
+  ],
+  "nodes": [
+    { "id": "localsvc", "label": "Local service /v1 generation", "group": "sources" },
+    { "id": "amtrak", "label": "Amtrak upstream (dev fallback)", "group": "sources" },
+    { "id": "source", "label": "FeedSource: acquire one generation", "group": "core" },
+    { "id": "loader", "label": "GenerationLoader: decode static + 3 RT feeds", "group": "core" },
+    { "id": "index", "label": "FeedIndex: stop-code, train-number, trip to update/vehicle/alert, shapes", "group": "core" },
+    { "id": "enrich", "label": "Enrichment: routes, alerts, per-station tz, geometry", "group": "core" },
+    { "id": "station", "label": "StationQuery", "group": "modes" },
+    { "id": "train", "label": "TrainQuery", "group": "modes" },
+    { "id": "cli", "label": "CLI", "group": "outputs" },
+    { "id": "board", "label": "Departures board", "group": "outputs" },
+    { "id": "status", "label": "Train status view", "group": "outputs" }
+  ],
+  "edges": [
+    { "from": "localsvc", "to": "source" },
+    { "from": "amtrak", "to": "source" },
+    { "from": "source", "to": "loader" },
+    { "from": "loader", "to": "index" },
+    { "from": "index", "to": "station" },
+    { "from": "index", "to": "train" },
+    { "from": "station", "to": "enrich" },
+    { "from": "train", "to": "enrich" },
+    { "from": "enrich", "to": "board" },
+    { "from": "enrich", "to": "status" },
+    { "from": "cli", "to": "station" },
+    { "from": "cli", "to": "train" }
+  ]
+}

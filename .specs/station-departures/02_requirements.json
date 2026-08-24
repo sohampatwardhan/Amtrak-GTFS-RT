@@ -1,0 +1,247 @@
+{
+  "schema_version": 1,
+  "generated_from": {
+    "file": "02_requirements.md",
+    "sha256": "f5aa9b629c0fd5974b575c200521cfb0c743d8b9305c82c4153f7353649784d2"
+  },
+  "requirements": [
+    {
+      "id": "1",
+      "user_story": {
+        "role": "feed consumer",
+        "capability": "each train in a result to carry its Amtrak service message",
+        "benefit": "I see the train's status and delay reason and not merely its times"
+      },
+      "criteria": [
+        {
+          "id": "1.1",
+          "kind": "event",
+          "trigger": "the Consumer presents a train in any result",
+          "actor": "Consumer",
+          "behavior": "attach the text of every service alert whose informed-entity identifies that train's trip"
+        },
+        {
+          "id": "1.2",
+          "kind": "unwanted",
+          "trigger": "a train has no matching service alert",
+          "actor": "Consumer",
+          "behavior": "present that train with no alert text rather than omitting the train"
+        },
+        {
+          "id": "1.3",
+          "kind": "unwanted",
+          "trigger": "a loaded alert's informed-entity matches no trip in the current generation",
+          "actor": "Consumer",
+          "behavior": "emit a diagnostic identifying the unmatched alert rather than discarding it silently"
+        },
+        {
+          "id": "1.4",
+          "kind": "event",
+          "trigger": "a train has more than one matching service alert",
+          "actor": "Consumer",
+          "behavior": "present all of their messages for that train"
+        }
+      ]
+    },
+    {
+      "id": "2",
+      "user_story": {
+        "role": "feed consumer",
+        "capability": "the upcoming departures at a station ordered by time",
+        "benefit": "I can see which Amtrak trains leave next and when"
+      },
+      "criteria": [
+        {
+          "id": "2.1",
+          "kind": "event",
+          "trigger": "the Consumer is given a station identifier that resolves to a station",
+          "actor": "Consumer",
+          "behavior": "list that station's departures whose time is at or after the query time, ordered ascending by time"
+        },
+        {
+          "id": "2.2",
+          "kind": "event",
+          "trigger": "a train terminates at the requested station with an arrival but no departure",
+          "actor": "Consumer",
+          "behavior": "include that train labeled as an arrival"
+        },
+        {
+          "id": "2.3",
+          "kind": "event",
+          "trigger": "the Consumer presents a departure row",
+          "actor": "Consumer",
+          "behavior": "include the human-readable route name, the train number, the trip headsign, and an indication of whether the time is real-time or scheduled"
+        },
+        {
+          "id": "2.4",
+          "kind": "unwanted",
+          "trigger": "a stop for a train is marked canceled",
+          "actor": "Consumer",
+          "behavior": "label that entry as canceled rather than omitting it"
+        },
+        {
+          "id": "2.5",
+          "kind": "unwanted",
+          "trigger": "the given station identifier resolves to no station",
+          "actor": "Consumer",
+          "behavior": "report the identifier as unresolved rather than returning an empty board indistinguishable from \"no departures.\""
+        }
+      ]
+    },
+    {
+      "id": "3",
+      "user_story": {
+        "role": "feed consumer",
+        "capability": "a train's live status by its Amtrak train number",
+        "benefit": "I can see where it is and its predicted remaining stops"
+      },
+      "criteria": [
+        {
+          "id": "3.1",
+          "kind": "event",
+          "trigger": "the Consumer is given a train number that resolves to an active trip",
+          "actor": "Consumer",
+          "behavior": "report that trip's current geographic position when a vehicle position is available for it"
+        },
+        {
+          "id": "3.2",
+          "kind": "event",
+          "trigger": "the Consumer reports a train's status",
+          "actor": "Consumer",
+          "behavior": "list the train's remaining stops with their predicted arrival and departure times ordered by stop sequence"
+        },
+        {
+          "id": "3.3",
+          "kind": "event",
+          "trigger": "the Consumer reports a train's status",
+          "actor": "Consumer",
+          "behavior": "include the train's overall delay whenever it is derivable from the feed"
+        },
+        {
+          "id": "3.4",
+          "kind": "unwanted",
+          "trigger": "a train number resolves to more than one active trip on the service day",
+          "actor": "Consumer",
+          "behavior": "present every matching trip with distinguishing origin, destination, or direction"
+        },
+        {
+          "id": "3.5",
+          "kind": "unwanted",
+          "trigger": "a train number resolves to no active trip",
+          "actor": "Consumer",
+          "behavior": "report that the train is not currently running rather than failing obscurely"
+        }
+      ]
+    },
+    {
+      "id": "4",
+      "user_story": {
+        "role": "feed consumer",
+        "capability": "a train's geographic route path",
+        "benefit": "I can place its position along the route or draw it on a map"
+      },
+      "criteria": [
+        {
+          "id": "4.1",
+          "kind": "event",
+          "trigger": "the Consumer reports a train's status and the trip references a route path present in the static schedule",
+          "actor": "Consumer",
+          "behavior": "make available that trip's ordered sequence of geographic points"
+        },
+        {
+          "id": "4.2",
+          "kind": "unwanted",
+          "trigger": "a trip references a route path absent from the static schedule",
+          "actor": "Consumer",
+          "behavior": "report the train's status without geometry and SHALL indicate that geometry is unavailable"
+        }
+      ]
+    },
+    {
+      "id": "5",
+      "user_story": {
+        "role": "operator",
+        "capability": "every answer computed from one coherent published snapshot",
+        "benefit": "schedule, predictions, positions, and alerts agree with each other"
+      },
+      "criteria": [
+        {
+          "id": "5.1",
+          "kind": "unconditional",
+          "trigger": "",
+          "actor": "Consumer",
+          "behavior": "obtain the static schedule, trip updates, vehicle positions, and alerts for a query from a single generation"
+        },
+        {
+          "id": "5.2",
+          "kind": "event",
+          "trigger": "the local service exposes a current generation",
+          "actor": "Consumer",
+          "behavior": "read that generation's artifacts as identified by the service's feed-set manifest"
+        },
+        {
+          "id": "5.3",
+          "kind": "event",
+          "trigger": "the Consumer presents any result",
+          "actor": "Consumer",
+          "behavior": "include the source generation's publication timestamp"
+        },
+        {
+          "id": "5.4",
+          "kind": "unwanted",
+          "trigger": "the local service has no current generation available",
+          "actor": "Consumer",
+          "behavior": "report data-unavailable rather than emitting a partial result"
+        },
+        {
+          "id": "5.5",
+          "kind": "optional",
+          "trigger": "a direct-Amtrak source is explicitly selected instead of the local service",
+          "actor": "Consumer",
+          "behavior": "obtain all feeds directly from Amtrak for that query"
+        }
+      ]
+    },
+    {
+      "id": "6",
+      "user_story": {
+        "role": "rider-facing consumer",
+        "capability": "times shown in the local timezone of the station they belong to",
+        "benefit": "departure and arrival times are directly meaningful across Amtrak's multiple timezones"
+      },
+      "criteria": [
+        {
+          "id": "6.1",
+          "kind": "event",
+          "trigger": "the Consumer presents a clock time for a station",
+          "actor": "Consumer",
+          "behavior": "render it in that station's timezone from the static schedule with the correct daylight-saving offset for the date"
+        },
+        {
+          "id": "6.2",
+          "kind": "unwanted",
+          "trigger": "a station carries no timezone in the static schedule",
+          "actor": "Consumer",
+          "behavior": "render its times in the feed's agency timezone and SHALL indicate that a fallback timezone was used"
+        }
+      ]
+    },
+    {
+      "id": "7",
+      "user_story": {
+        "role": "feed consumer",
+        "capability": "a clear failure instead of a misleading partial answer when the data cannot be obtained",
+        "benefit": "I never trust an incomplete result"
+      },
+      "criteria": [
+        {
+          "id": "7.1",
+          "kind": "unwanted",
+          "trigger": "acquiring or decoding any required feed fails",
+          "actor": "Consumer",
+          "behavior": "report the failure and SHALL NOT emit a partial or stale result"
+        }
+      ]
+    }
+  ]
+}

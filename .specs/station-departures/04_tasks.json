@@ -1,0 +1,261 @@
+{
+  "concurrency": {
+    "active_stage": null,
+    "blocked": {},
+    "parallel_candidates": [],
+    "ready": [],
+    "serial_candidates": [],
+    "waves": []
+  },
+  "generated_from": {
+    "file": "04_tasks.md",
+    "sha256": "01dd50a3de470df753ee9885a529005a8985d799aebe5aede5b333b417cb3d13"
+  },
+  "requirement_count": 24,
+  "schema_version": 1,
+  "stages": {
+    "1": [
+      "1.1"
+    ],
+    "2": [
+      "2.1"
+    ],
+    "3": [
+      "3.1"
+    ],
+    "4": [
+      "4.1",
+      "4.2"
+    ],
+    "5": [
+      "5.1"
+    ],
+    "6": [
+      "6.1"
+    ]
+  },
+  "tasks": [
+    {
+      "capability_tier": "balanced",
+      "checked": true,
+      "delegation": "controller",
+      "dependency_delivery": "none",
+      "dependency_resolution": "none",
+      "depends_on": [],
+      "files": [
+        "src/bin/amtrak_status.rs",
+        "src/bin/status/mod.rs"
+      ],
+      "id": "1.1",
+      "interfaces": "Consumes: the approved design's feature and binary-target plan; Produces: a `status` feature, an `amtrak-status` binary target gated by `required-features = [\"status\"]`, and an empty [`src/bin/status/mod.rs`](../../src/bin/status/mod.rs) module root that later tasks extend.",
+      "optional": false,
+      "reasoning_level": "medium",
+      "requirements": [
+        "6.1",
+        "6.2"
+      ],
+      "resolved_model": "claude-sonnet-5",
+      "risk": "low; additive and feature-gated \u2014 rollback is dropping the feature/target with no service impact.",
+      "stage": 1,
+      "task_category": "code_analysis",
+      "title": "Cargo wiring: `status` feature + `amtrak-status` bin",
+      "verification": "`cargo build --features status` builds the `amtrak-status` binary; `cargo build --locked --release` builds no new target and leaves the service binary unchanged; `cargo test --features status` passes."
+    },
+    {
+      "capability_tier": "frontier",
+      "checked": true,
+      "delegation": "sequential subagent",
+      "dependency_delivery": "none",
+      "dependency_resolution": "none",
+      "depends_on": [
+        "1.1"
+      ],
+      "files": [
+        "src/bin/status/source.rs",
+        "src/bin/status/mod.rs"
+      ],
+      "id": "2.1",
+      "interfaces": "Consumes: the local service HTTP contract \u2014 `GET /v1/feed-set.json` manifest (`generation_id`, `generated_at_unix`, `urls.{static_zip,trip_updates,vehicle_positions,alerts}`) plus artifact routes returning zip/protobuf bytes, and `amtrak_gtfs_rt::fetch_amtrak_gtfs_rt(&Gtfs, &reqwest::Client)`; Produces: `GenerationData { generation_id, generated_at_unix, static_gtfs, trip_updates, vehicle_positions, alerts }`, `enum SourceError { Unavailable, Fetch(String), Decode(String) }`, and `trait FeedSource { async fn load(&self) -> Result<GenerationData, SourceError> }`.",
+      "optional": false,
+      "reasoning_level": "extra_high",
+      "requirements": [
+        "5.1",
+        "5.2",
+        "5.4",
+        "5.5",
+        "7.1"
+      ],
+      "resolved_model": "claude-opus-5",
+      "risk": "medium; network + decode error surface \u2014 credential-free error messages required. Rollback: remove `source.rs`.",
+      "stage": 2,
+      "task_category": "heavy_reasoning",
+      "title": "FeedSource: load one coherent generation",
+      "verification": "mock-HTTP tests \u2014 single-generation manifest-driven load (all four artifacts from one generation); `503`/absent \u21d2 `Unavailable`; injected fetch/decode failure \u21d2 error with no partial result; `AmtrakDirectSource` fetches from Amtrak only. Documentation review."
+    },
+    {
+      "capability_tier": "frontier",
+      "checked": true,
+      "delegation": "sequential subagent",
+      "dependency_delivery": "none",
+      "dependency_resolution": "none",
+      "depends_on": [
+        "2.1"
+      ],
+      "files": [
+        "src/bin/status/index.rs",
+        "src/bin/status/format.rs",
+        "src/bin/status/mod.rs"
+      ],
+      "id": "3.1",
+      "interfaces": "Consumes: `&GenerationData` from task 2.1; Produces: `FeedIndex<'g>` with the maps above and `unmatched_alerts: Vec<String>`, `fn route_display_name(&Gtfs, &str) -> String`, `fn station_tz(&Gtfs, &Stop) -> (String, bool)`, and `fn local_time(i64, &str) -> Result<String, TzError>`.",
+      "optional": false,
+      "reasoning_level": "extra_high",
+      "requirements": [
+        "1.3",
+        "6.1",
+        "6.2"
+      ],
+      "resolved_model": "claude-opus-5",
+      "risk": "medium; timezone/DST correctness and alert-match keying are the subtle parts. Rollback: remove `index.rs`/`format.rs`.",
+      "stage": 3,
+      "task_category": "heavy_reasoning",
+      "title": "FeedIndex + enrichment (routes, timezone, alerts)",
+      "verification": "fixture tests \u2014 index build; alert\u2192trip attachment and `unmatched_alerts` collection (diagnostic, not dropped); `route_display_name` fallbacks; `station_tz` for a non-Eastern zone and the agency fallback; `local_time` DST correctness on a known date. Documentation review."
+    },
+    {
+      "capability_tier": "frontier",
+      "checked": true,
+      "delegation": "sequential subagent",
+      "dependency_delivery": "none",
+      "dependency_resolution": "none",
+      "depends_on": [
+        "3.1"
+      ],
+      "files": [
+        "src/bin/status/train.rs",
+        "src/bin/status/mod.rs"
+      ],
+      "id": "4.1",
+      "interfaces": "Consumes: `&FeedIndex` from tasks 2.1 and 3.1 plus `train_number: &str` and `now_unix: i64`; Produces: `enum TrainResult { Trains { generation_id, generated_at_unix, trains: Vec<TrainStatus> }, NotRunning { train_number } }` with `TrainStatus` fields per the design (position, remaining_stops, overall_delay_secs, shape/shape_unavailable, alerts, origin/destination).",
+      "optional": false,
+      "reasoning_level": "extra_high",
+      "requirements": [
+        "3.1",
+        "3.2",
+        "3.3",
+        "3.4",
+        "3.5",
+        "4.1",
+        "4.2",
+        "1.1",
+        "1.2",
+        "1.4",
+        "6.1",
+        "5.3"
+      ],
+      "resolved_model": "claude-opus-5",
+      "risk": "medium; duplicate-trip disambiguation and remaining-stop derivation. Rollback: remove `train.rs`.",
+      "stage": 4,
+      "task_category": "heavy_reasoning",
+      "title": "TrainQuery: live status by train number",
+      "verification": "fixture tests \u2014 position present (3.1); remaining stops ordered by sequence (3.2); overall delay (3.3); duplicate same-day number returns all distinguished (3.4); not-running (3.5); geometry present (4.1) and absent-flagged (4.2); alerts none/one/many (1.1/1.2/1.4); local time (6.1); generation timestamp present (5.3). Documentation review."
+    },
+    {
+      "capability_tier": "frontier",
+      "checked": true,
+      "delegation": "sequential subagent",
+      "dependency_delivery": "none",
+      "dependency_resolution": "none",
+      "depends_on": [
+        "3.1"
+      ],
+      "files": [
+        "src/bin/status/station.rs",
+        "src/bin/status/mod.rs"
+      ],
+      "id": "4.2",
+      "interfaces": "Consumes: `&FeedIndex` plus `identifier: &str` and `now_unix: i64`; Produces: `enum StationResult { Board { generation_id, generated_at_unix, rows: Vec<DepartureRow> }, Unresolved { identifier } }` with `DepartureRow` fields per the design (time_unix, kind, is_realtime, canceled, route_name, train_number, headsign, station_tz, tz_is_fallback, alerts).",
+      "optional": false,
+      "reasoning_level": "high",
+      "requirements": [
+        "2.1",
+        "2.2",
+        "2.3",
+        "2.4",
+        "2.5",
+        "1.1",
+        "1.2",
+        "1.4",
+        "6.1",
+        "5.3"
+      ],
+      "resolved_model": "claude-opus-5",
+      "risk": "low; mirrors the validated prototype join. Rollback: remove `station.rs`.",
+      "stage": 4,
+      "task_category": "heavy_reasoning",
+      "title": "StationQuery: upcoming departures board",
+      "verification": "fixture tests \u2014 ordered upcoming board (2.1); arrival-only terminus (2.2); complete row fields (2.3); canceled kept+labeled (2.4); unresolved distinct from empty (2.5); alerts (1.1/1.2/1.4); local time (6.1); timestamp (5.3). Documentation review."
+    },
+    {
+      "capability_tier": "balanced",
+      "checked": true,
+      "delegation": "sequential subagent",
+      "dependency_delivery": "none",
+      "dependency_resolution": "none",
+      "depends_on": [
+        "4.1",
+        "4.2"
+      ],
+      "files": [
+        "src/bin/amtrak_status.rs"
+      ],
+      "id": "5.1",
+      "interfaces": "Consumes: `FeedSource` from task 2.1 plus `station_query`/`train_query` from tasks 4.1 and 4.2 and their result enums; Produces: the `amtrak-status` CLI \u2014 argument parsing, mode dispatch, rendered output with generation timestamp, distinct not-found/unavailable messages, and non-zero exit on `SourceError`.",
+      "optional": false,
+      "reasoning_level": "medium",
+      "requirements": [
+        "5.3",
+        "2.5",
+        "3.5",
+        "5.4",
+        "7.1",
+        "6.1"
+      ],
+      "resolved_model": "claude-sonnet-5",
+      "risk": "low. Rollback: revert `amtrak_status.rs` to the stub.",
+      "stage": 5,
+      "task_category": "code_analysis",
+      "title": "CLI: subcommands, rendering, exit codes",
+      "verification": "CLI integration tests against a mock source \u2014 station and train happy paths render with timestamp (5.3); unresolved station (2.5), not-running train (3.5), and data-unavailable (5.4) print distinctly; a `SourceError` yields non-zero exit with no result body (7.1); times shown in local zone (6.1). Documentation review."
+    },
+    {
+      "capability_tier": "balanced",
+      "checked": true,
+      "delegation": "sequential subagent",
+      "dependency_delivery": "none",
+      "dependency_resolution": "none",
+      "depends_on": [
+        "5.1"
+      ],
+      "files": [
+        "src/bin/status/live_tests.rs"
+      ],
+      "id": "6.1",
+      "interfaces": "Consumes: the built `amtrak-status` CLI and `AmtrakDirectSource`; Produces: an ignored `#[tokio::test]` (run with `--ignored`) and a documented manual-verification note recording the observed NHV board, a delayed train's alert, and local-time correctness.",
+      "optional": false,
+      "reasoning_level": "medium",
+      "requirements": [
+        "1.1",
+        "2.1",
+        "3.1",
+        "6.1"
+      ],
+      "resolved_model": "claude-sonnet-5",
+      "risk": "low; network-dependent and ignored by default so CI is unaffected.",
+      "stage": 6,
+      "task_category": "review",
+      "title": "Live verification against Amtrak (NHV + delayed train)",
+      "verification": "the live test passes when run explicitly; the delay-notification alert and per-station local time match Amtrak's status page for the sampled train (success measures for 1.1/2.1/3.1/6.1)."
+    }
+  ]
+}

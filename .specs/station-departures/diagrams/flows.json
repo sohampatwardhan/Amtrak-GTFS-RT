@@ -1,0 +1,31 @@
+{
+  "diagram": "sequence",
+  "target": "sequenceDiagram",
+  "actors": [
+    { "id": "CLI" },
+    { "id": "Query" },
+    { "id": "FeedSource" },
+    { "id": "LocalService" },
+    { "id": "FeedIndex" }
+  ],
+  "steps": [
+    { "type": "message", "from": "CLI", "to": "Query", "label": "station NHV or train 2159", "kind": "sync" },
+    { "type": "message", "from": "Query", "to": "FeedSource", "label": "load current generation", "kind": "sync" },
+    { "type": "message", "from": "FeedSource", "to": "LocalService", "label": "GET /v1/feed-set.json", "kind": "sync" },
+    { "type": "message", "from": "LocalService", "to": "FeedSource", "label": "manifest: generation id, artifact urls, generated_at", "kind": "reply" },
+    { "type": "alt", "branches": [
+      { "label": "generation present", "steps": [
+        { "type": "message", "from": "FeedSource", "to": "LocalService", "label": "GET static.zip + trip-updates + vehicle-positions + alerts", "kind": "sync" },
+        { "type": "message", "from": "LocalService", "to": "FeedSource", "label": "artifact bytes (one coherent generation)", "kind": "reply" },
+        { "type": "message", "from": "FeedSource", "to": "FeedIndex", "label": "decode and build indexes", "kind": "sync" },
+        { "type": "message", "from": "FeedIndex", "to": "Query", "label": "indexed generation + timestamp", "kind": "reply" },
+        { "type": "message", "from": "Query", "to": "Query", "label": "filter, attach alerts, resolve route + per-station tz, geometry", "kind": "sync" },
+        { "type": "message", "from": "Query", "to": "CLI", "label": "result + source generation timestamp", "kind": "reply" }
+      ] },
+      { "label": "no current generation", "steps": [
+        { "type": "message", "from": "FeedSource", "to": "Query", "label": "data-unavailable", "kind": "reply" },
+        { "type": "message", "from": "Query", "to": "CLI", "label": "report unavailable, no partial result", "kind": "reply" }
+      ] }
+    ] }
+  ]
+}
