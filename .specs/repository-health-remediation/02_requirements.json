@@ -1,0 +1,373 @@
+{
+  "schema_version": 1,
+  "generated_from": {
+    "file": "02_requirements.md",
+    "sha256": "c59a73bd012c320b967fddd96e574e4b66f8420f13e9d01f9e0121d7e9656465"
+  },
+  "requirements": [
+    {
+      "id": "1",
+      "user_story": {
+        "role": "maintainer",
+        "capability": "every shipped component tested on each proposed change",
+        "benefit": "Python regressions cannot merge behind a Rust-only green check"
+      },
+      "criteria": [
+        {
+          "id": "1.1",
+          "kind": "event",
+          "trigger": "a pull request targets `main`",
+          "actor": "CI_Pipeline",
+          "behavior": "run the advisory-fetcher offline unit-test suite"
+        },
+        {
+          "id": "1.2",
+          "kind": "event",
+          "trigger": "a change is pushed to `main`",
+          "actor": "CI_Pipeline",
+          "behavior": "run the advisory-fetcher offline unit-test suite"
+        },
+        {
+          "id": "1.3",
+          "kind": "unconditional",
+          "trigger": "",
+          "actor": "CI_Pipeline",
+          "behavior": "install exact versions of the Python interpreter, test runner, and Playwright package used by the advisory-fetcher test job"
+        },
+        {
+          "id": "1.4",
+          "kind": "unconditional",
+          "trigger": "",
+          "actor": "CI_Pipeline",
+          "behavior": "complete the advisory-fetcher offline unit-test suite without downloading a browser binary"
+        },
+        {
+          "id": "1.5",
+          "kind": "unwanted",
+          "trigger": "an advisory-fetcher unit test fails",
+          "actor": "CI_Pipeline",
+          "behavior": "report the Python test job as failed"
+        }
+      ]
+    },
+    {
+      "id": "2",
+      "user_story": {
+        "role": "release operator",
+        "capability": "tag-push and manual recovery runs to resolve one canonical immutable release identity",
+        "benefit": "every gate evaluates the intended source revision"
+      },
+      "criteria": [
+        {
+          "id": "2.1",
+          "kind": "event",
+          "trigger": "a semantic-version tag push starts a release",
+          "actor": "Release_Selector",
+          "behavior": "select the pushed tag as the canonical release tag"
+        },
+        {
+          "id": "2.2",
+          "kind": "event",
+          "trigger": "an authorized operator manually starts a release recovery with a semantic-version tag",
+          "actor": "Release_Selector",
+          "behavior": "select the requested tag as the canonical release tag"
+        },
+        {
+          "id": "2.3",
+          "kind": "event",
+          "trigger": "a canonical release tag is selected",
+          "actor": "Release_Selector",
+          "behavior": "resolve the checked-out commit of that tag as the canonical release revision"
+        },
+        {
+          "id": "2.4",
+          "kind": "unwanted",
+          "trigger": "a manual release tag is absent from the repository",
+          "actor": "Release_Selector",
+          "behavior": "stop the release before image validation"
+        },
+        {
+          "id": "2.5",
+          "kind": "unwanted",
+          "trigger": "a selected release tag is not an exact `vMAJOR.MINOR.PATCH` tag",
+          "actor": "Release_Selector",
+          "behavior": "stop the release before image validation"
+        },
+        {
+          "id": "2.6",
+          "kind": "unconditional",
+          "trigger": "",
+          "actor": "Release_Selector",
+          "behavior": "expose the same canonical tag and revision to every platform-validation and publication gate in the run"
+        }
+      ]
+    },
+    {
+      "id": "3",
+      "user_story": {
+        "role": "release operator",
+        "capability": "existing container artifacts reused only when they match the canonical release",
+        "benefit": "recovery cannot mutate or bless unrelated images"
+      },
+      "criteria": [
+        {
+          "id": "3.1",
+          "kind": "event",
+          "trigger": "an existing version-tagged container manifest is found",
+          "actor": "Artifact_Verifier",
+          "behavior": "require exactly one `linux/amd64` image and one `linux/arm64` image"
+        },
+        {
+          "id": "3.2",
+          "kind": "event",
+          "trigger": "an existing platform image is selected",
+          "actor": "Artifact_Verifier",
+          "behavior": "verify that its recorded source revision equals the canonical release revision"
+        },
+        {
+          "id": "3.3",
+          "kind": "event",
+          "trigger": "an existing platform image is selected",
+          "actor": "Artifact_Verifier",
+          "behavior": "verify that its recorded version equals the canonical release version"
+        },
+        {
+          "id": "3.4",
+          "kind": "unwanted",
+          "trigger": "an existing version tag has a missing, duplicate, or unexpected platform",
+          "actor": "Artifact_Verifier",
+          "behavior": "stop the release without changing the tag"
+        },
+        {
+          "id": "3.5",
+          "kind": "unwanted",
+          "trigger": "existing image metadata disagrees with the canonical release identity",
+          "actor": "Artifact_Verifier",
+          "behavior": "stop the release without changing the image"
+        },
+        {
+          "id": "3.6",
+          "kind": "unwanted",
+          "trigger": "no existing platform image is available",
+          "actor": "Release_Workflow",
+          "behavior": "create a new platform image from the canonical release revision before validation"
+        }
+      ]
+    },
+    {
+      "id": "4",
+      "user_story": {
+        "role": "release reviewer",
+        "capability": "complete evidence from failed and successful scans",
+        "benefit": "I can identify the exact reason for a release decision without reproducing the scan"
+      },
+      "criteria": [
+        {
+          "id": "4.1",
+          "kind": "event",
+          "trigger": "a platform image reaches security validation",
+          "actor": "Evidence_Recorder",
+          "behavior": "generate an SBOM for the exact platform digest"
+        },
+        {
+          "id": "4.2",
+          "kind": "event",
+          "trigger": "a platform image reaches security validation",
+          "actor": "Evidence_Recorder",
+          "behavior": "generate a machine-readable vulnerability report for the exact platform digest"
+        },
+        {
+          "id": "4.3",
+          "kind": "event",
+          "trigger": "a platform image reaches security validation",
+          "actor": "Evidence_Recorder",
+          "behavior": "generate a human-readable vulnerability report for the exact platform digest"
+        },
+        {
+          "id": "4.4",
+          "kind": "event",
+          "trigger": "vulnerability findings exist",
+          "actor": "Evidence_Recorder",
+          "behavior": "report each finding's identifier, severity, affected artifact, installed version, and available fixed version"
+        },
+        {
+          "id": "4.5",
+          "kind": "event",
+          "trigger": "diagnostic evidence files exist",
+          "actor": "Evidence_Recorder",
+          "behavior": "retain them for review before the vulnerability decision can stop the job"
+        },
+        {
+          "id": "4.6",
+          "kind": "unwanted",
+          "trigger": "any required diagnostic evidence is missing or malformed",
+          "actor": "Evidence_Recorder",
+          "behavior": "report the platform validation as failed"
+        }
+      ]
+    },
+    {
+      "id": "5",
+      "user_story": {
+        "role": "security reviewer",
+        "capability": "release publication gated by explicit evidence",
+        "benefit": "missing or vulnerable images are never described as clean"
+      },
+      "criteria": [
+        {
+          "id": "5.1",
+          "kind": "event",
+          "trigger": "a well-formed vulnerability report contains zero matches",
+          "actor": "Vulnerability_Gate",
+          "behavior": "allow that platform to continue to attestation"
+        },
+        {
+          "id": "5.2",
+          "kind": "unwanted",
+          "trigger": "a vulnerability report contains one or more matches",
+          "actor": "Vulnerability_Gate",
+          "behavior": "reject that platform"
+        },
+        {
+          "id": "5.3",
+          "kind": "unwanted",
+          "trigger": "vulnerability scanning does not complete successfully",
+          "actor": "Vulnerability_Gate",
+          "behavior": "reject that platform"
+        },
+        {
+          "id": "5.4",
+          "kind": "unwanted",
+          "trigger": "either required platform is rejected",
+          "actor": "Release_Publisher",
+          "behavior": "not publish or update release tags"
+        },
+        {
+          "id": "5.5",
+          "kind": "unwanted",
+          "trigger": "either required platform is rejected",
+          "actor": "Release_Publisher",
+          "behavior": "not create a GitHub release"
+        }
+      ]
+    },
+    {
+      "id": "6",
+      "user_story": {
+        "role": "release operator",
+        "capability": "failed immutable releases recoverable through the normal gates",
+        "benefit": "corrected workflow logic can finish a release without moving its tag"
+      },
+      "criteria": [
+        {
+          "id": "6.1",
+          "kind": "event",
+          "trigger": "a manual recovery is requested",
+          "actor": "Release_Workflow",
+          "behavior": "apply the same platform smoke, scan, evidence, attestation, manifest, and publication gates used by a tag push"
+        },
+        {
+          "id": "6.2",
+          "kind": "unwanted",
+          "trigger": "a manual recovery is requested from a branch or pull-request event without an explicit tag input",
+          "actor": "Release_Workflow",
+          "behavior": "not publish a release"
+        },
+        {
+          "id": "6.3",
+          "kind": "unconditional",
+          "trigger": "",
+          "actor": "Release_Workflow",
+          "behavior": "not move or delete the canonical Git tag"
+        },
+        {
+          "id": "6.4",
+          "kind": "unconditional",
+          "trigger": "",
+          "actor": "Release_Workflow",
+          "behavior": "grant write permissions only to jobs that upload images, attestations, manifests, or GitHub release assets"
+        },
+        {
+          "id": "6.5",
+          "kind": "event",
+          "trigger": "both platform validations pass",
+          "actor": "Release_Publisher",
+          "behavior": "verify or assemble one two-platform manifest before creating the GitHub release"
+        },
+        {
+          "id": "6.6",
+          "kind": "event",
+          "trigger": "a manual recovery completes successfully",
+          "actor": "Release_Publisher",
+          "behavior": "record the canonical release tag, revision, manifest digest, and platform digests in the release evidence"
+        },
+        {
+          "id": "6.7",
+          "kind": "unwanted",
+          "trigger": "a manual recovery's workflow control ref is not `refs/heads/main`",
+          "actor": "Release_Workflow",
+          "behavior": "stop the release before image validation"
+        }
+      ]
+    },
+    {
+      "id": "7",
+      "user_story": {
+        "role": "maintainer",
+        "capability": "documentation and delivery records to distinguish source, release, and deployment state",
+        "benefit": "operators do not act on stale lifecycle claims"
+      },
+      "criteria": [
+        {
+          "id": "7.1",
+          "kind": "unconditional",
+          "trigger": "",
+          "actor": "Documentation_Set",
+          "behavior": "identify PR #8 and PR #9 as merged into `main` without any contradictory current-state claim"
+        },
+        {
+          "id": "7.2",
+          "kind": "unconditional",
+          "trigger": "",
+          "actor": "Documentation_Set",
+          "behavior": "identify v0.2.0 as the latest completed GitHub release until a later GitHub release exists"
+        },
+        {
+          "id": "7.3",
+          "kind": "unconditional",
+          "trigger": "",
+          "actor": "Documentation_Set",
+          "behavior": "identify v0.3.0 source as integrated on `main` while its GitHub release remains incomplete"
+        },
+        {
+          "id": "7.4",
+          "kind": "unconditional",
+          "trigger": "",
+          "actor": "Documentation_Set",
+          "behavior": "distinguish public container publication from deployment of a running service"
+        },
+        {
+          "id": "7.5",
+          "kind": "unconditional",
+          "trigger": "",
+          "actor": "Documentation_Set",
+          "behavior": "retain deployment, anonymous public exposure, proxy trust, and orchestration as out of scope"
+        },
+        {
+          "id": "7.6",
+          "kind": "unconditional",
+          "trigger": "",
+          "actor": "Delivery_Record",
+          "behavior": "identify the exact commands and evidence required for an operator to recover v0.3.0 after the remediation is merged"
+        },
+        {
+          "id": "7.7",
+          "kind": "unconditional",
+          "trigger": "",
+          "actor": "Delivery_Record",
+          "behavior": "identify PR #7 as a separate unresolved feature stream that this remediation does not modify"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,177 @@
+{
+  "decisions": [],
+  "exit_code": 0,
+  "findings": [],
+  "gate_status": "warnings",
+  "inventory": {
+    "complete": false,
+    "dependencies": [],
+    "fingerprint": "58c240bbac1925b6b04dc6080602803104c6a8165d63d362eeba34aca668df57",
+    "incomplete_reasons": [
+      "pip inspect declares requirements but does not provide resolved dependency edges"
+    ],
+    "packages": [
+      {
+        "bom_ref": null,
+        "direct": true,
+        "ecosystem": "PyPI",
+        "name": "Pygments",
+        "purl": "pkg:pypi/pygments@2.21.0",
+        "scope": "unknown",
+        "version": "2.21.0"
+      },
+      {
+        "bom_ref": null,
+        "direct": true,
+        "ecosystem": "PyPI",
+        "name": "greenlet",
+        "purl": "pkg:pypi/greenlet@3.5.5",
+        "scope": "unknown",
+        "version": "3.5.5"
+      },
+      {
+        "bom_ref": null,
+        "direct": true,
+        "ecosystem": "PyPI",
+        "name": "iniconfig",
+        "purl": "pkg:pypi/iniconfig@2.3.0",
+        "scope": "unknown",
+        "version": "2.3.0"
+      },
+      {
+        "bom_ref": null,
+        "direct": true,
+        "ecosystem": "PyPI",
+        "name": "packaging",
+        "purl": "pkg:pypi/packaging@26.3",
+        "scope": "unknown",
+        "version": "26.3"
+      },
+      {
+        "bom_ref": null,
+        "direct": true,
+        "ecosystem": "PyPI",
+        "name": "pip",
+        "purl": "pkg:pypi/pip@26.2.1",
+        "scope": "unknown",
+        "version": "26.2.1"
+      },
+      {
+        "bom_ref": null,
+        "direct": true,
+        "ecosystem": "PyPI",
+        "name": "playwright",
+        "purl": "pkg:pypi/playwright@1.61.0",
+        "scope": "unknown",
+        "version": "1.61.0"
+      },
+      {
+        "bom_ref": null,
+        "direct": true,
+        "ecosystem": "PyPI",
+        "name": "pluggy",
+        "purl": "pkg:pypi/pluggy@1.6.0",
+        "scope": "unknown",
+        "version": "1.6.0"
+      },
+      {
+        "bom_ref": null,
+        "direct": true,
+        "ecosystem": "PyPI",
+        "name": "pyee",
+        "purl": "pkg:pypi/pyee@13.0.1",
+        "scope": "unknown",
+        "version": "13.0.1"
+      },
+      {
+        "bom_ref": null,
+        "direct": true,
+        "ecosystem": "PyPI",
+        "name": "pytest",
+        "purl": "pkg:pypi/pytest@9.0.3",
+        "scope": "unknown",
+        "version": "9.0.3"
+      },
+      {
+        "bom_ref": null,
+        "direct": true,
+        "ecosystem": "PyPI",
+        "name": "typing_extensions",
+        "purl": "pkg:pypi/typing-extensions@4.16.0",
+        "scope": "unknown",
+        "version": "4.16.0"
+      }
+    ],
+    "statuses": [
+      {
+        "attempted_at": "2026-08-23T17:32:14.136442Z",
+        "diagnostic": "",
+        "provenance": "",
+        "source": "inventory",
+        "state": "partial"
+      },
+      {
+        "attempted_at": "2026-08-23T17:32:14.051661Z",
+        "diagnostic": "resolved dependency inventory is incomplete",
+        "provenance": "",
+        "source": "inventory-completeness",
+        "state": "partial"
+      },
+      {
+        "attempted_at": "2026-08-23T17:32:14.136351Z",
+        "diagnostic": "",
+        "provenance": "",
+        "source": "pip-inspect",
+        "state": "partial"
+      }
+    ]
+  },
+  "mode": "change",
+  "project_revision": "eee4c6493ef4177bcf43fea8ffa63900194b85b1",
+  "schema_version": "1.0",
+  "sources": [
+    {
+      "attempted_at": "2026-08-23T17:32:14.365398Z",
+      "diagnostic": "ecosystem not present",
+      "provenance": "",
+      "source": "cargo-audit",
+      "state": "not_applicable"
+    },
+    {
+      "attempted_at": "2026-08-23T17:32:14.365406Z",
+      "diagnostic": "ecosystem not present",
+      "provenance": "",
+      "source": "govulncheck",
+      "state": "not_applicable"
+    },
+    {
+      "attempted_at": "2026-08-23T17:32:14.606890Z",
+      "diagnostic": "",
+      "provenance": "https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json",
+      "source": "kev",
+      "state": "ok"
+    },
+    {
+      "attempted_at": "2026-08-23T17:32:14.365385Z",
+      "diagnostic": "ecosystem not present",
+      "provenance": "",
+      "source": "npm-audit",
+      "state": "not_applicable"
+    },
+    {
+      "attempted_at": "2026-08-23T17:32:14.365271Z",
+      "diagnostic": "",
+      "provenance": "https://api.osv.dev/v1",
+      "source": "osv",
+      "state": "ok"
+    },
+    {
+      "attempted_at": "2026-08-23T17:32:14.371387Z",
+      "diagnostic": "native audit executable not found",
+      "provenance": "",
+      "source": "pip-audit",
+      "state": "unavailable"
+    }
+  ],
+  "timestamp": "2026-08-23T17:32:14.051661Z"
+}

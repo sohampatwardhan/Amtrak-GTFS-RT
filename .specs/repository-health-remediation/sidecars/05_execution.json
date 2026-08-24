@@ -1,0 +1,156 @@
+{
+  "gantt": {
+    "axisFormat": "%m-%d %H:%M",
+    "dateFormat": "YYYY-MM-DDTHH:mm:ss",
+    "diagram": "timeline",
+    "sections": [
+      {
+        "bars": [
+          {
+            "end": "2026-08-23T17:50:15",
+            "id": "run_20260823T164008Z",
+            "label": "run-20260823T164008Z (verified; push + PR selected, 4207s)",
+            "start": "2026-08-23T16:40:08",
+            "tags": [
+              "done"
+            ]
+          }
+        ],
+        "name": "Execution Runs"
+      },
+      {
+        "bars": [
+          {
+            "end": "2026-08-23T16:52:07",
+            "id": "b_1_1_attempt1",
+            "label": "1.1 attempt 1 (passed, 115s)",
+            "start": "2026-08-23T16:50:12",
+            "tags": [
+              "done"
+            ]
+          }
+        ],
+        "name": "1"
+      },
+      {
+        "bars": [
+          {
+            "end": "2026-08-23T17:32:30",
+            "id": "b_2_1_attempt1",
+            "label": "2.1 attempt 1 (passed, 2188s)",
+            "start": "2026-08-23T16:56:02",
+            "tags": [
+              "done"
+            ]
+          },
+          {
+            "end": "2026-08-23T17:39:47",
+            "id": "b_2_2_attempt1",
+            "label": "2.2 attempt 1 (passed, 437s)",
+            "start": "2026-08-23T17:32:30",
+            "tags": [
+              "done"
+            ]
+          }
+        ],
+        "name": "2"
+      },
+      {
+        "bars": [
+          {
+            "end": "2026-08-23T17:41:18",
+            "id": "b_3_1_attempt1",
+            "label": "3.1 attempt 1 (passed, 53s)",
+            "start": "2026-08-23T17:40:25",
+            "tags": [
+              "done"
+            ]
+          }
+        ],
+        "name": "3"
+      },
+      {
+        "bars": [
+          {
+            "end": "2026-08-23T17:42:59",
+            "id": "b_4_1_attempt1",
+            "label": "4.1 attempt 1 (passed, 74s)",
+            "start": "2026-08-23T17:41:45",
+            "tags": [
+              "done"
+            ]
+          }
+        ],
+        "name": "4"
+      }
+    ],
+    "target": "gantt"
+  },
+  "generated_from": {
+    "file": "05_execution.md",
+    "sha256": "24ef0d4559d0e24370dc5b515528d2452253df2336b165e5b5c63604e395c928"
+  },
+  "runs": [
+    {
+      "elapsed_seconds": 4207,
+      "outcome": "verified; push + PR selected",
+      "run_id": "run-20260823T164008Z",
+      "started_utc": "2026-08-23T16:40:08Z",
+      "stopped_utc": "2026-08-23T17:50:15Z"
+    }
+  ],
+  "schema_version": 1,
+  "task_attempts": [
+    {
+      "attempt": 1,
+      "elapsed_seconds": 115,
+      "outcome": "passed",
+      "run_id": "run-20260823T164008Z",
+      "stage_wave": "1",
+      "started_utc": "2026-08-23T16:50:12Z",
+      "stopped_utc": "2026-08-23T16:52:07Z",
+      "task": "1.1"
+    },
+    {
+      "attempt": 1,
+      "elapsed_seconds": 2188,
+      "outcome": "passed",
+      "run_id": "run-20260823T164008Z",
+      "stage_wave": "2",
+      "started_utc": "2026-08-23T16:56:02Z",
+      "stopped_utc": "2026-08-23T17:32:30Z",
+      "task": "2.1"
+    },
+    {
+      "attempt": 1,
+      "elapsed_seconds": 437,
+      "outcome": "passed",
+      "run_id": "run-20260823T164008Z",
+      "stage_wave": "2",
+      "started_utc": "2026-08-23T17:32:30Z",
+      "stopped_utc": "2026-08-23T17:39:47Z",
+      "task": "2.2"
+    },
+    {
+      "attempt": 1,
+      "elapsed_seconds": 53,
+      "outcome": "passed",
+      "run_id": "run-20260823T164008Z",
+      "stage_wave": "3",
+      "started_utc": "2026-08-23T17:40:25Z",
+      "stopped_utc": "2026-08-23T17:41:18Z",
+      "task": "3.1"
+    },
+    {
+      "attempt": 1,
+      "elapsed_seconds": 74,
+      "outcome": "passed",
+      "run_id": "run-20260823T164008Z",
+      "stage_wave": "4",
+      "started_utc": "2026-08-23T17:41:45Z",
+      "stopped_utc": "2026-08-23T17:42:59Z",
+      "task": "4.1"
+    }
+  ],
+  "unresolved": []
+}

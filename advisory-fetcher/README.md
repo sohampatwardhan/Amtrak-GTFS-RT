@@ -45,9 +45,11 @@ docker compose up -d --build
 The service turns advisories on with `AMTRAK_ADVISORIES=on` and
 `AMTRAK_ADVISORIES_URL=http://advisory-fetcher:8080/service-alerts-and-notices`.
 
-> **Prerequisite:** advisory *consumption* lives in the service-advisories work
-> ([PR #8](https://github.com/sohampatwardhan/Amtrak-GTFS-RT/pull/8)), not yet on `main`. The
-> fetcher runs and serves snapshots regardless, but end-to-end alerts require that service build.
+Advisory *consumption* from
+[PR #8](https://github.com/sohampatwardhan/Amtrak-GTFS-RT/pull/8) and this fetcher from
+[PR #9](https://github.com/sohampatwardhan/Amtrak-GTFS-RT/pull/9) are both merged to `main`.
+Advisories remain default-off and still require an operator to run the sidecar and configure the
+service URL; source integration is not evidence of a deployment.
 
 ## Disable / rollback
 
