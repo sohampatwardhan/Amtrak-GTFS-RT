@@ -1,0 +1,29 @@
+{
+  "diagram": "graph",
+  "target": "block",
+  "columns": 3,
+  "groups": [
+    {"id": "ci", "label": "Continuous integration"},
+    {"id": "release", "label": "Release control"},
+    {"id": "docs", "label": "Project state"}
+  ],
+  "nodes": [
+    {"id": "rust_tests", "label": "Rust build and tests", "kind": "process", "group": "ci"},
+    {"id": "python_tests", "label": "Python offline tests", "kind": "process", "group": "ci"},
+    {"id": "release_context", "label": "Canonical tag and revision", "kind": "process", "group": "release"},
+    {"id": "platform_validation", "label": "Two platform validations", "kind": "process", "group": "release"},
+    {"id": "diagnostic_evidence", "label": "Retained exact digest evidence", "kind": "store", "group": "release"},
+    {"id": "vulnerability_gate", "label": "Zero match policy gate", "kind": "decision", "group": "release"},
+    {"id": "publisher", "label": "Attest and publish", "kind": "process", "group": "release"},
+    {"id": "operator_guides", "label": "Operator guides", "kind": "process", "group": "docs"},
+    {"id": "spec_ledgers", "label": "Spec state and evidence", "kind": "process", "group": "docs"}
+  ],
+  "edges": [
+    {"from": "release_context", "to": "platform_validation", "label": "identifies"},
+    {"from": "platform_validation", "to": "diagnostic_evidence", "label": "records"},
+    {"from": "diagnostic_evidence", "to": "vulnerability_gate", "label": "evaluated by"},
+    {"from": "vulnerability_gate", "to": "publisher", "label": "clean only"},
+    {"from": "publisher", "to": "operator_guides", "label": "status reflected in"},
+    {"from": "operator_guides", "to": "spec_ledgers", "label": "agrees with"}
+  ]
+}

@@ -14,7 +14,7 @@ actual="$(
 
 [ "$actual" = "$VERSION" ]
 [ "$TAG" = "v${VERSION}" ]
-grep -Fqx "## [${VERSION}] - 2026-08-14" "$ROOT/CHANGELOG.md"
+grep -Eqx "## \[${VERSION//./\\.}\] - [0-9]{4}-[0-9]{2}-[0-9]{2}" "$ROOT/CHANGELOG.md"
 grep -Fqx 'license = "AGPL-3.0-only"' "$ROOT/Cargo.toml"
 test -s "$ROOT/THIRD_PARTY_LICENSES.html"
 

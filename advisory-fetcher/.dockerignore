@@ -1,0 +1,9 @@
+# Keep the build context minimal: only the fetcher package is COPYied into the image.
+tests/
+spike/
+E2E.md
+README.md
+**/__pycache__/
+*.pyc
+.pytest_cache/
+.git/

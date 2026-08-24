@@ -1,6 +1,6 @@
 [package]
 name = "amtrak-gtfs-rt-service"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2021"
 license = "AGPL-3.0-only"
 description = "Serves live GTFS-Realtime feeds for Amtrak"
@@ -27,6 +27,9 @@ sha2 = "0.10.9"
 # the released service binary and container link no additional code. Already in the resolved graph.
 chrono-tz = { version = "0.10", optional = true }
 chrono = { version = "0.4", optional = true }
+# HTML parsing for the best-effort Service Alerts & Notices advisory scraper. Already resolved
+# transitively via `amtrak-gtfs-rt` (which the service links), so this is a declaration edge only.
+scraper = "0.22"
 
 [target.'cfg(unix)'.dependencies]
 rustix = { version = "1.1.4", features = ["fs", "process"] }

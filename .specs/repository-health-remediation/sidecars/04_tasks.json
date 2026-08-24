@@ -1,0 +1,280 @@
+{
+  "concurrency": {
+    "active_stage": null,
+    "blocked": {},
+    "parallel_candidates": [],
+    "ready": [],
+    "serial_candidates": [],
+    "waves": []
+  },
+  "generated_from": {
+    "file": "04_tasks.md",
+    "sha256": "4a78f40a9d33a0a89a11f1d388fe1ef2fbbb00c22e54df783ce6bf9456bcb169"
+  },
+  "requirement_count": 42,
+  "schema_version": 1,
+  "stages": {
+    "1": [
+      "1.1"
+    ],
+    "2": [
+      "2.1",
+      "2.2"
+    ],
+    "3": [
+      "3.1"
+    ],
+    "4": [
+      "4.1"
+    ]
+  },
+  "tasks": [
+    {
+      "capability_tier": "frontier",
+      "checked": true,
+      "delegation": "controller",
+      "dependency_delivery": "none",
+      "dependency_resolution": "none",
+      "depends_on": [],
+      "files": [
+        "scripts/release-context.sh",
+        "scripts/release-vulnerability-policy.sh",
+        "scripts/test-release-controls.sh"
+      ],
+      "id": "1.1",
+      "interfaces": "Consumes: Git event/ref/input/control-ref/default-branch strings, GitHub output-file path, immutable tagged checkout, and Grype JSON with typed identifying fields under every `.matches[]`; Produces: canonical `tag`, `version`, and `revision` output records plus deterministic human summaries and zero-only policy exit status",
+      "optional": false,
+      "reasoning_level": "extra_high",
+      "requirements": [
+        "2.1",
+        "2.2",
+        "2.3",
+        "2.4",
+        "2.5",
+        "4.3",
+        "4.4",
+        "4.6",
+        "5.1",
+        "5.2",
+        "5.3",
+        "6.2",
+        "6.3",
+        "6.7"
+      ],
+      "resolved_model": "claude-opus-5",
+      "risk": "high; incorrect identity or fail-open parsing could publish the wrong or vulnerable artifact, while rollback removes the new helpers without migrating data",
+      "stage": 1,
+      "task_category": "heavy_reasoning",
+      "title": "Implement and test release-control helpers",
+      "verification": "run Bash syntax checking on the three linked scripts; run the linked release-control fixture harness; review command-contract and policy-rationale comments"
+    },
+    {
+      "capability_tier": "frontier",
+      "checked": true,
+      "delegation": "parallel-safe",
+      "dependency_delivery": "none",
+      "dependency_resolution": "change",
+      "depends_on": [
+        "1.1"
+      ],
+      "files": [
+        ".github/workflows/ci.yml",
+        "advisory-fetcher/requirements.txt",
+        ".security/dependency-audit/.gitignore",
+        ".security/dependency-audit/pre-change.json",
+        ".security/dependency-audit/pre-change.md",
+        ".security/dependency-audit/post-change.json",
+        ".security/dependency-audit/post-change.md",
+        ".security/dependency-audit/pre-change/latest.json",
+        ".security/dependency-audit/pre-change/latest.md",
+        ".security/dependency-audit/post-change/latest.json",
+        ".security/dependency-audit/post-change/latest.md"
+      ],
+      "id": "2.1",
+      "interfaces": "Consumes: task 1.1 [release-control fixture harness](../../scripts/test-release-controls.sh), repository advisory-fetcher tests, and GitHub pull-request/`main` events; Produces: independently visible Rust, Python, and repository-control CI job results",
+      "optional": false,
+      "reasoning_level": "high",
+      "requirements": [
+        "1.1",
+        "1.2",
+        "1.3",
+        "1.4",
+        "1.5"
+      ],
+      "resolved_model": "claude-opus-5",
+      "risk": "medium; CI environment drift can block merges, and rollback restores the prior workflow with no migration",
+      "stage": 2,
+      "task_category": "code_analysis",
+      "title": "Add advisory-fetcher and repository-control CI jobs",
+      "verification": "parse the workflow as YAML; run the exact Python test command and the [release-control fixture harness](../../scripts/test-release-controls.sh); verify no browser-install command, no mutable `uses:` ref, and review workflow comments/names; then run and explicitly review the post-change dependency audit"
+    },
+    {
+      "capability_tier": "frontier",
+      "checked": true,
+      "delegation": "controller",
+      "dependency_delivery": "none",
+      "dependency_resolution": "none",
+      "depends_on": [
+        "1.1"
+      ],
+      "files": [
+        ".github/workflows/release.yml"
+      ],
+      "id": "2.2",
+      "interfaces": "Consumes: task 1.1 helper commands, pushed-ref or manual tag/control ref, repository default branch, tagged `source/` checkout, existing or newly built platform digests, image verifier, smoke harness, Syft, Grype, and GitHub outputs/artifacts; Produces: canonical release-context outputs, retained `PlatformEvidence` per platform, clean-only attestations, exact two-platform manifest, and completed GitHub Release evidence",
+      "optional": false,
+      "reasoning_level": "extra_high",
+      "requirements": [
+        "2.1",
+        "2.2",
+        "2.3",
+        "2.4",
+        "2.5",
+        "2.6",
+        "3.1",
+        "3.2",
+        "3.3",
+        "3.4",
+        "3.5",
+        "3.6",
+        "4.1",
+        "4.2",
+        "4.3",
+        "4.4",
+        "4.5",
+        "4.6",
+        "5.1",
+        "5.2",
+        "5.3",
+        "5.4",
+        "5.5",
+        "6.1",
+        "6.2",
+        "6.3",
+        "6.4",
+        "6.5",
+        "6.6",
+        "6.7"
+      ],
+      "resolved_model": "claude-opus-5",
+      "risk": "high; hosted release behavior can affect immutable public artifacts, while rollback reverts workflow controls and never moves tags or published digests",
+      "stage": 2,
+      "task_category": "heavy_reasoning",
+      "title": "Wire immutable recovery and fail-closed publication",
+      "verification": "run `actionlint` against [`.github/workflows/release.yml`](../../.github/workflows/release.yml); exercise valid, malformed, and empty-package SPDX fixtures plus exact digest-record validation; inspect YAML/output dependencies for one canonical identity, coherent absent/exact/invalid manifest handling, exact two-platform verification, nonconflicting full/partial artifact uploads, upload-before-enforce order, clean-only attest/publish, and least privilege; review workflow contract comments"
+    },
+    {
+      "capability_tier": "frontier",
+      "checked": true,
+      "delegation": "controller",
+      "dependency_delivery": "none",
+      "dependency_resolution": "none",
+      "depends_on": [
+        "2.1",
+        "2.2"
+      ],
+      "files": [
+        "README.md",
+        "advisory-fetcher/README.md",
+        ".specs/containerized-service/00_state.md",
+        ".specs/amtrak-gtfs-rt-service/00_state.md",
+        ".specs/advisory-fetcher/00_state.md"
+      ],
+      "id": "3.1",
+      "interfaces": "Consumes: task 2.1 CI job names/commands, task 2.2 manual tag-input and evidence contracts, and authoritative current repository/release state; Produces: consistent maintainer/operator documentation and an executable v0.3.0 post-merge recovery handoff",
+      "optional": false,
+      "reasoning_level": "high",
+      "requirements": [
+        "7.1",
+        "7.2",
+        "7.3",
+        "7.4",
+        "7.5",
+        "7.6",
+        "7.7"
+      ],
+      "resolved_model": "claude-opus-5",
+      "risk": "medium; stale instructions can trigger unsafe operator action, while rollback restores prose only and has no migration",
+      "stage": 3,
+      "task_category": "review",
+      "title": "Reconcile repository state and recovery documentation",
+      "verification": "search all changed guides/state files for contradicted PR/release/deployment claims and require explicit merged status for PRs #8 and #9; cross-check the documented `--ref main` recovery command and evidence names against [`.github/workflows/release.yml`](../../.github/workflows/release.yml); review links and historical/current-state distinction"
+    },
+    {
+      "capability_tier": "frontier",
+      "checked": true,
+      "delegation": "controller",
+      "dependency_delivery": "none",
+      "dependency_resolution": "none",
+      "depends_on": [
+        "3.1"
+      ],
+      "files": [
+        ".github/workflows/ci.yml",
+        ".github/workflows/release.yml",
+        "scripts/release-context.sh",
+        "scripts/release-vulnerability-policy.sh",
+        "scripts/test-release-controls.sh",
+        "README.md",
+        "advisory-fetcher/README.md",
+        ".specs/containerized-service/00_state.md",
+        ".specs/amtrak-gtfs-rt-service/00_state.md",
+        ".specs/advisory-fetcher/00_state.md"
+      ],
+      "id": "4.1",
+      "interfaces": "Consumes: all implementation outputs from tasks 1.1 through 3.1 and approved requirements/design contracts; Produces: an evidence-backed pass/fail delivery decision plus explicit hosted-only and post-merge handoff notes",
+      "optional": false,
+      "reasoning_level": "high",
+      "requirements": [
+        "1.1",
+        "1.2",
+        "1.3",
+        "1.4",
+        "1.5",
+        "2.1",
+        "2.2",
+        "2.3",
+        "2.4",
+        "2.5",
+        "2.6",
+        "3.1",
+        "3.2",
+        "3.3",
+        "3.4",
+        "3.5",
+        "3.6",
+        "4.1",
+        "4.2",
+        "4.3",
+        "4.4",
+        "4.5",
+        "4.6",
+        "5.1",
+        "5.2",
+        "5.3",
+        "5.4",
+        "5.5",
+        "6.1",
+        "6.2",
+        "6.3",
+        "6.4",
+        "6.5",
+        "6.6",
+        "6.7",
+        "7.1",
+        "7.2",
+        "7.3",
+        "7.4",
+        "7.5",
+        "7.6",
+        "7.7"
+      ],
+      "resolved_model": "claude-opus-5",
+      "risk": "high; a false pass could authorize unsafe publication, so any missing or inconclusive required evidence blocks delivery and rollback is an ordinary commit revert",
+      "stage": 4,
+      "task_category": "review",
+      "title": "Verify the complete remediation before delivery",
+      "verification": "`cargo test --all-targets`; exact-version advisory-fetcher pytest invocation; Bash syntax checking and the linked release-control fixture harness; run `actionlint` against [`.github/workflows/ci.yml`](../../.github/workflows/ci.yml) and [`.github/workflows/release.yml`](../../.github/workflows/release.yml); spec-check and final diff review"
+    }
+  ]
+}

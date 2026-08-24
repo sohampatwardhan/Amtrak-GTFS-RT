@@ -11,7 +11,14 @@
 | Design | approved | Security remediation amendment approved by the user on 2026-08-14 |
 | Tasks | approved | Security remediation task 3.1 and its evidence gates approved by the user on 2026-08-14 |
 | Audit | not_run | Optional audit not requested |
-| Execution | complete | Task 3.1 passed its implementation, runtime, exact-image scan, and authorized pre/post dependency-audit gates; no image publication or deployment performed |
+| Execution | complete | Task 3.1 passed its implementation, runtime, exact-image scan, and authorized pre/post dependency-audit gates; its local execution did not publish or deploy, while the later separately authorized v0.2.0 release completed |
+
+## Current Repository Status
+
+- The container source and later advisory work from PRs #8 and #9 are merged to `main`.
+- `v0.2.0` is the latest completed public release. The `v0.3.0` source tag exists, but publication is incomplete and has no completed release claim.
+- No production deployment, anonymous public exposure, proxy-trust expansion, or orchestration is authorized or recorded.
+- PR #7 remains a separate open/conflicting workstream and does not change this feature's completed historical evidence.
 
 ## Change Control
 
@@ -22,7 +29,7 @@
 - On 2026-08-14, the container requirements were approved without changing the existing feed or access-control contract.
 - On 2026-08-14, the container design was approved with immutable base-image pins, validator verification, UID 10001, `/data` persistence, and loopback-safe defaults.
 - On 2026-08-14, the two implementation tasks were approved and execution began on branch `containerized-service`.
-- On 2026-08-14, both tasks were implemented, independently reviewed, and verified; execution is complete. Local container verification passed (build, smoke harness, Rust and feed gates, SBOM). Rollout remains blocked: the Docker Scout CVE report is unavailable without `docker login`, and the base service's dependency-audit block still stands. Image publication and deployment remain out of scope pending user authorization.
+- On 2026-08-14, both tasks were implemented, independently reviewed, and verified; execution was complete. At that checkpoint local container verification passed (build, smoke harness, Rust and feed gates, SBOM), while rollout remained blocked by unavailable Docker Scout evidence and the base dependency audit. Later entries supersede that historical publication block; deployment remains unauthorized.
 - On 2026-08-14, the user chose push + PR; the branch was pushed and [PR #2](https://github.com/sohampatwardhan/Amtrak-GTFS-RT/pull/2) opened against `main` as the authoritative integration record.
 - On 2026-08-14, the image CVE-evidence caveat was resolved: the smoke harness gained an auth-free grype fallback and produced a CVE report (33 Critical / 74 High / 146 Medium — not clean; inherited from the JRE's OS packages and the bundled validator JAR). Rollout still requires remediating or risk-accepting those findings. The base-service dependency-audit block was left as-is per user decision (inherited transitive advisories with no upstream fix; unaffected by containerization).
 - On 2026-08-14, remediation triage found no fixable Critical image finding. All 10 fixable High findings are embedded in the latest upstream validator JAR (v8.0.1); a smaller runtime would not remediate them and would require a compatibility redesign. A [proposed risk-acceptance record](../../.security/risk-acceptance/containerized-service.md) now documents the image and Cargo findings, compensating controls, expiry, and review triggers. It remains pending explicit owner approval and does not authorize publication or deployment.

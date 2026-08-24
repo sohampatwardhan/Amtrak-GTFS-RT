@@ -1,0 +1,243 @@
+{
+  "schema_version": 1,
+  "generated_from": {
+    "file": "02_requirements.md",
+    "sha256": "0038b3288df401d1b20bec81bd95af3872d8397737cead8dc8c98aeb0a7fc400"
+  },
+  "requirements": [
+    {
+      "id": "1",
+      "user_story": {
+        "role": "service operator",
+        "capability": "the fetcher to obtain Amtrak's Service Alerts & Notices page using a real browser",
+        "benefit": "Akamai-protected advisory content becomes available to the feed"
+      },
+      "criteria": [
+        {
+          "id": "1.1",
+          "kind": "event",
+          "trigger": "the fetcher begins a poll cycle",
+          "actor": "Advisory_Fetcher",
+          "behavior": "load the Amtrak Service Alerts & Notices page in a real browser that executes the page's JavaScript"
+        },
+        {
+          "id": "1.2",
+          "kind": "event",
+          "trigger": "a page load completes successfully",
+          "actor": "Advisory_Fetcher",
+          "behavior": "produce output containing the `na-service-alert__*` advisory markup that the service's parsers consume"
+        },
+        {
+          "id": "1.3",
+          "kind": "unwanted",
+          "trigger": "the browser does not obtain the advisory markup within a bounded per-cycle timeout",
+          "actor": "Advisory_Fetcher",
+          "behavior": "abort the cycle without overwriting a previously valid snapshot"
+        }
+      ]
+    },
+    {
+      "id": "2",
+      "user_story": {
+        "role": "service operator",
+        "capability": "the fetcher to write the advisories to the location and format the service already consumes",
+        "benefit": "no feed-producer service code changes"
+      },
+      "criteria": [
+        {
+          "id": "2.1",
+          "kind": "event",
+          "trigger": "a poll cycle obtains the advisory markup",
+          "actor": "Advisory_Fetcher",
+          "behavior": "write it to the snapshot source the service reads via `AdvisoryConfig.url`"
+        },
+        {
+          "id": "2.2",
+          "kind": "event",
+          "trigger": "the fetcher writes a snapshot",
+          "actor": "Advisory_Fetcher",
+          "behavior": "make the write atomic so a reader observes either the complete previous snapshot or the complete new one"
+        },
+        {
+          "id": "2.3",
+          "kind": "event",
+          "trigger": "the fetcher writes a snapshot",
+          "actor": "Advisory_Fetcher",
+          "behavior": "update the snapshot's freshness marker so the service can detect staleness through its existing TTL"
+        },
+        {
+          "id": "2.4",
+          "kind": "event",
+          "trigger": "the feed-producer service reads a fetcher-produced snapshot",
+          "actor": "Feed_Producer_Service",
+          "behavior": "emit the scoped station and route alerts the existing parsers derive from that markup"
+        }
+      ]
+    },
+    {
+      "id": "3",
+      "user_story": {
+        "role": "service operator",
+        "capability": "a fetcher failure to never break the feed",
+        "benefit": "advisories are a best-effort enhancement rather than a dependency"
+      },
+      "criteria": [
+        {
+          "id": "3.1",
+          "kind": "unwanted",
+          "trigger": "the fetcher cannot produce a fresh snapshot",
+          "actor": "Feed_Producer_Service",
+          "behavior": "continue serving feeds using the last snapshot or none, without a failed generation"
+        },
+        {
+          "id": "3.2",
+          "kind": "unwanted",
+          "trigger": "the fetcher process crashes or is killed",
+          "actor": "Feed_Producer_Service",
+          "behavior": "continue serving feeds unaffected"
+        }
+      ]
+    },
+    {
+      "id": "4",
+      "user_story": {
+        "role": "service operator",
+        "capability": "the fetcher to use little memory and recover from crashes on its own",
+        "benefit": "it runs unattended on a shared device without needing a hard cap"
+      },
+      "criteria": [
+        {
+          "id": "4.1",
+          "kind": "event",
+          "trigger": "a poll cycle runs",
+          "actor": "Advisory_Fetcher",
+          "behavior": "launch a single browser instance at a time so its peak memory stays bounded to one browser rather than growing across cycles"
+        },
+        {
+          "id": "4.2",
+          "kind": "event",
+          "trigger": "a poll cycle completes",
+          "actor": "Advisory_Fetcher",
+          "behavior": "close the browser so that no browser process remains resident between polls"
+        },
+        {
+          "id": "4.3",
+          "kind": "unwanted",
+          "trigger": "the fetcher process crashes or is terminated",
+          "actor": "Advisory_Fetcher",
+          "behavior": "restart and resume polling without manual intervention"
+        }
+      ]
+    },
+    {
+      "id": "5",
+      "user_story": {
+        "role": "maintainer",
+        "capability": "the browser confined to the fetcher image",
+        "benefit": "the feed-producer service keeps its scratch/musl, no-vulnerabilities container posture"
+      },
+      "criteria": [
+        {
+          "id": "5.1",
+          "kind": "unconditional",
+          "trigger": "",
+          "actor": "Feed_Producer_Service image",
+          "behavior": "remain free of any browser or browser runtime dependency"
+        },
+        {
+          "id": "5.2",
+          "kind": "unconditional",
+          "trigger": "",
+          "actor": "Advisory_Fetcher",
+          "behavior": "package the browser and its dependencies only within its own container image"
+        }
+      ]
+    },
+    {
+      "id": "6",
+      "user_story": {
+        "role": "service operator",
+        "capability": "the fetcher to poll gently",
+        "benefit": "it neither hammers Amtrak nor draws bot-defense attention"
+      },
+      "criteria": [
+        {
+          "id": "6.1",
+          "kind": "optional",
+          "trigger": "a poll interval is configured",
+          "actor": "Advisory_Fetcher",
+          "behavior": "wait at least that interval between successive page loads"
+        },
+        {
+          "id": "6.2",
+          "kind": "unconditional",
+          "trigger": "",
+          "actor": "Advisory_Fetcher",
+          "behavior": "default its poll interval to the order of the service's static-data refresh rather than a sub-minute rate"
+        }
+      ]
+    },
+    {
+      "id": "7",
+      "user_story": {
+        "role": "service operator",
+        "capability": "the spike to decide the approach before the component is built",
+        "benefit": "we do not invest in a sidecar that cannot work or cannot fit the device"
+      },
+      "criteria": [
+        {
+          "id": "7.1",
+          "kind": "event",
+          "trigger": "the spike runs",
+          "actor": "Advisory_Fetcher_Spike",
+          "behavior": "report whether a server-IP browser obtains the `na-service-alert__*` markup and the success rate over repeated cycles on ARM64"
+        },
+        {
+          "id": "7.2",
+          "kind": "event",
+          "trigger": "the spike obtains the markup",
+          "actor": "Advisory_Fetcher_Spike",
+          "behavior": "demonstrate at least three consecutive successful retrievals to establish repeatability rather than a single success"
+        },
+        {
+          "id": "7.3",
+          "kind": "unwanted",
+          "trigger": "the spike cannot obtain the markup repeatably from a server IP",
+          "actor": "project",
+          "behavior": "fall back to the managed-API approach or shelve the feature, without building the sidecar or changing the service image"
+        }
+      ]
+    },
+    {
+      "id": "8",
+      "user_story": {
+        "role": "service operator",
+        "capability": "the fetcher to stay lightweight",
+        "benefit": "it costs almost nothing to run continuously on the Pi alongside other workloads"
+      },
+      "criteria": [
+        {
+          "id": "8.1",
+          "kind": "state",
+          "trigger": "idle between poll cycles",
+          "actor": "Advisory_Fetcher",
+          "behavior": "run no browser process and perform no work beyond waiting for the next scheduled poll"
+        },
+        {
+          "id": "8.2",
+          "kind": "event",
+          "trigger": "a freshly fetched advisory document is identical to the current snapshot's content",
+          "actor": "Advisory_Fetcher",
+          "behavior": "refresh the snapshot's freshness marker without rewriting the snapshot payload"
+        },
+        {
+          "id": "8.3",
+          "kind": "event",
+          "trigger": "a poll cycle completes or aborts",
+          "actor": "Advisory_Fetcher",
+          "behavior": "release all browser and temporary-file resources it acquired for that cycle"
+        }
+      ]
+    }
+  ]
+}

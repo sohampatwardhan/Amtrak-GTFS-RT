@@ -1,0 +1,39 @@
+{
+  "diagram": "sequence",
+  "target": "sequenceDiagram",
+  "actors": [
+    { "id": "Poller" },
+    { "id": "Browser" },
+    { "id": "Amtrak" },
+    { "id": "Store" },
+    { "id": "HTTP" },
+    { "id": "Service" }
+  ],
+  "steps": [
+    { "type": "loop", "label": "every POLL_INTERVAL (default 900s)", "steps": [
+      { "type": "message", "from": "Poller", "to": "Browser", "label": "launch headless-shell (no-sandbox, disable-dev-shm)", "kind": "sync" },
+      { "type": "message", "from": "Browser", "to": "Amtrak", "label": "navigate + execute Akamai JS", "kind": "sync" },
+      { "type": "alt", "branches": [
+        { "label": "na-service-alert markup present", "steps": [
+          { "type": "message", "from": "Browser", "to": "Poller", "label": "page.content() HTML", "kind": "reply" },
+          { "type": "message", "from": "Poller", "to": "Store", "label": "atomic replace if content changed, stamp last_success", "kind": "sync" }
+        ] },
+        { "label": "blocked or timeout", "steps": [
+          { "type": "message", "from": "Browser", "to": "Poller", "label": "no markup", "kind": "reply" },
+          { "type": "note", "position": "right_of", "actors": ["Store"], "text": "keep previous snapshot" }
+        ] }
+      ] },
+      { "type": "message", "from": "Poller", "to": "Browser", "label": "close (release all RAM)", "kind": "sync" }
+    ] },
+    { "type": "message", "from": "Service", "to": "HTTP", "label": "GET snapshot (on its own TTL)", "kind": "sync" },
+    { "type": "alt", "branches": [
+      { "label": "snapshot fresh", "steps": [
+        { "type": "message", "from": "HTTP", "to": "Service", "label": "200 + advisories HTML", "kind": "reply" }
+      ] },
+      { "label": "no or stale snapshot", "steps": [
+        { "type": "message", "from": "HTTP", "to": "Service", "label": "503", "kind": "reply" },
+        { "type": "note", "position": "right_of", "actors": ["Service"], "text": "fail-open: last-good or no advisories" }
+      ] }
+    ] }
+  ]
+}

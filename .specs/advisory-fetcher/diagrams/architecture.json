@@ -1,0 +1,24 @@
+{
+  "diagram": "graph",
+  "target": "C4Container",
+  "title": "Advisory Fetcher deployment on the Raspberry Pi 5",
+  "groups": [
+    { "id": "pi", "label": "Raspberry Pi 5 (Docker, 8 GB, cgroup v2)", "kind": "container_boundary" }
+  ],
+  "nodes": [
+    { "id": "amtrak", "label": "Amtrak Service Alerts and Notices", "kind": "system_ext",
+      "description": "Akamai-protected HTML page; needs a JS-earned _abck cookie" },
+    { "id": "fetcher", "label": "Advisory Fetcher", "kind": "container",
+      "technology": "Python, Playwright, chromium-headless-shell",
+      "description": "Launch-per-poll headless browser (subresource-blocked) earns the cookie and serves the latest snapshot over HTTP; no hard cap",
+      "group": "pi" },
+    { "id": "service", "label": "Feed-producer service", "kind": "container",
+      "technology": "Rust, scratch/musl (unchanged)",
+      "description": "PR #8 parsers turn the snapshot into scoped GTFS-RT alerts; fail-open",
+      "group": "pi" }
+  ],
+  "edges": [
+    { "from": "fetcher", "to": "amtrak", "kind": "rel", "label": "loads notices page in a real browser", "technology": "HTTPS" },
+    { "from": "service", "to": "fetcher", "kind": "rel", "label": "GET latest snapshot (AMTRAK_ADVISORIES_URL)", "technology": "HTTP" }
+  ]
+}
