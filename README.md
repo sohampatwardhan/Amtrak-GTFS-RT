@@ -282,9 +282,12 @@ identifier parsing, and manifest-first discovery.
 Station Advisories and Passenger Advisories from Amtrak's notices page are merged into the
 published `alerts.pb` only when an operator turns them on. The Rust service does not run a
 browser. `www.amtrak.com` resets plain HTTP clients (Akamai), so the supported source is the
-Playwright sidecar in [`advisory-fetcher/`](advisory-fetcher/README.md), which serves the page
-HTML. Enabling the env vars wraps the Amtrak realtime source with that scraper; a fetch or parse
-failure adds no advisory entities and still publishes trip updates and vehicle positions.
+Playwright sidecar in [`advisory-fetcher/`](advisory-fetcher/README.md). The sidecar snapshots the
+notices list and each linked `/alert/...` detail page. The service GETs those pages on the fetcher
+origin: `header_text` is the list title, and `description_text` is the detail body (effective
+date, paragraphs, and PSN). A missing detail page keeps that alert's title and effective date.
+A list fetch or parse failure adds no advisory entities and still publishes trip updates and
+vehicle positions.
 
 From `advisory-fetcher/`:
 

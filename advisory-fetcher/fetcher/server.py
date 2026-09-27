@@ -11,8 +11,9 @@ from __future__ import annotations
 
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from urllib.parse import urlsplit
 
-from .store import SnapshotStore
+from .store import SnapshotStore, safe_detail_name
 
 HEALTH_PATH = "/healthz"
 
@@ -31,15 +32,26 @@ def route(
     * ``serve_path`` → ``200 text/html`` with the snapshot while ``now - last_success`` is within
       ``max_stale_secs``; ``503`` when no snapshot exists yet or it is stale (freshness as status,
       R2.3/R3.1).
+    * ``/alert/<slug>.html`` → the matching detail snapshot on the same freshness rule; ``404`` when
+      that detail was never stored (the service then keeps a title-only description).
     * ``/healthz`` → ``200`` liveness.
     * anything else → ``404``.
     """
     if path == HEALTH_PATH:
         return 200, "text/plain", b"ok"
-    if path == serve_path:
+    clean = urlsplit(path).path
+    if clean == serve_path:
         snapshot = store.read()
         if snapshot is None:
             return 503, "text/plain", b"no snapshot yet"
+        data, last_success = snapshot
+        if now - last_success > max_stale_secs:
+            return 503, "text/plain", b"snapshot stale"
+        return 200, "text/html", data
+    if safe_detail_name(clean) is not None:
+        snapshot = store.read_detail(clean)
+        if snapshot is None:
+            return 404, "text/plain", b"detail not snapshotted"
         data, last_success = snapshot
         if now - last_success > max_stale_secs:
             return 503, "text/plain", b"snapshot stale"

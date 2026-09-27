@@ -13,13 +13,17 @@ scratch/musl, no-vulnerabilities posture.
 ## How it works
 
 - **Poll loop** (`fetcher/poller.py`): every `POLL_INTERVAL_SECS`, launch one browser, load the
-  page, wait for the `na-service-alert__*` markup, capture the HTML, then close the browser. Nothing
-  browser-related stays resident between polls. Image/font/media/CSS requests are blocked during the
-  fetch (script/XHR allowed so Akamai's sensor still runs).
-- **Snapshot store** (`fetcher/store.py`): the latest HTML is written atomically; unchanged content
-  isn't rewritten.
-- **HTTP server** (`fetcher/server.py`): serves the snapshot as `200 text/html` while fresh, `503`
-  when missing or older than `MAX_STALE_SECS` (the service then fails open), and `200` on `/healthz`.
+  notices page, wait for the `na-service-alert__*` markup, then open each linked `/alert/...`
+  detail page in that same session (so the Akamai cookie still applies). A detail that fails is
+  skipped; the list is still stored. The browser closes at the end of the cycle. Image/font/media/CSS
+  requests are blocked during the fetch (script/XHR allowed so Akamai's sensor still runs).
+- **Snapshot store** (`fetcher/store.py`): the latest list HTML is written atomically; unchanged
+  content isn't rewritten. Detail pages are stored under `details/` and only for safe
+  `/alert/<slug>.html` paths.
+- **HTTP server** (`fetcher/server.py`): serves the list snapshot at `SERVE_PATH` and each detail
+  snapshot at its `/alert/<slug>.html` path, `200 text/html` while fresh and `503` when the list
+  (or that detail) is missing or older than `MAX_STALE_SECS`. A detail that was never stored is
+  `404`. The service then keeps a title-only description for that alert. `/healthz` is `200`.
 
 ## Configuration (environment)
 

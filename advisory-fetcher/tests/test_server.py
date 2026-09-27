@@ -46,6 +46,19 @@ def test_404_for_unknown_path(tmp_path):
     assert status == 404
 
 
+def test_detail_snapshot_is_served_when_fresh_and_missing_is_404(tmp_path):
+    store = SnapshotStore(tmp_path)
+    path = "/alert/boston-south-station-restroom-improvement-project.html"
+    store.update_detail(path, "<p>Atlantic Avenue</p>")
+    _, last_success = store.read_detail(path)
+    status, ctype, body = route(store, SERVE_PATH, MAX_STALE, path, now=last_success + 10)
+    assert status == 200 and ctype == "text/html" and b"Atlantic Avenue" in body
+    missing, _, _ = route(store, SERVE_PATH, MAX_STALE, "/alert/missing.html", now=last_success)
+    assert missing == 404
+    unsafe, _, _ = route(store, SERVE_PATH, MAX_STALE, "/alert/../../etc/passwd", now=last_success)
+    assert unsafe == 404
+
+
 def test_live_server_serves_snapshot_and_health(tmp_path):
     """End-to-end over a real socket: healthz is 200 and a stored snapshot is served."""
     store = SnapshotStore(tmp_path)

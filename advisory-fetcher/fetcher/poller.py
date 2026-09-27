@@ -17,12 +17,20 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
+from urllib.parse import urljoin
 
 from .config import Config
-from .store import SnapshotStore
+from .store import SnapshotStore, safe_detail_name
 
 logger = logging.getLogger(__name__)
+
+# Cap detail navigations so a notices page cannot turn one poll into an unbounded crawl.
+MAX_DETAIL_PAGES = 40
+_DETAIL_SELECTOR = ".alerts-details-minimum"
+_DATA_HREF = re.compile(r"""data-href=["']([^"']+)["']""")
 
 _LAUNCH_ARGS = ["--disable-dev-shm-usage", "--disable-gpu"]
 _BLOCKED_RESOURCE_TYPES = frozenset({"image", "font", "media", "stylesheet"})
@@ -31,8 +39,35 @@ _STEALTH_UA = (
     "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 )
 
-# A launcher performs one browser fetch and returns (gate_present, html).
-Launcher = Callable[[Config], Awaitable[tuple[bool, str]]]
+@dataclass(frozen=True)
+class FetchedAdvisories:
+    """One successful poll: the notices list plus any detail pages captured in the same session."""
+
+    list_html: str
+    details: dict[str, str]
+
+
+# A launcher returns the notices list and detail pages, or ``None`` when the list gate is missing.
+Launcher = Callable[[Config], Awaitable[FetchedAdvisories | None]]
+
+
+def extract_detail_paths(html: str) -> list[str]:
+    """Return unique `/alert/<slug>.html` paths from list-page ``data-href`` values, in order.
+
+    Absolute URLs, query strings, and anything that is not a safe alert path are skipped. The
+    result is capped at :data:`MAX_DETAIL_PAGES`.
+    """
+    found: list[str] = []
+    seen: set[str] = set()
+    for match in _DATA_HREF.finditer(html):
+        raw = match.group(1).split("?", 1)[0].split("#", 1)[0]
+        if safe_detail_name(raw) is None or raw in seen:
+            continue
+        seen.add(raw)
+        found.append(raw)
+        if len(found) >= MAX_DETAIL_PAGES:
+            break
+    return found
 
 
 def should_block(resource_type: str) -> bool:
@@ -44,12 +79,14 @@ def should_block(resource_type: str) -> bool:
     return resource_type in _BLOCKED_RESOURCE_TYPES
 
 
-async def _default_launcher(cfg: Config) -> tuple[bool, str]:
-    """Launch Chromium once, load the notices page, and return ``(gate_present, html)``.
+async def _default_launcher(cfg: Config) -> FetchedAdvisories | None:
+    """Launch Chromium once, load the notices page, then each linked detail page.
 
     Uses ``chromium-headless-shell`` (headless, no channel) by default, or full Chromium under Xvfb
     when ``cfg.browser_mode == "xvfb-headful"``. Playwright is imported lazily so the module (and
     its tests) load without a browser installed. The browser is always closed in ``finally``.
+    Detail pages share that session so the Akamai cookie earned for the list still applies. A
+    detail that times out or lacks the body markup is skipped; the list is still returned.
     """
     from playwright.async_api import async_playwright  # lazy: only needed for a real fetch
 
@@ -84,16 +121,30 @@ async def _default_launcher(cfg: Config) -> tuple[bool, str]:
             try:
                 await page.wait_for_selector(cfg.gate_selector, timeout=cfg.nav_timeout_secs * 1000)
             except Exception:  # noqa: BLE001 — a missing gate selector is a blocked cycle
-                return False, ""
-            return True, await page.content()
+                return None
+            list_html = await page.content()
+            details: dict[str, str] = {}
+            for path in extract_detail_paths(list_html):
+                try:
+                    await page.goto(
+                        urljoin(cfg.source_url, path),
+                        wait_until="domcontentloaded",
+                        timeout=cfg.nav_timeout_secs * 1000,
+                    )
+                    await page.wait_for_selector(
+                        _DETAIL_SELECTOR, timeout=cfg.nav_timeout_secs * 1000
+                    )
+                    details[path] = await page.content()
+                except Exception:  # noqa: BLE001 — one detail miss must not drop the list
+                    logger.warning("advisory detail page not obtained: %s", path)
+            return FetchedAdvisories(list_html, details)
         finally:
             await browser.close()  # release all browser memory every cycle
 
 
-async def poll_once(cfg: Config, *, launcher: Launcher = _default_launcher) -> str | None:
-    """Run one fetch cycle; return the advisories HTML, or ``None`` if the markup was not obtained."""
-    gate_present, html = await launcher(cfg)
-    return html if gate_present else None
+async def poll_once(cfg: Config, *, launcher: Launcher = _default_launcher) -> FetchedAdvisories | None:
+    """Run one fetch cycle; return the list and detail pages, or ``None`` if the list was blocked."""
+    return await launcher(cfg)
 
 
 async def run_forever(
@@ -113,10 +164,19 @@ async def run_forever(
     count = 0
     while iterations is None or count < iterations:
         try:
-            html = await poll_once(cfg, launcher=launcher)
-            if html is not None:
-                changed = store.update(html)
-                logger.info("advisories fetched (changed=%s)", changed)
+            fetched = await poll_once(cfg, launcher=launcher)
+            if fetched is not None:
+                changed = store.update(fetched.list_html)
+                stored_details = 0
+                for path, detail_html in fetched.details.items():
+                    try:
+                        store.update_detail(path, detail_html)
+                        stored_details += 1
+                    except ValueError:
+                        logger.warning("skipped unsafe advisory detail path")
+                logger.info(
+                    "advisories fetched (changed=%s details=%s)", changed, stored_details
+                )
             else:
                 logger.warning("advisories markup not obtained this cycle; keeping last snapshot")
         except Exception:  # noqa: BLE001 — fail-open: never let a cycle crash the loop
