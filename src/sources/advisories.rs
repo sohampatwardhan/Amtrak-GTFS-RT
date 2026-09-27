@@ -13,9 +13,9 @@
 //! panic and never an error. Callers merge the returned entities into the alerts feed; the
 //! generation publishes regardless.
 //!
-//! `dead_code` is allowed while the tree is built incrementally: the public functions here are
-//! consumed by the `WithAdvisories` decorator (task 3.1), not yet referenced from the service.
-#![allow(dead_code)]
+//! The service wires this in from `main` when `AMTRAK_ADVISORIES` is `1`, `true`, or `on`:
+//! [`WithAdvisories`] wraps the Amtrak source and appends these entities to that source's alerts
+//! before the orchestrator builds the published `alerts.pb`.
 
 use super::{RtBatch, RtSource, SourceError};
 use crate::config::AdvisoryConfig;
@@ -604,5 +604,186 @@ mod tests {
         // Sanity: 1970-01-01 is unix 0.
         assert_eq!(to_unix((1970, 1, 1)), 0);
         assert_eq!(to_unix((2026, 4, 20)), 1_776_643_200);
+    }
+
+    /// Live Station Advisories list captured 2026-09-27 from
+    /// `https://www.amtrak.com/service-alerts-and-notices` (headless Chrome).
+    const LIVE_STATION_FIXTURE: &str =
+        include_str!("../../fixtures/advisories/service-alerts-stations.html");
+
+    fn stops_gtfs(ids: &[&str]) -> Gtfs {
+        let mut gtfs = Gtfs::default();
+        for id in ids {
+            gtfs.stops.insert(
+                (*id).to_string(),
+                std::sync::Arc::new(gtfs_structures::Stop {
+                    id: (*id).to_string(),
+                    ..Default::default()
+                }),
+            );
+        }
+        gtfs
+    }
+
+    /// Serves `body` once on an ephemeral loopback port and returns the advisories URL.
+    fn serve_html_once(body: &'static str) -> String {
+        use std::io::{Read, Write};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        listener.set_nonblocking(true).unwrap();
+        std::thread::spawn(move || {
+            let started = std::time::Instant::now();
+            let mut stream = loop {
+                match listener.accept() {
+                    Ok((stream, _)) => break stream,
+                    Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                        if started.elapsed() > Duration::from_secs(5) {
+                            return;
+                        }
+                        std::thread::sleep(Duration::from_millis(10));
+                    }
+                    Err(_) => return,
+                }
+            };
+            stream.set_nonblocking(false).unwrap();
+            stream
+                .set_read_timeout(Some(Duration::from_secs(5)))
+                .unwrap();
+            let mut buf = [0_u8; 2048];
+            let _ = stream.read(&mut buf);
+            let bytes = body.as_bytes();
+            let header = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                bytes.len()
+            );
+            stream.write_all(header.as_bytes()).unwrap();
+            stream.write_all(bytes).unwrap();
+        });
+        format!("http://{addr}/service-alerts-and-notices")
+    }
+
+    fn translation_text(text: &Option<gtfs_realtime::TranslatedString>) -> String {
+        text.as_ref()
+            .and_then(|value| value.translation.first())
+            .map(|translation| translation.text.clone())
+            .unwrap_or_default()
+    }
+
+    // Live station-advisory markup, fetched over HTTP the same way WithAdvisories does, survives
+    // orchestrator build/validate and is present in the published alerts protobuf.
+    #[tokio::test]
+    async fn live_station_fixture_reaches_published_alerts_protobuf() {
+        use crate::orchestrator::{
+            CandidateValidator, GenerationBuilder, SelectedBatch, StaticSnapshot,
+        };
+        use prost::Message;
+        use std::time::UNIX_EPOCH;
+
+        let url = serve_html_once(LIVE_STATION_FIXTURE);
+        let gtfs = stops_gtfs(&["ALX", "BOS", "DLD", "HMW", "NHV", "OTM", "QAN"]);
+        let deco = WithAdvisories::new(
+            MockSource {
+                name: "amtrak",
+                behavior: Behavior::Ok(asm_batch()),
+            },
+            cfg(&url),
+        );
+        let batch = deco.fetch(&gtfs).await.unwrap();
+        let snapshot = std::sync::Arc::new(StaticSnapshot {
+            version: "FIXTURE".into(),
+            parsed: std::sync::Arc::new(gtfs),
+            zip: std::sync::Arc::from(&b"zip"[..]),
+        });
+        let candidate = GenerationBuilder::build(
+            snapshot,
+            SelectedBatch {
+                source_name: "amtrak",
+                batch,
+            },
+            UNIX_EPOCH + Duration::from_secs(1_700_000_000),
+        )
+        .unwrap();
+        let validated = CandidateValidator::validate(candidate).unwrap();
+        let alerts_bytes = validated.alerts;
+        let title = "Alexandria Station Will No Longer Accept Checked Baggage";
+        assert!(
+            alerts_bytes
+                .windows(title.len())
+                .any(|window| window == title.as_bytes()),
+            "published alerts.pb bytes must contain the station advisory title"
+        );
+
+        let decoded = FeedMessage::decode(alerts_bytes.as_ref()).unwrap();
+        let expected = [
+            (
+                "advisory-station-ALX",
+                "ALX",
+                "Alexandria Station Will No Longer Accept Checked Baggage",
+                "Effective April 20, 2026",
+            ),
+            (
+                "advisory-station-BOS",
+                "BOS",
+                "Boston South Station Restroom Improvement Project",
+                "Effective August 28, 2026",
+            ),
+            (
+                "advisory-station-DLD",
+                "DLD",
+                "DeLand, FL (DLD) Cashless Transactions",
+                "Effective August 1, 2026",
+            ),
+            (
+                "advisory-station-HMW",
+                "HMW",
+                "Homewood, IL Elevator Outage",
+                "Effective September 2, 2026",
+            ),
+            (
+                "advisory-station-NHV",
+                "NHV",
+                "New Haven, CT Platform Under Construction",
+                "Effective August 31, 2026",
+            ),
+            (
+                "advisory-station-OTM",
+                "OTM",
+                "Ottumwa, IA Parking Lot Undergoing Construction",
+                "Effective September 4, 2026",
+            ),
+            (
+                "advisory-station-QAN",
+                "QAN",
+                "Quantico Station Requires Credentials to Access",
+                "",
+            ),
+        ];
+        assert_eq!(decoded.entity.len(), expected.len());
+        for (id, stop, header, effective) in expected {
+            let entity = decoded
+                .entity
+                .iter()
+                .find(|entity| entity.id == id)
+                .unwrap_or_else(|| panic!("missing {id}"));
+            assert_eq!(entity.is_deleted, None);
+            let alert = entity.alert.as_ref().unwrap();
+            assert_eq!(alert.informed_entity.len(), 1);
+            assert_eq!(alert.informed_entity[0].stop_id.as_deref(), Some(stop));
+            assert!(alert.informed_entity[0].route_id.is_none());
+            assert_eq!(translation_text(&alert.header_text), header);
+            let description = translation_text(&alert.description_text);
+            assert!(
+                description.contains(header),
+                "description missing title: {description}"
+            );
+            if effective.is_empty() {
+                assert_eq!(description, header);
+            } else {
+                assert!(
+                    description.contains(effective),
+                    "description missing effective text: {description}"
+                );
+            }
+        }
     }
 }

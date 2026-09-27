@@ -38,12 +38,21 @@ scratch/musl, no-vulnerabilities posture.
 
 ## Run
 
+`src/main.rs` wraps the Amtrak source in `WithAdvisories` only when advisories are enabled.
+Turn them on with exactly:
+
+```text
+AMTRAK_ADVISORIES=on
+AMTRAK_ADVISORIES_URL=http://advisory-fetcher:8080/service-alerts-and-notices
+```
+
+Those two variables are already set on the `amtrak-gtfs-rt-service` service in
+[`docker-compose.yml`](docker-compose.yml). From this directory, build and start the fetcher
+and the service together:
+
 ```bash
 docker compose up -d --build
 ```
-
-The service turns advisories on with `AMTRAK_ADVISORIES=on` and
-`AMTRAK_ADVISORIES_URL=http://advisory-fetcher:8080/service-alerts-and-notices`.
 
 Advisory *consumption* from
 [PR #8](https://github.com/sohampatwardhan/Amtrak-GTFS-RT/pull/8) and this fetcher from
