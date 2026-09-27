@@ -36,6 +36,21 @@ def test_changed_content_is_rewritten(tmp_path):
     assert store.path.read_bytes() == b"v2"
 
 
+def test_detail_roundtrip_and_rejects_unsafe_paths(tmp_path):
+    store = SnapshotStore(tmp_path)
+    path = "/alert/alexandria-station-checked-baggage-update.html"
+    assert store.update_detail(path, "<p>checked baggage</p>") is True
+    data, mtime = store.read_detail(path)
+    assert data == b"<p>checked baggage</p>" and mtime > 0
+    assert store.update_detail(path, "<p>checked baggage</p>") is False
+    assert store.read_detail("/alert/../secret.html") is None
+    try:
+        store.update_detail("https://evil.example/alert/x.html", "nope")
+    except ValueError:
+        return
+    raise AssertionError("unsafe detail path should be rejected")
+
+
 def test_write_leaves_no_temp_files(tmp_path):
     store = SnapshotStore(tmp_path)
     store.update("payload")

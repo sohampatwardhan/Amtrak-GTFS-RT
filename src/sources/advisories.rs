@@ -8,14 +8,19 @@
 //! - a passenger advisory becomes an alert whose `informed_entity.route_id`s are the advisory's
 //!   route names resolved via GTFS `route_long_name`, one selector per affected route.
 //!
+//! `header_text` is the list-page title. `description_text` is the detail-page body (effective
+//! date, paragraphs, and PSN reference) when that page can be fetched from the same origin as the
+//! notices list — the advisory-fetcher serves those `/alert/...` snapshots. A missing or unreadable
+//! detail page keeps the title-and-effective description for that one alert.
+//!
 //! Everything here is **fail-open**: a fetch failure, an unexpected DOM, an unmappable station or
 //! route, or an unparseable date degrades to *fewer or zero advisories plus a diagnostic* — never a
 //! panic and never an error. Callers merge the returned entities into the alerts feed; the
 //! generation publishes regardless.
 //!
-//! `dead_code` is allowed while the tree is built incrementally: the public functions here are
-//! consumed by the `WithAdvisories` decorator (task 3.1), not yet referenced from the service.
-#![allow(dead_code)]
+//! The service wires this in from `main` when `AMTRAK_ADVISORIES` is `1`, `true`, or `on`:
+//! [`WithAdvisories`] wraps the Amtrak source and appends these entities to that source's alerts
+//! before the orchestrator builds the published `alerts.pb`.
 
 use super::{RtBatch, RtSource, SourceError};
 use crate::config::AdvisoryConfig;
@@ -147,7 +152,182 @@ pub async fn fetch_advisory_alerts(
     let index = AdvisoryIndex::build(gtfs);
     let mut out = parse_station_advisories(&html, &index);
     out.extend(parse_passenger_advisories(&html, &index));
+    enrich_detail_bodies(client, url, &mut out).await;
     out
+}
+
+/// Parsed body of one advisory detail page.
+struct AdvisoryBody {
+    effective: String,
+    paragraphs: Vec<String>,
+    psn: Option<String>,
+}
+
+/// Fetches each alert's `/alert/...` page and replaces `description_text` with the full body.
+///
+/// Fail-open per alert: a bad URL, transport error, or page with no body leaves that alert's
+/// title-and-effective description in place. Detail URLs are resolved against the notices-list
+/// origin, so the service only talks to the configured snapshot host.
+async fn enrich_detail_bodies(
+    client: &reqwest::Client,
+    list_url: &str,
+    entities: &mut [FeedEntity],
+) {
+    let mut cached: HashMap<String, Option<AdvisoryBody>> = HashMap::new();
+    for entity in entities {
+        let Some(alert) = entity.alert.as_mut() else {
+            continue;
+        };
+        let href = translated_text(&alert.url);
+        if href.is_empty() {
+            continue;
+        }
+        let Some(detail_url) = resolve_detail_url(list_url, &href) else {
+            continue;
+        };
+        if !cached.contains_key(&detail_url) {
+            let parsed = match fetch_html(client, &detail_url).await {
+                Some(html) => match parse_advisory_detail(&html) {
+                    Some(body) => Some(body),
+                    None => {
+                        tracing::warn!(
+                            "advisory detail had no body text; keeping title-only description"
+                        );
+                        None
+                    }
+                },
+                None => {
+                    tracing::warn!("advisory detail fetch failed; keeping title-only description");
+                    None
+                }
+            };
+            cached.insert(detail_url.clone(), parsed);
+        }
+        let Some(body) = cached.get(&detail_url).and_then(|body| body.as_ref()) else {
+            continue;
+        };
+        let title = translated_text(&alert.header_text);
+        let current = translated_text(&alert.description_text);
+        let description = compose_description(&list_effective(&title, &current), body);
+        alert.description_text = Some(translated(&description));
+    }
+}
+
+/// Resolves a list-page `data-href` against the notices URL, staying on that host.
+///
+/// Absolute links to another host (including `www.amtrak.com` when the operator pointed the
+/// service at the fetcher) are ignored so a detail fetch cannot leave the snapshot origin.
+fn resolve_detail_url(list_url: &str, href: &str) -> Option<String> {
+    let base = reqwest::Url::parse(list_url).ok()?;
+    let joined = base.join(href).ok()?;
+    if joined.scheme() != base.scheme()
+        || joined.host_str() != base.host_str()
+        || joined.port_or_known_default() != base.port_or_known_default()
+        || !joined.path().starts_with("/alert/")
+        || joined.path().contains("..")
+    {
+        return None;
+    }
+    Some(joined.to_string())
+}
+
+/// Reads the detail page's effective date, body paragraphs, and PSN reference.
+///
+/// Returns `None` when the page has no body paragraphs, so the caller keeps the title-only
+/// description. Empty and non-breaking-space paragraphs are dropped. A paragraph that is only
+/// `PSN <id>` is recorded as the reference rather than as body prose.
+fn parse_advisory_detail(html: &str) -> Option<AdvisoryBody> {
+    let document = Html::parse_document(html);
+    let container = selector(".alerts-details-minimum__container");
+    let date = selector(".alerts-details-minimum__container_date");
+    let paragraph = selector("p");
+    let node = document.select(&container).next()?;
+    let effective = normalize_text(&text_of(node.select(&date).next()));
+    let mut paragraphs = Vec::new();
+    let mut psn = None;
+    for element in node.select(&paragraph) {
+        let text = normalize_text(&element.text().collect::<String>());
+        if text.is_empty() {
+            continue;
+        }
+        if let Some(reference) = psn_reference(&text) {
+            psn = Some(reference);
+            continue;
+        }
+        paragraphs.push(text);
+    }
+    if paragraphs.is_empty() {
+        return None;
+    }
+    Some(AdvisoryBody {
+        effective,
+        paragraphs,
+        psn,
+    })
+}
+
+/// Description used when a detail body was parsed: effective date, paragraphs, then PSN.
+fn compose_description(list_effective: &str, body: &AdvisoryBody) -> String {
+    let detail_effective = body.effective.trim();
+    let effective = if detail_effective.is_empty() {
+        list_effective.trim()
+    } else {
+        detail_effective
+    };
+    let mut parts: Vec<&str> = Vec::new();
+    if !effective.is_empty() {
+        parts.push(effective);
+    }
+    for paragraph in &body.paragraphs {
+        parts.push(paragraph);
+    }
+    if let Some(reference) = body.psn.as_deref() {
+        parts.push(reference);
+    }
+    parts.join("\n\n")
+}
+
+/// Recovers the list-page effective text from the title-only description `{title} ({effective})`.
+fn list_effective(title: &str, description: &str) -> String {
+    let prefix = format!("{title} (");
+    description
+        .strip_prefix(&prefix)
+        .and_then(|rest| rest.strip_suffix(')'))
+        .unwrap_or("")
+        .to_string()
+}
+
+/// A paragraph that is only an Amtrak PSN reference, e.g. `PSN 0826-61`.
+fn psn_reference(text: &str) -> Option<String> {
+    let mut parts = text.split_whitespace();
+    if parts.next()? != "PSN" {
+        return None;
+    }
+    let id = parts.next()?;
+    if parts.next().is_some()
+        || id.is_empty()
+        || !id
+            .chars()
+            .all(|character| character.is_ascii_alphanumeric() || character == '-')
+    {
+        return None;
+    }
+    Some(format!("PSN {id}"))
+}
+
+fn normalize_text(raw: &str) -> String {
+    raw.replace('\u{a0}', " ")
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+fn translated_text(value: &Option<TranslatedString>) -> String {
+    value
+        .as_ref()
+        .and_then(|text| text.translation.first())
+        .map(|translation| translation.text.clone())
+        .unwrap_or_default()
 }
 
 /// GET the page body, or `None` on any transport/status failure (credential-free).
@@ -253,8 +433,9 @@ pub fn parse_passenger_advisories(html: &str, index: &AdvisoryIndex) -> Vec<Feed
     out
 }
 
-/// Builds one advisory alert entity: header = title, description = title + effective text, an
-/// `active_period` only when the effective text parses to a definite range, and the given scope.
+/// Builds one advisory alert entity: header = title, description = title + effective text until a
+/// detail page replaces it, an `active_period` only when the effective text parses to a definite
+/// range, and the given scope.
 fn build_alert(
     id: &str,
     title: &str,
@@ -604,5 +785,318 @@ mod tests {
         // Sanity: 1970-01-01 is unix 0.
         assert_eq!(to_unix((1970, 1, 1)), 0);
         assert_eq!(to_unix((2026, 4, 20)), 1_776_643_200);
+    }
+
+    /// Live Station Advisories list captured 2026-09-27 from
+    /// `https://www.amtrak.com/service-alerts-and-notices` (headless Chrome).
+    const LIVE_STATION_FIXTURE: &str =
+        include_str!("../../fixtures/advisories/service-alerts-stations.html");
+
+    fn stops_gtfs(ids: &[&str]) -> Gtfs {
+        let mut gtfs = Gtfs::default();
+        for id in ids {
+            gtfs.stops.insert(
+                (*id).to_string(),
+                std::sync::Arc::new(gtfs_structures::Stop {
+                    id: (*id).to_string(),
+                    ..Default::default()
+                }),
+            );
+        }
+        gtfs
+    }
+
+    const BOS_DETAIL_FIXTURE: &str = include_str!(
+        "../../fixtures/advisories/boston-south-station-restroom-improvement-project.html"
+    );
+    const ALX_DETAIL_FIXTURE: &str = include_str!(
+        "../../fixtures/advisories/alexandria-station-checked-baggage-update.html"
+    );
+
+    struct StopServer {
+        stop: std::sync::Arc<std::sync::atomic::AtomicBool>,
+        join: Option<std::thread::JoinHandle<()>>,
+    }
+
+    impl Drop for StopServer {
+        fn drop(&mut self) {
+            self.stop
+                .store(true, std::sync::atomic::Ordering::Relaxed);
+            if let Some(handle) = self.join.take() {
+                let _ = handle.join();
+            }
+        }
+    }
+
+    /// Serves the notices list and any detail fixtures on one loopback origin.
+    ///
+    /// Unknown paths, including detail pages with no fixture, are `404` so those alerts keep a
+    /// title-only description.
+    fn serve_advisory_pages(pages: &'static [(&'static str, &'static str)]) -> (String, StopServer) {
+        use std::io::{Read, Write};
+        use std::sync::atomic::{AtomicBool, Ordering};
+        use std::sync::Arc;
+
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        listener.set_nonblocking(true).unwrap();
+        let stop = Arc::new(AtomicBool::new(false));
+        let stop_flag = Arc::clone(&stop);
+        let join = std::thread::spawn(move || {
+            let started = std::time::Instant::now();
+            while !stop_flag.load(Ordering::Relaxed) && started.elapsed() < Duration::from_secs(10)
+            {
+                let mut stream = match listener.accept() {
+                    Ok((stream, _)) => stream,
+                    Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                        std::thread::sleep(Duration::from_millis(10));
+                        continue;
+                    }
+                    Err(_) => return,
+                };
+                stream.set_nonblocking(false).unwrap();
+                stream
+                    .set_read_timeout(Some(Duration::from_secs(2)))
+                    .unwrap();
+                let mut buf = Vec::new();
+                let mut tmp = [0_u8; 1024];
+                while !buf.windows(4).any(|window| window == b"\r\n\r\n") && buf.len() < 16_384 {
+                    match stream.read(&mut tmp) {
+                        Ok(0) | Err(_) => break,
+                        Ok(count) => buf.extend_from_slice(&tmp[..count]),
+                    }
+                }
+                let request = String::from_utf8_lossy(&buf);
+                let path = request
+                    .lines()
+                    .next()
+                    .and_then(|line| line.split_whitespace().nth(1))
+                    .unwrap_or("/")
+                    .split('?')
+                    .next()
+                    .unwrap_or("/");
+                let body = pages
+                    .iter()
+                    .find(|(page_path, _)| *page_path == path)
+                    .map(|(_, page_body)| *page_body);
+                let (status, bytes) = match body {
+                    Some(page_body) => ("200 OK", page_body.as_bytes()),
+                    None => ("404 Not Found", &b""[..]),
+                };
+                let header = format!(
+                    "HTTP/1.1 {status}\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                    bytes.len()
+                );
+                let _ = stream.write_all(header.as_bytes());
+                let _ = stream.write_all(bytes);
+            }
+        });
+        (
+            format!("http://{addr}/service-alerts-and-notices"),
+            StopServer {
+                stop,
+                join: Some(join),
+            },
+        )
+    }
+
+    fn translation_text(text: &Option<gtfs_realtime::TranslatedString>) -> String {
+        text.as_ref()
+            .and_then(|value| value.translation.first())
+            .map(|translation| translation.text.clone())
+            .unwrap_or_default()
+    }
+
+    // Live station-advisory markup, fetched over HTTP the same way WithAdvisories does, survives
+    // orchestrator build/validate and is present in the published alerts protobuf.
+    #[tokio::test]
+    async fn live_station_fixture_reaches_published_alerts_protobuf() {
+        use crate::orchestrator::{
+            CandidateValidator, GenerationBuilder, SelectedBatch, StaticSnapshot,
+        };
+        use prost::Message;
+        use std::time::UNIX_EPOCH;
+
+        let (url, _server) = serve_advisory_pages(&[
+            ("/service-alerts-and-notices", LIVE_STATION_FIXTURE),
+            (
+                "/alert/boston-south-station-restroom-improvement-project.html",
+                BOS_DETAIL_FIXTURE,
+            ),
+            (
+                "/alert/alexandria-station-checked-baggage-update.html",
+                ALX_DETAIL_FIXTURE,
+            ),
+        ]);
+        let gtfs = stops_gtfs(&["ALX", "BOS", "DLD", "HMW", "NHV", "OTM", "QAN"]);
+        let deco = WithAdvisories::new(
+            MockSource {
+                name: "amtrak",
+                behavior: Behavior::Ok(asm_batch()),
+            },
+            cfg(&url),
+        );
+        let batch = deco.fetch(&gtfs).await.unwrap();
+        let snapshot = std::sync::Arc::new(StaticSnapshot {
+            version: "FIXTURE".into(),
+            parsed: std::sync::Arc::new(gtfs),
+            zip: std::sync::Arc::from(&b"zip"[..]),
+        });
+        let candidate = GenerationBuilder::build(
+            snapshot,
+            SelectedBatch {
+                source_name: "amtrak",
+                batch,
+            },
+            UNIX_EPOCH + Duration::from_secs(1_700_000_000),
+        )
+        .unwrap();
+        let validated = CandidateValidator::validate(candidate).unwrap();
+        let alerts_bytes = validated.alerts;
+        let body_phrase = "Temporary restroom facilities have been provided on Atlantic Avenue";
+        assert!(
+            alerts_bytes
+                .windows(body_phrase.len())
+                .any(|window| window == body_phrase.as_bytes()),
+            "published alerts.pb bytes must contain the BOS detail body"
+        );
+
+        let decoded = FeedMessage::decode(alerts_bytes.as_ref()).unwrap();
+        let expected = [
+            (
+                "advisory-station-ALX",
+                "ALX",
+                "Alexandria Station Will No Longer Accept Checked Baggage",
+                "Effective April 20, 2026",
+            ),
+            (
+                "advisory-station-BOS",
+                "BOS",
+                "Boston South Station Restroom Improvement Project",
+                "Effective August 28, 2026",
+            ),
+            (
+                "advisory-station-DLD",
+                "DLD",
+                "DeLand, FL (DLD) Cashless Transactions",
+                "Effective August 1, 2026",
+            ),
+            (
+                "advisory-station-HMW",
+                "HMW",
+                "Homewood, IL Elevator Outage",
+                "Effective September 2, 2026",
+            ),
+            (
+                "advisory-station-NHV",
+                "NHV",
+                "New Haven, CT Platform Under Construction",
+                "Effective August 31, 2026",
+            ),
+            (
+                "advisory-station-OTM",
+                "OTM",
+                "Ottumwa, IA Parking Lot Undergoing Construction",
+                "Effective September 4, 2026",
+            ),
+            (
+                "advisory-station-QAN",
+                "QAN",
+                "Quantico Station Requires Credentials to Access",
+                "",
+            ),
+        ];
+        assert_eq!(decoded.entity.len(), expected.len());
+        for (id, stop, header, effective) in expected {
+            let entity = decoded
+                .entity
+                .iter()
+                .find(|entity| entity.id == id)
+                .unwrap_or_else(|| panic!("missing {id}"));
+            assert_eq!(entity.is_deleted, None);
+            let alert = entity.alert.as_ref().unwrap();
+            assert_eq!(alert.informed_entity.len(), 1);
+            assert_eq!(alert.informed_entity[0].stop_id.as_deref(), Some(stop));
+            assert!(alert.informed_entity[0].route_id.is_none());
+            assert_eq!(translation_text(&alert.header_text), header);
+            let description = translation_text(&alert.description_text);
+            match id {
+                "advisory-station-BOS" => {
+                    assert!(description.contains("Effective August 28, 2026"), "{description}");
+                    assert!(
+                        description.contains(
+                            "public restrooms inside Boston South Station (BOS) are temporarily closed"
+                        ),
+                        "{description}"
+                    );
+                    assert!(
+                        description.contains(
+                            "Temporary restroom facilities have been provided on Atlantic Avenue for customer use while work is underway."
+                        ),
+                        "{description}"
+                    );
+                    assert!(
+                        description.contains(
+                            "We appreciate your patience and understanding as we make improvements to enhance the station experience."
+                        ),
+                        "{description}"
+                    );
+                    assert!(description.contains("PSN 0826-61"), "{description}");
+                    assert!(!description.contains(header), "{description}");
+                }
+                "advisory-station-ALX" => {
+                    assert!(description.contains("Effective April 20, 2026"), "{description}");
+                    assert!(
+                        description.contains(
+                            "checked baggage service will no longer be available at the Alexandria, VA Station (ALX)"
+                        ),
+                        "{description}"
+                    );
+                    assert!(
+                        description.contains("Washington Union Station (WAS)"),
+                        "{description}"
+                    );
+                    assert!(description.contains("PSN 0426-17"), "{description}");
+                }
+                _ => {
+                    // No detail fixture: title-only description, generation still publishes.
+                    assert!(
+                        description.contains(header),
+                        "title-only description missing title: {description}"
+                    );
+                    if effective.is_empty() {
+                        assert_eq!(description, header);
+                    } else {
+                        assert!(
+                            description.contains(effective),
+                            "description missing effective text: {description}"
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn detail_url_stays_on_the_advisories_origin() {
+        let list = "http://advisory-fetcher:8080/service-alerts-and-notices";
+        assert_eq!(
+            resolve_detail_url(
+                list,
+                "/alert/boston-south-station-restroom-improvement-project.html"
+            )
+            .as_deref(),
+            Some(
+                "http://advisory-fetcher:8080/alert/boston-south-station-restroom-improvement-project.html"
+            )
+        );
+        assert!(resolve_detail_url(list, "https://www.amtrak.com/alert/x.html").is_none());
+        assert!(resolve_detail_url(list, "/etc/passwd").is_none());
+    }
+
+    #[test]
+    fn detail_page_without_a_body_does_not_replace_the_title() {
+        assert!(parse_advisory_detail("<html><body>nope</body></html>").is_none());
+        assert!(parse_advisory_detail("").is_none());
     }
 }

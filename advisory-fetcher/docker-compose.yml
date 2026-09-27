@@ -17,9 +17,8 @@ services:
     # No published ports: only the service (same network) reaches it.
     networks: [advisory]
 
-  # The feed-producer service. REQUIRES the service-advisories work (PR #8), which adds the
-  # AdvisoryConfig snapshot consumption; it is not on the main branch yet. Once merged, build it
-  # from the repo root and point it at the fetcher:
+  # The feed-producer service (main already wraps the Amtrak source in WithAdvisories when
+  # AMTRAK_ADVISORIES is on). Build it from the repo root and point it at the fetcher:
   amtrak-gtfs-rt-service:
     build:
       context: ..                  # repo root Dockerfile (the Rust service)

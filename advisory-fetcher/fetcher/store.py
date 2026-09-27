@@ -16,10 +16,29 @@ Freshness is the snapshot file's mtime, so it survives a fetcher restart with no
 from __future__ import annotations
 
 import os
+import re
 import time
 from pathlib import Path
 
 SNAPSHOT_NAME = "advisories.html"
+DETAILS_DIRNAME = "details"
+# Detail snapshots are only the public /alert/<slug>.html pages linked from the notices list.
+_ALERT_PATH = re.compile(r"^/alert/[A-Za-z0-9][A-Za-z0-9._-]{0,200}\.html$")
+
+
+def safe_detail_name(path: str) -> str | None:
+    """Return the snapshot filename for an `/alert/<slug>.html` path, or ``None`` if unsafe.
+
+    Query strings and fragments are stripped. Paths with extra slashes, ``..``, or a non-`.html`
+    slug are rejected so a notices page cannot make the store write outside ``details/``.
+    """
+    path = path.split("?", 1)[0].split("#", 1)[0]
+    if not _ALERT_PATH.fullmatch(path):
+        return None
+    name = path.removeprefix("/alert/")
+    if name != Path(name).name or ".." in name:
+        return None
+    return name
 
 
 class SnapshotStore:
@@ -61,3 +80,38 @@ class SnapshotStore:
         except FileNotFoundError:
             return None
         return data, self._path.stat().st_mtime
+
+    def update_detail(self, path: str, html: str) -> bool:
+        """Store one advisory detail page; return whether the payload changed.
+
+        ``path`` must be an `/alert/<slug>.html` path (see :func:`safe_detail_name`). A rejected
+        path raises :class:`ValueError` so the caller can skip it without touching the list
+        snapshot. Identical content only refreshes the file mtime.
+        """
+        name = safe_detail_name(path)
+        if name is None:
+            raise ValueError(f"advisory detail path is not an /alert/*.html snapshot: {path!r}")
+        directory = self._dir / DETAILS_DIRNAME
+        directory.mkdir(parents=True, exist_ok=True)
+        target = directory / name
+        data = html.encode("utf-8")
+        if target.exists() and target.read_bytes() == data:
+            now = time.time()
+            os.utime(target, (now, now))
+            return False
+        tmp = target.with_name(f"{name}.{os.getpid()}.tmp")
+        tmp.write_bytes(data)
+        os.replace(tmp, target)
+        return True
+
+    def read_detail(self, path: str) -> tuple[bytes, float] | None:
+        """Return ``(html_bytes, mtime)`` for a stored detail path, or ``None`` if absent/unsafe."""
+        name = safe_detail_name(path)
+        if name is None:
+            return None
+        target = self._dir / DETAILS_DIRNAME / name
+        try:
+            data = target.read_bytes()
+        except FileNotFoundError:
+            return None
+        return data, target.stat().st_mtime

@@ -273,6 +273,38 @@ identifier parsing, and manifest-first discovery.
 | `AMTRAK_BIND_ADDR` | `127.0.0.1:8080` | HTTP bind address; non-loopback requires an allowlist |
 | `AMTRAK_ALLOWED_PEER_IPS` | empty | Comma-separated exact peer IPs; empty admits loopback only |
 | `AMTRAK_GTFS_VALIDATOR_JAR` | `./tools/gtfs-validator-v8.0.1-cli.jar` | Readable, approved MobilityData validator 8.0.1 CLI JAR (official host artifact or repository-hardened container build) |
+| `AMTRAK_ADVISORIES` | off | Set to `on`, `true`, or `1` to merge Service Alerts & Notices into `alerts.pb`. Default off; fail-open |
+| `AMTRAK_ADVISORIES_URL` | `https://www.amtrak.com/service-alerts-and-notices` | HTML snapshot URL. Point this at the advisory-fetcher sidecar; plain HTTP to `www.amtrak.com` is Akamai-blocked |
+| `AMTRAK_ADVISORIES_TTL_SECS` | `900` | Minimum seconds between advisory page fetches |
+
+## Service Alerts & Notices
+
+Station Advisories and Passenger Advisories from Amtrak's notices page are merged into the
+published `alerts.pb` only when an operator turns them on. The Rust service does not run a
+browser. `www.amtrak.com` resets plain HTTP clients (Akamai), so the supported source is the
+Playwright sidecar in [`advisory-fetcher/`](advisory-fetcher/README.md). The sidecar snapshots the
+notices list and each linked `/alert/...` detail page. The service GETs those pages on the fetcher
+origin: `header_text` is the list title, and `description_text` is the detail body (effective
+date, paragraphs, and PSN). A missing detail page keeps that alert's title and effective date.
+A list fetch or parse failure adds no advisory entities and still publishes trip updates and
+vehicle positions.
+
+From `advisory-fetcher/`:
+
+```bash
+docker compose up -d --build
+```
+
+`advisory-fetcher/docker-compose.yml` sets the service half of that stack to:
+
+```text
+AMTRAK_ADVISORIES=on
+AMTRAK_ADVISORIES_URL=http://advisory-fetcher:8080/service-alerts-and-notices
+```
+
+The fetcher has no published host port; only the service container on the `advisory` network
+should GET it. To turn advisories back off, unset `AMTRAK_ADVISORIES` (or stop the fetcher). No
+service rebuild is required. Chromium stays in the fetcher image.
 
 ## Resilience
 
@@ -294,6 +326,7 @@ identifier parsing, and manifest-first discovery.
 | `src/config.rs` | Environment-driven configuration |
 | `src/sources/mod.rs` | `RtSource` trait and the `RtBatch` normalization model |
 | `src/sources/amtrak.rs` | Amtrak source, wrapping the catenary crate |
+| `src/sources/advisories.rs` | Optional Service Alerts & Notices scraper (`AMTRAK_ADVISORIES`) |
 | `src/static_gtfs.rs` | Exact-byte static GTFS validation and pending/active lifecycle |
 | `src/orchestrator.rs` | Source selection, coherent generation build/validation, and recoverable polling |
 | `src/serve.rs` | Controlled immutable HTTP delivery and freshness health |
