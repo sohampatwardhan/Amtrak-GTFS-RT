@@ -108,11 +108,11 @@ kanban
 - **Live evidence:** task 2.1's augmentation of Amtrak's feed passed MobilityData 8.0.1 with zero `ERROR` notices, and task 4.2's live tracks-enabled run published `20260927+tracks.612ca043` with the 35 platform stops and a real stamped `NHV:track:1` assignment that the GTFS-Realtime validator accepted. NJ Transit stations were not exercised live because no RailData account is configured; their path is covered by the local-server tests in task 1.1.
 - **Independent review (2 reviewers, balanced tier, high reasoning):** requirements compliance passed for all 48 criteria and task quality passed. The correctness and security review found one real defect: the `stops.txt` reader was not `flexible`, so a legal row omitting trailing fields would have failed augmentation and silently fallen back to upstream bytes. Fixed with `csv::ReaderBuilder::flexible(true)` (rows were already padded to the header width) and a regression test; the suite was rerun green. Reviewed and not changed: multipart fields are unescaped, but every value is operator configuration, not external input; any `getToken` `errorMessage` is classified as budget exhaustion, which fails closed either way.
 - **Housekeeping:** the tracks pass’s feed directory (`$FEED_DIR-tracks`) was briefly committed and is now untracked and ignored in [`.gitignore`](../../.gitignore).
-- **Integration decision:** handed to `spec-finish`.
+- **Integration decision (2026-09-28, chosen by the user):** fast-forward pushed to [PR #17](https://github.com/sohampatwardhan/Amtrak-GTFS-RT/pull/17)'s branch `cursor/amtrak-track-enrichment-917f` (`5ce2feb..47a9759`), with the PR title and description updated to the new design. The PR stays a draft for review; the worktree is kept for PR iteration.
 
 ## Outcome
 
-All seven tasks and all 48 criteria are verified. The branch `track-assignments` holds the reworked PR #17 on top of `5ce2feb`, in four work-in-progress commits plus the final fix; nothing has been pushed.
+All seven tasks and all 48 criteria are verified. The branch `track-assignments` holds the reworked PR #17 on top of `5ce2feb`, in four work-in-progress commits plus the final fix, pushed to PR #17.
 
 ### Execution Gantt
 

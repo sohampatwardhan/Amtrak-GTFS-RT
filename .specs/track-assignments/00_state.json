@@ -18,7 +18,7 @@
       "status": "approved"
     },
     "execution": {
-      "evidence": "2026-09-28: seven tasks and 48 criteria verified; preflight hardening self-approved under delegated authority; independent final review passed after one fix (flexible CSV reader)",
+      "evidence": "2026-09-28: seven tasks and 48 criteria verified; preflight hardening self-approved under delegated authority; independent final review passed after one fix (flexible CSV reader); pushed to PR #17 (draft) by user choice",
       "status": "complete"
     },
     "requirements": {
@@ -32,7 +32,7 @@
   },
   "generated_from": {
     "file": "00_state.md",
-    "sha256": "e7307ec4c7174ad27d114a0484de4717ea8568eb068b95eda14a6dd28b267f08"
+    "sha256": "c9a8ffba08bb616f1fa9e6e3f0d937fcb4a66fb03598f7bf7b00a5dbe558c320"
   },
   "schema_version": 1
 }
