@@ -66,8 +66,8 @@ pub fn local_time(unix: i64, tz_name: &str) -> Result<String, TzError> {
     let tz: Tz = tz_name
         .parse()
         .map_err(|_| TzError(format!("unknown timezone {tz_name}")))?;
-    let instant =
-        DateTime::from_timestamp(unix, 0).ok_or_else(|| TzError("timestamp out of range".into()))?;
+    let instant = DateTime::from_timestamp(unix, 0)
+        .ok_or_else(|| TzError("timestamp out of range".into()))?;
     Ok(instant.with_timezone(&tz).format("%H:%M %Z").to_string())
 }
 
@@ -116,9 +116,15 @@ mod tests {
             "route_id,agency_id,route_short_name,route_long_name,route_type\nr,a,R,Regional,2\n",
         );
         let den = gtfs.stops.get("DEN").unwrap();
-        assert_eq!(station_tz(&gtfs, den), ("America/Denver".to_string(), false));
+        assert_eq!(
+            station_tz(&gtfs, den),
+            ("America/Denver".to_string(), false)
+        );
         let blank = gtfs.stops.get("BLANK").unwrap();
-        assert_eq!(station_tz(&gtfs, blank), ("America/New_York".to_string(), true));
+        assert_eq!(
+            station_tz(&gtfs, blank),
+            ("America/New_York".to_string(), true)
+        );
     }
 
     // R6.1: the same instant renders in the station's zone with the correct DST abbreviation.

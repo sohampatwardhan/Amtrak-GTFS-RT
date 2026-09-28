@@ -5,3 +5,4 @@
 /validation-reports/*
 !/validation-reports/release-decision.json
 !/validation-reports/release-evidence.json
+/out-tracks/

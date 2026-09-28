@@ -1,0 +1,40 @@
+{
+  "diagram": "graph",
+  "target": "flowchart",
+  "direction": "LR",
+  "groups": [
+    {"id": "static", "label": "Static path"},
+    {"id": "boards", "label": "Board path (background)"},
+    {"id": "gen", "label": "Generation path"}
+  ],
+  "nodes": [
+    {"id": "amtrak_zip", "label": "Amtrak GTFS.zip", "kind": "io", "group": "static"},
+    {"id": "augment", "label": "Platform augmentation", "kind": "process", "group": "static"},
+    {"id": "validator", "label": "Standards validator", "kind": "decision", "group": "static"},
+    {"id": "snapshot", "label": "Active static snapshot", "kind": "store", "group": "static"},
+    {"id": "raildata", "label": "NJT RailData API", "kind": "io", "group": "boards"},
+    {"id": "hartford", "label": "Hartford Line board", "kind": "io", "group": "boards"},
+    {"id": "token", "label": "Token cache in /data", "kind": "store", "group": "boards"},
+    {"id": "refresher", "label": "Board refresher", "kind": "process", "group": "boards"},
+    {"id": "store", "label": "Assignment store", "kind": "store", "group": "boards"},
+    {"id": "amtrak_rt", "label": "Amtrak realtime batch", "kind": "io", "group": "gen"},
+    {"id": "stamper", "label": "Track stamper", "kind": "process", "group": "gen"},
+    {"id": "orch", "label": "Orchestrator validation", "kind": "decision", "group": "gen"},
+    {"id": "feedset", "label": "Published feed set", "kind": "document", "group": "gen"}
+  ],
+  "edges": [
+    {"from": "amtrak_zip", "to": "augment", "label": "tracks enabled"},
+    {"from": "augment", "to": "validator", "label": "augmented bytes"},
+    {"from": "validator", "to": "snapshot", "label": "zero ERROR"},
+    {"from": "token", "to": "refresher", "label": "token"},
+    {"from": "raildata", "to": "refresher", "label": "19-record schedules"},
+    {"from": "hartford", "to": "refresher", "label": "HTML rows"},
+    {"from": "refresher", "to": "store", "label": "per-station replace"},
+    {"from": "amtrak_rt", "to": "stamper", "label": ""},
+    {"from": "store", "to": "stamper", "label": "fresh assignments"},
+    {"from": "snapshot", "to": "stamper", "label": "platform stops"},
+    {"from": "stamper", "to": "orch", "label": "assigned_stop_id"},
+    {"from": "orch", "to": "feedset", "label": "valid updates"},
+    {"from": "snapshot", "to": "feedset", "label": "static.zip"}
+  ]
+}

@@ -16,6 +16,14 @@
 #   scripts/validate-feeds.sh              # generate feeds, then validate
 #   FEED_DIR=out scripts/validate-feeds.sh # validate feeds already in ./out
 #   scripts/validate-feeds.sh --offline-fixtures --as-of 2026-08-13
+#   scripts/validate-feeds.sh --tracks     # same pass with AMTRAK_TRACKS=on
+#
+# The --tracks pass validates the platform stops added to static.zip and any
+# stamped assigned_stop_id values. It deliberately runs without RailData
+# credentials: a fresh runner has no token cache, so production credentials
+# would spend NJ Transit's 10 daily token requests. Hartford Line assignments
+# and the augmented static feed are still exercised. Its reports go to
+# $REPORT_DIR/tracks and its feeds to $FEED_DIR-tracks.
 #
 set -euo pipefail
 
@@ -35,16 +43,23 @@ VALIDATION_BIND_ADDR="${VALIDATION_BIND_ADDR:-127.0.0.1:18080}"
 BASELINE="${BASELINE:-validation/baseline.json}"
 AS_OF="${VALIDATION_AS_OF:-$(date -u +%F)}"
 MODE="live"
+TRACKS="off"
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --offline-fixtures) MODE="offline-fixtures"; shift ;;
+    --tracks) TRACKS="on"; shift ;;
     --as-of)
       [ "$#" -ge 2 ] || { echo "--as-of requires YYYY-MM-DD" >&2; exit 2; }
       AS_OF="$2"; shift 2 ;;
     *) echo "unknown argument: $1" >&2; exit 2 ;;
   esac
 done
+
+if [ "$TRACKS" = "on" ]; then
+  REPORT_DIR="$REPORT_DIR/tracks"
+  FEED_DIR="$FEED_DIR-tracks"
+fi
 
 GTFS_VALIDATOR_JAR="$CACHE_DIR/gtfs-validator-${GTFS_VALIDATOR_VERSION}.jar"
 RT_VALIDATOR_SRC="$CACHE_DIR/rt-validator-src"
@@ -281,6 +296,9 @@ if [ -z "$SERVICE_URL" ]; then
     export PATH VALIDATION_REPO_ROOT="$ROOT"
   fi
   AMTRAK_OUTPUT_DIR="$FEED_DIR" \
+    AMTRAK_TRACKS="$TRACKS" \
+    NJT_RAILDATA_USERNAME= \
+    NJT_RAILDATA_PASSWORD= \
     AMTRAK_POLL_SECS=30 \
     AMTRAK_BIND_ADDR="$VALIDATION_BIND_ADDR" \
     AMTRAK_GTFS_VALIDATOR_JAR="$GTFS_VALIDATOR_JAR" \

@@ -357,7 +357,9 @@ pub fn parse_station_advisories(html: &str, index: &AdvisoryIndex) -> Vec<FeedEn
         };
         let link_el = li.select(&link).next();
         let title = text_of(link_el).trim().to_string();
-        let url = link_el.and_then(|e| e.value().attr("data-href")).map(str::to_string);
+        let url = link_el
+            .and_then(|e| e.value().attr("data-href"))
+            .map(str::to_string);
         let effective = text_of(li.select(&date).next()).trim().to_string();
 
         match index.stop_by_code.get(&code.to_uppercase()) {
@@ -406,7 +408,9 @@ pub fn parse_passenger_advisories(html: &str, index: &AdvisoryIndex) -> Vec<Feed
 
         let link_el = opt.select(&link).next();
         let title = text_of(link_el).trim().to_string();
-        let url = link_el.and_then(|e| e.value().attr("data-href")).map(str::to_string);
+        let url = link_el
+            .and_then(|e| e.value().attr("data-href"))
+            .map(str::to_string);
         let effective = text_of(opt.select(&date).next()).trim().to_string();
 
         let mut selectors = Vec::new();
@@ -416,7 +420,9 @@ pub fn parse_passenger_advisories(html: &str, index: &AdvisoryIndex) -> Vec<Feed
                     route_id: Some(route_id.clone()),
                     ..Default::default()
                 }),
-                None => tracing::warn!(route = %name, "passenger advisory route not in GTFS; dropped"),
+                None => {
+                    tracing::warn!(route = %name, "passenger advisory route not in GTFS; dropped")
+                }
             }
         }
         if selectors.is_empty() {
@@ -522,11 +528,24 @@ fn scan_full_dates(text: &str) -> Vec<(i64, u32, u32)> {
 /// English month name (any case) → 1..=12.
 fn month_num(token: &str) -> Option<u32> {
     let months = [
-        "january", "february", "march", "april", "may", "june", "july", "august", "september",
-        "october", "november", "december",
+        "january",
+        "february",
+        "march",
+        "april",
+        "may",
+        "june",
+        "july",
+        "august",
+        "september",
+        "october",
+        "november",
+        "december",
     ];
     let lower = token.to_ascii_lowercase();
-    months.iter().position(|m| *m == lower).map(|i| i as u32 + 1)
+    months
+        .iter()
+        .position(|m| *m == lower)
+        .map(|i| i as u32 + 1)
 }
 
 /// Unix seconds for midnight UTC of a `(year, month, day)` date (Howard Hinnant's civil algorithm).
@@ -549,7 +568,9 @@ fn selector(css: &str) -> Selector {
 
 /// Collected text of an optional element.
 fn text_of(element: Option<scraper::ElementRef>) -> String {
-    element.map(|e| e.text().collect::<String>()).unwrap_or_default()
+    element
+        .map(|e| e.text().collect::<String>())
+        .unwrap_or_default()
 }
 
 /// Extracts a parenthesized station code, e.g. `"Alexandria, VA (ALX)"` → `"ALX"`.
@@ -627,7 +648,8 @@ mod tests {
             name: "amtrak",
             behavior: Behavior::Ok(asm_batch()),
         };
-        let deco = WithAdvisories::with_primed_cache(inner, cfg("http://unused"), vec![entity("adv")]);
+        let deco =
+            WithAdvisories::with_primed_cache(inner, cfg("http://unused"), vec![entity("adv")]);
         let batch = deco.fetch(&gtfs()).await.unwrap();
         assert_eq!(batch.alerts.entity.len(), 2);
         assert!(batch.alerts.entity.iter().any(|e| e.id == "asm")); // R4.2 preserved
@@ -715,13 +737,24 @@ mod tests {
     </div>"#;
 
     fn stop_id(entity: &FeedEntity) -> Option<&str> {
-        entity.alert.as_ref()?.informed_entity.first()?.stop_id.as_deref()
+        entity
+            .alert
+            .as_ref()?
+            .informed_entity
+            .first()?
+            .stop_id
+            .as_deref()
     }
     fn route_ids(entity: &FeedEntity) -> Vec<String> {
         entity
             .alert
             .as_ref()
-            .map(|a| a.informed_entity.iter().filter_map(|s| s.route_id.clone()).collect())
+            .map(|a| {
+                a.informed_entity
+                    .iter()
+                    .filter_map(|s| s.route_id.clone())
+                    .collect()
+            })
             .unwrap_or_default()
     }
 
@@ -736,9 +769,14 @@ mod tests {
         // R3.1 content; R3.3 single date -> no active_period.
         let header = &alert.header_text.as_ref().unwrap().translation[0].text;
         assert!(header.contains("Checked Baggage"));
-        assert!(alert.description_text.as_ref().unwrap().translation[0].text.contains("April 20, 2026"));
+        assert!(alert.description_text.as_ref().unwrap().translation[0]
+            .text
+            .contains("April 20, 2026"));
         assert!(alert.active_period.is_empty());
-        assert_eq!(alert.url.as_ref().unwrap().translation[0].text, "/alert/alx.html");
+        assert_eq!(
+            alert.url.as_ref().unwrap().translation[0].text,
+            "/alert/alx.html"
+        );
     }
 
     // R2.1/R2.2/R2.3/R3.2: passenger advisories -> route-scoped; multi-route fan-out; unmapped
@@ -756,7 +794,7 @@ mod tests {
         let mut ids = route_ids(multi);
         ids.sort();
         assert_eq!(ids, vec!["41042".to_string(), "41044".to_string()]); // R2.2
-        // R3.2: "April 21 - October 30, 2026" parses to a definite range.
+                                                                         // R3.2: "April 21 - October 30, 2026" parses to a definite range.
         assert_eq!(multi.alert.as_ref().unwrap().active_period.len(), 1);
     }
 
@@ -809,9 +847,8 @@ mod tests {
     const BOS_DETAIL_FIXTURE: &str = include_str!(
         "../../fixtures/advisories/boston-south-station-restroom-improvement-project.html"
     );
-    const ALX_DETAIL_FIXTURE: &str = include_str!(
-        "../../fixtures/advisories/alexandria-station-checked-baggage-update.html"
-    );
+    const ALX_DETAIL_FIXTURE: &str =
+        include_str!("../../fixtures/advisories/alexandria-station-checked-baggage-update.html");
 
     struct StopServer {
         stop: std::sync::Arc<std::sync::atomic::AtomicBool>,
@@ -820,8 +857,7 @@ mod tests {
 
     impl Drop for StopServer {
         fn drop(&mut self) {
-            self.stop
-                .store(true, std::sync::atomic::Ordering::Relaxed);
+            self.stop.store(true, std::sync::atomic::Ordering::Relaxed);
             if let Some(handle) = self.join.take() {
                 let _ = handle.join();
             }
@@ -832,7 +868,9 @@ mod tests {
     ///
     /// Unknown paths, including detail pages with no fixture, are `404` so those alerts keep a
     /// title-only description.
-    fn serve_advisory_pages(pages: &'static [(&'static str, &'static str)]) -> (String, StopServer) {
+    fn serve_advisory_pages(
+        pages: &'static [(&'static str, &'static str)],
+    ) -> (String, StopServer) {
         use std::io::{Read, Write};
         use std::sync::atomic::{AtomicBool, Ordering};
         use std::sync::Arc;
@@ -1022,7 +1060,10 @@ mod tests {
             let description = translation_text(&alert.description_text);
             match id {
                 "advisory-station-BOS" => {
-                    assert!(description.contains("Effective August 28, 2026"), "{description}");
+                    assert!(
+                        description.contains("Effective August 28, 2026"),
+                        "{description}"
+                    );
                     assert!(
                         description.contains(
                             "public restrooms inside Boston South Station (BOS) are temporarily closed"
@@ -1045,7 +1086,10 @@ mod tests {
                     assert!(!description.contains(header), "{description}");
                 }
                 "advisory-station-ALX" => {
-                    assert!(description.contains("Effective April 20, 2026"), "{description}");
+                    assert!(
+                        description.contains("Effective April 20, 2026"),
+                        "{description}"
+                    );
                     assert!(
                         description.contains(
                             "checked baggage service will no longer be available at the Alexandria, VA Station (ALX)"

@@ -8,6 +8,7 @@ pub mod advisories;
 #[cfg(test)]
 mod advisories_live_tests;
 pub mod amtrak;
+pub mod tracks;
 
 #[derive(Clone, Debug)]
 pub struct RtBatch {

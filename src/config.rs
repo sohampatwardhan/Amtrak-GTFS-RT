@@ -50,8 +50,13 @@ impl AdvisoryConfig {
     ///
     /// Returns a string naming the malformed environment field (a non-numeric TTL).
     pub fn from_map<F: Fn(&str) -> Option<String>>(get: F) -> Result<AdvisoryConfig, ConfigError> {
-        let url = get("AMTRAK_ADVISORIES_URL").unwrap_or_else(|| DEFAULT_ADVISORIES_URL.to_string());
-        let ttl_secs = parse_u64(&get, "AMTRAK_ADVISORIES_TTL_SECS", DEFAULT_ADVISORIES_TTL_SECS)?;
+        let url =
+            get("AMTRAK_ADVISORIES_URL").unwrap_or_else(|| DEFAULT_ADVISORIES_URL.to_string());
+        let ttl_secs = parse_u64(
+            &get,
+            "AMTRAK_ADVISORIES_TTL_SECS",
+            DEFAULT_ADVISORIES_TTL_SECS,
+        )?;
         let enabled = get("AMTRAK_ADVISORIES")
             .map(|value| {
                 value == "1"
@@ -65,6 +70,258 @@ impl AdvisoryConfig {
             enabled,
         })
     }
+}
+
+const DEFAULT_TRACKS_REFRESH_SECS: u64 = 60;
+const DEFAULT_TRACKS_MAX_AGE_SECS: u64 = 300;
+const DEFAULT_TRACKS_REQUEST_TIMEOUT_SECS: u64 = 10;
+const DEFAULT_RAILDATA_BASE: &str = "https://raildata.njtransit.com/api/TrainData";
+const DEFAULT_HARTFORD_URL: &str = "https://hartfordline.com/connecting-train-status/";
+const DEFAULT_HARTFORD_STOP: &str = "NHV";
+/// RailData stations with Amtrak service, north to south: New York Penn, Newark Penn, Newark
+/// Airport, Metropark, New Brunswick, Princeton Junction, Trenton.
+const DEFAULT_NJT_STATIONS: &str = "NY,NP,NA,MP,NB,PJ,TR";
+/// Sourced platform tracks: New York Penn 1–21, Newark Penn A and 1–5, New Haven Union's platform
+/// tracks (track 6 has no platform). Newark Airport, Metropark, New Brunswick, Princeton Junction,
+/// and Trenton have no published platform numbering, so they are read but not covered until an
+/// operator configures a verified list; their reported tracks are logged meanwhile.
+const DEFAULT_TRACK_PLATFORMS: &str = "NYP=1-21;NWK=A,1-5;NHV=1-4,8,10,12,14";
+
+/// Live platform/track enrichment. Default **off** and fail-open: a board failure never fails a
+/// generation.
+///
+/// NJ Transit data is read only through the operator's registered RailData account, so the
+/// credentials are the one secret here. `Debug` reports only whether they are set.
+#[derive(Clone)]
+pub struct TrackConfig {
+    /// Env `AMTRAK_TRACKS` (`1` / `true` / `on`). Default off.
+    pub enabled: bool,
+    /// Interval between background board refreshes. Env `AMTRAK_TRACKS_REFRESH_SECS` (default 60).
+    pub refresh_interval: Duration,
+    /// Oldest board observation that may still be stamped. Env `AMTRAK_TRACKS_MAX_AGE_SECS`
+    /// (default 300). Tracks are same-day data, so an expired board is dropped, never reused.
+    pub max_age: Duration,
+    /// Timeout for each board request. Env `AMTRAK_TRACKS_REQUEST_TIMEOUT_SECS` (default 10).
+    pub request_timeout: Duration,
+    /// RailData `TrainData` base URL. Env `AMTRAK_TRACKS_RAILDATA_BASE`.
+    pub raildata_base: String,
+    /// Registered RailData username. Env `NJT_RAILDATA_USERNAME`. Never written to the repo.
+    pub njt_username: Option<String>,
+    /// Registered RailData password. Env `NJT_RAILDATA_PASSWORD`.
+    pub njt_password: Option<String>,
+    /// NJT 2-character station codes to query. Env `AMTRAK_TRACKS_NJT_STATIONS`.
+    pub njt_stations: Vec<String>,
+    /// NJT station code → Amtrak GTFS `stop_id`. Env `AMTRAK_TRACKS_STATION_MAP` overrides or extends.
+    pub station_map: Vec<(String, String)>,
+    /// Hartford Line board URL. Empty env disables that source. Env `AMTRAK_TRACKS_HARTFORD_URL`.
+    pub hartford_url: Option<String>,
+    /// Amtrak `stop_id` for the Hartford board (New Haven Union). Env `AMTRAK_TRACKS_HARTFORD_STOP`.
+    pub hartford_stop_id: String,
+    /// Covered stations and their real tracks; each becomes a platform stop in the published
+    /// static feed. Env `AMTRAK_TRACKS_PLATFORMS`.
+    pub platforms: crate::static_augment::PlatformTable,
+}
+
+impl fmt::Debug for TrackConfig {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("TrackConfig")
+            .field("enabled", &self.enabled)
+            .field("refresh_interval", &self.refresh_interval)
+            .field("max_age", &self.max_age)
+            .field("request_timeout", &self.request_timeout)
+            .field("raildata_base", &self.raildata_base)
+            .field("njt_username_set", &self.njt_username.is_some())
+            .field("njt_password_set", &self.njt_password.is_some())
+            .field("njt_stations", &self.njt_stations)
+            .field("station_map", &self.station_map)
+            .field("hartford_url", &self.hartford_url)
+            .field("hartford_stop_id", &self.hartford_stop_id)
+            .field("platforms", &self.platforms)
+            .finish()
+    }
+}
+
+impl TrackConfig {
+    /// Reads track enrichment configuration from the process environment.
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`ConfigError`] naming a malformed or zero duration, station list, station map,
+    /// or a password set without a username (and the reverse).
+    pub fn from_env() -> Result<TrackConfig, ConfigError> {
+        TrackConfig::from_map(|key| std::env::var(key).ok())
+    }
+
+    /// Parses track configuration from an injected environment lookup.
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`ConfigError`] naming the malformed environment field.
+    pub fn from_map<F: Fn(&str) -> Option<String>>(get: F) -> Result<TrackConfig, ConfigError> {
+        let enabled = flag_enabled(get("AMTRAK_TRACKS"));
+        let refresh_interval = positive_secs(
+            &get,
+            "AMTRAK_TRACKS_REFRESH_SECS",
+            DEFAULT_TRACKS_REFRESH_SECS,
+        )?;
+        let max_age = positive_secs(
+            &get,
+            "AMTRAK_TRACKS_MAX_AGE_SECS",
+            DEFAULT_TRACKS_MAX_AGE_SECS,
+        )?;
+        let request_timeout = positive_secs(
+            &get,
+            "AMTRAK_TRACKS_REQUEST_TIMEOUT_SECS",
+            DEFAULT_TRACKS_REQUEST_TIMEOUT_SECS,
+        )?;
+        let raildata_base =
+            get("AMTRAK_TRACKS_RAILDATA_BASE").unwrap_or_else(|| DEFAULT_RAILDATA_BASE.to_string());
+        let njt_username = nonempty(get("NJT_RAILDATA_USERNAME"));
+        let njt_password = nonempty(get("NJT_RAILDATA_PASSWORD"));
+        if njt_username.is_some() != njt_password.is_some() {
+            return Err(ConfigError::new(
+                "NJT_RAILDATA_USERNAME",
+                "set both NJT_RAILDATA_USERNAME and NJT_RAILDATA_PASSWORD, or neither",
+            ));
+        }
+        let mut station_map = default_njt_station_map();
+        if let Some(raw) = get("AMTRAK_TRACKS_STATION_MAP") {
+            merge_station_map(&mut station_map, &raw)?;
+        }
+        let njt_stations = split_csv(
+            get("AMTRAK_TRACKS_NJT_STATIONS").unwrap_or_else(|| DEFAULT_NJT_STATIONS.to_string()),
+        );
+        for station in &njt_stations {
+            if !station_map.iter().any(|(code, _)| code == station) {
+                return Err(ConfigError::new(
+                    "AMTRAK_TRACKS_NJT_STATIONS",
+                    format!("{station} has no Amtrak stop in AMTRAK_TRACKS_STATION_MAP"),
+                ));
+            }
+        }
+        let hartford_stop_id = get("AMTRAK_TRACKS_HARTFORD_STOP")
+            .unwrap_or_else(|| DEFAULT_HARTFORD_STOP.to_string())
+            .trim()
+            .to_uppercase();
+        if hartford_stop_id.is_empty() {
+            return Err(ConfigError::new(
+                "AMTRAK_TRACKS_HARTFORD_STOP",
+                "must not be empty",
+            ));
+        }
+        let hartford_url = match get("AMTRAK_TRACKS_HARTFORD_URL") {
+            Some(value) if value.trim().is_empty() => None,
+            Some(value) => Some(value),
+            None => Some(DEFAULT_HARTFORD_URL.to_string()),
+        };
+        let platforms = crate::static_augment::PlatformTable::parse(
+            &get("AMTRAK_TRACKS_PLATFORMS").unwrap_or_else(|| DEFAULT_TRACK_PLATFORMS.to_string()),
+        )
+        .map_err(|reason| ConfigError::new("AMTRAK_TRACKS_PLATFORMS", reason))?;
+        Ok(TrackConfig {
+            enabled,
+            refresh_interval,
+            max_age,
+            request_timeout,
+            raildata_base,
+            njt_username,
+            njt_password,
+            njt_stations,
+            station_map,
+            hartford_url,
+            hartford_stop_id,
+            platforms,
+        })
+    }
+
+    /// Registered RailData credentials, when both are configured.
+    pub fn raildata_credentials(&self) -> Option<(&str, &str)> {
+        Some((self.njt_username.as_deref()?, self.njt_password.as_deref()?))
+    }
+}
+
+fn positive_secs<F: Fn(&str) -> Option<String>>(
+    get: &F,
+    field: &'static str,
+    default: u64,
+) -> Result<Duration, ConfigError> {
+    let secs = parse_u64(get, field, default)?;
+    if secs == 0 {
+        return Err(ConfigError::new(field, "must be greater than zero"));
+    }
+    Ok(Duration::from_secs(secs))
+}
+
+fn flag_enabled(value: Option<String>) -> bool {
+    value
+        .map(|value| {
+            value == "1" || value.eq_ignore_ascii_case("true") || value.eq_ignore_ascii_case("on")
+        })
+        .unwrap_or(false)
+}
+
+fn nonempty(value: Option<String>) -> Option<String> {
+    value.and_then(|value| {
+        let trimmed = value.trim();
+        if trimmed.is_empty() {
+            None
+        } else {
+            Some(trimmed.to_string())
+        }
+    })
+}
+
+fn split_csv(value: String) -> Vec<String> {
+    value
+        .split(',')
+        .map(|entry| entry.trim().to_uppercase())
+        .filter(|entry| !entry.is_empty())
+        .collect()
+}
+
+fn default_njt_station_map() -> Vec<(String, String)> {
+    [
+        ("NY", "NYP"),
+        ("NP", "NWK"),
+        ("NA", "EWR"),
+        ("MP", "MET"),
+        ("NB", "NBK"),
+        ("PJ", "PJC"),
+        ("TR", "TRE"),
+    ]
+    .into_iter()
+    .map(|(njt, amtrak)| (njt.to_string(), amtrak.to_string()))
+    .collect()
+}
+
+fn merge_station_map(map: &mut Vec<(String, String)>, raw: &str) -> Result<(), ConfigError> {
+    for entry in raw.split(',') {
+        let entry = entry.trim();
+        if entry.is_empty() {
+            continue;
+        }
+        let Some((njt, amtrak)) = entry.split_once('=') else {
+            return Err(ConfigError::new(
+                "AMTRAK_TRACKS_STATION_MAP",
+                format!("entry {entry:?} must be NJT=AMTRAK"),
+            ));
+        };
+        let njt = njt.trim().to_uppercase();
+        let amtrak = amtrak.trim().to_uppercase();
+        if njt.is_empty() || amtrak.is_empty() {
+            return Err(ConfigError::new(
+                "AMTRAK_TRACKS_STATION_MAP",
+                format!("entry {entry:?} must be NJT=AMTRAK"),
+            ));
+        }
+        if let Some(slot) = map.iter_mut().find(|(code, _)| code == &njt) {
+            slot.1.clone_from(&amtrak);
+        } else {
+            map.push((njt, amtrak));
+        }
+    }
+    Ok(())
 }
 
 /// Operator-provided service configuration before safety validation.
@@ -497,7 +754,10 @@ mod tests {
     #[test]
     fn advisory_config_defaults_and_overrides() {
         let defaults = AdvisoryConfig::from_map(|_| None).unwrap();
-        assert_eq!(defaults.url, "https://www.amtrak.com/service-alerts-and-notices");
+        assert_eq!(
+            defaults.url,
+            "https://www.amtrak.com/service-alerts-and-notices"
+        );
         assert_eq!(defaults.ttl, Duration::from_secs(900));
         assert!(!defaults.enabled); // default OFF
 
@@ -513,9 +773,101 @@ mod tests {
         assert!(overridden.enabled); // opt-in via on/true/1
 
         // A non-numeric TTL is a named error.
-        assert!(AdvisoryConfig::from_map(|key| (key == "AMTRAK_ADVISORIES_TTL_SECS")
-            .then(|| "soon".to_string()))
+        assert!(AdvisoryConfig::from_map(
+            |key| (key == "AMTRAK_ADVISORIES_TTL_SECS").then(|| "soon".to_string())
+        )
         .is_err());
+    }
+
+    #[test]
+    fn track_config_defaults_off_and_maps_shared_stations() {
+        let defaults = TrackConfig::from_map(|_| None).unwrap();
+        assert!(!defaults.enabled);
+        assert_eq!(defaults.refresh_interval, Duration::from_secs(60));
+        assert_eq!(defaults.max_age, Duration::from_secs(300));
+        assert_eq!(defaults.request_timeout, Duration::from_secs(10));
+        assert_eq!(
+            defaults.raildata_base,
+            "https://raildata.njtransit.com/api/TrainData"
+        );
+        assert_eq!(
+            defaults.njt_stations,
+            vec!["NY", "NP", "NA", "MP", "NB", "PJ", "TR"]
+        );
+        for (njt, amtrak) in [("NA", "EWR"), ("NB", "NBK"), ("PJ", "PJC")] {
+            assert!(defaults
+                .station_map
+                .iter()
+                .any(|(code, stop)| code == njt && stop == amtrak));
+        }
+        assert!(defaults.platforms.contains("NYP", "21"));
+        assert!(defaults.platforms.contains("NWK", "A"));
+        assert!(defaults.platforms.contains("NHV", "14"));
+        assert!(!defaults.platforms.contains("NHV", "6"));
+        assert!(!defaults.platforms.contains("TRE", "1"));
+        assert_eq!(
+            TrackConfig::from_map(
+                |key| (key == "AMTRAK_TRACKS_PLATFORMS").then(|| "NWK=TBD".into())
+            )
+            .unwrap_err()
+            .field(),
+            "AMTRAK_TRACKS_PLATFORMS"
+        );
+        assert!(defaults
+            .station_map
+            .iter()
+            .any(|(njt, amtrak)| njt == "NP" && amtrak == "NWK"));
+        assert!(defaults
+            .station_map
+            .iter()
+            .any(|(njt, amtrak)| njt == "NY" && amtrak == "NYP"));
+        assert_eq!(defaults.hartford_stop_id, "NHV");
+        assert!(defaults.hartford_url.is_some());
+        assert!(defaults.njt_username.is_none());
+
+        let enabled = TrackConfig::from_map(|key| match key {
+            "AMTRAK_TRACKS" => Some("on".into()),
+            "AMTRAK_TRACKS_STATION_MAP" => Some("NP=NWK,PH=PHL".into()),
+            "AMTRAK_TRACKS_NJT_STATIONS" => Some("np, ph".into()),
+            "AMTRAK_TRACKS_HARTFORD_URL" => Some("".into()),
+            "NJT_RAILDATA_USERNAME" => Some("user".into()),
+            "NJT_RAILDATA_PASSWORD" => Some("secret".into()),
+            _ => None,
+        })
+        .unwrap();
+        assert!(enabled.enabled);
+        assert_eq!(enabled.njt_stations, vec!["NP", "PH"]);
+        assert!(enabled
+            .station_map
+            .iter()
+            .any(|(njt, amtrak)| njt == "PH" && amtrak == "PHL"));
+        assert!(enabled.hartford_url.is_none());
+        assert_eq!(enabled.njt_username.as_deref(), Some("user"));
+        let rendered = format!("{enabled:?}");
+        assert!(rendered.contains("njt_password_set: true"));
+        assert!(!rendered.contains("secret"));
+
+        assert!(TrackConfig::from_map(
+            |key| (key == "NJT_RAILDATA_PASSWORD").then(|| "only-password".into())
+        )
+        .is_err());
+        assert!(TrackConfig::from_map(
+            |key| (key == "AMTRAK_TRACKS_STATION_MAP").then(|| "NP".into())
+        )
+        .is_err());
+        assert!(TrackConfig::from_map(
+            |key| (key == "AMTRAK_TRACKS_NJT_STATIONS").then(|| "ZZ".into())
+        )
+        .is_err());
+        for field in [
+            "AMTRAK_TRACKS_REFRESH_SECS",
+            "AMTRAK_TRACKS_MAX_AGE_SECS",
+            "AMTRAK_TRACKS_REQUEST_TIMEOUT_SECS",
+        ] {
+            let error =
+                TrackConfig::from_map(|key| (key == field).then(|| "0".into())).unwrap_err();
+            assert_eq!(error.field(), field);
+        }
     }
     use std::collections::HashMap;
 

@@ -1,0 +1,291 @@
+{
+  "concurrency": {
+    "active_stage": null,
+    "blocked": {},
+    "parallel_candidates": [],
+    "ready": [],
+    "serial_candidates": [],
+    "waves": []
+  },
+  "generated_from": {
+    "file": "04_tasks.md",
+    "sha256": "f86b4af7ab2b6437d24f1f9044857ed2b35909872aac6cb7866539a44af87f0e"
+  },
+  "requirement_count": 48,
+  "schema_version": 1,
+  "stages": {
+    "1": [
+      "1.1"
+    ],
+    "2": [
+      "2.1"
+    ],
+    "3": [
+      "3.1",
+      "3.2"
+    ],
+    "4": [
+      "4.1",
+      "4.2"
+    ],
+    "5": [
+      "5.1"
+    ]
+  },
+  "tasks": [
+    {
+      "capability_tier": "frontier",
+      "checked": true,
+      "delegation": "controller",
+      "dependency_delivery": "none",
+      "dependency_resolution": "change",
+      "depends_on": [],
+      "files": [
+        "src/sources/tracks.rs` (removed)",
+        "src/sources/tracks/mod.rs",
+        "src/sources/tracks/raildata.rs",
+        "src/sources/tracks/hartford.rs",
+        "src/sources/tracks/store.rs",
+        "src/sources/tracks/refresher.rs",
+        "src/main.rs",
+        "src/config.rs",
+        "Cargo.toml",
+        "Cargo.lock",
+        "THIRD_PARTY_LICENSES.html"
+      ],
+      "id": "1.1",
+      "interfaces": "Consumes: design's RailData contract, `TrackConfig` variable table, and PR #17 parsers; Produces: `RailDataClient::schedule`, `AssignmentStore::{replace_station, fresh_board}`, `TrackBoard`, `run_board_refresher(store, config, token_path)`, and the revised `TrackConfig`",
+      "optional": false,
+      "reasoning_level": "extra_high",
+      "requirements": [
+        "4.1",
+        "4.2",
+        "4.3",
+        "4.4",
+        "4.5",
+        "4.6",
+        "4.7",
+        "4.8",
+        "5.2",
+        "5.3",
+        "6.1",
+        "6.4",
+        "7.1",
+        "7.2",
+        "7.3",
+        "7.4"
+      ],
+      "resolved_model": "claude-opus-5",
+      "risk": "high; a budget or retry bug can exhaust the daily token allowance or leak a secret, and rollback is reverting the branch commit",
+      "stage": 1,
+      "task_category": "heavy_reasoning",
+      "title": "Registered RailData client, assignment store, refresher",
+      "verification": "`cargo test --features status`; `cargo clippy --bins --tests --features status -- -D warnings`; `git grep -nE 'SPA_|block1|getBaseInfo|pbkdf2|Aes192' src` returns nothing; review the new doc comments"
+    },
+    {
+      "capability_tier": "frontier",
+      "checked": true,
+      "delegation": "controller",
+      "dependency_delivery": "none",
+      "dependency_resolution": "change",
+      "depends_on": [
+        "1.1"
+      ],
+      "files": [
+        "src/static_augment.rs",
+        "src/static_gtfs.rs",
+        "src/config.rs",
+        "src/main.rs",
+        "Cargo.toml",
+        "Cargo.lock"
+      ],
+      "id": "2.1",
+      "interfaces": "Consumes: `csv` from 1.1 and the promoted `zip` dependency, the revised `TrackConfig`, and upstream GTFS ZIP bytes; Produces: `PlatformTable`, `augment_static`, `platform_stop_id`, `parent_station_id`, and static snapshots whose bytes and version reflect augmentation",
+      "optional": false,
+      "reasoning_level": "extra_high",
+      "requirements": [
+        "1.1",
+        "1.2",
+        "1.3",
+        "1.4",
+        "1.5",
+        "1.6",
+        "1.7",
+        "1.8",
+        "1.9",
+        "2.1",
+        "2.2",
+        "2.3",
+        "2.4",
+        "2.5"
+      ],
+      "resolved_model": "claude-opus-5",
+      "risk": "high; a malformed augmented feed would be rejected and fall back safely, but a subtly wrong one could mislead consumers; rollback is unsetting `AMTRAK_TRACKS`",
+      "stage": 2,
+      "task_category": "heavy_reasoning",
+      "title": "Platform table, static augmenter, augmented pipeline",
+      "verification": "`cargo test --features status`; `cargo clippy --bins --tests --features status -- -D warnings`; augment the downloaded Amtrak `GTFS.zip` and run the MobilityData 8.0.1 validator on the result with zero `ERROR` notices; review doc comments"
+    },
+    {
+      "capability_tier": "frontier",
+      "checked": true,
+      "delegation": "controller",
+      "dependency_delivery": "none",
+      "dependency_resolution": "none",
+      "depends_on": [
+        "2.1"
+      ],
+      "files": [
+        "src/sources/tracks/mod.rs",
+        "src/orchestrator.rs",
+        "src/static_augment.rs",
+        "src/main.rs"
+      ],
+      "id": "3.1",
+      "interfaces": "Consumes: `AssignmentStore::fresh_board`, `TrackBoard`, `PlatformTable`, `platform_stop_id`, and the active parsed `Gtfs`; Produces: stamped `StopTimeUpdate`s and `stop_assignment_is_valid(assigned_id, update, trip, gtfs) -> bool`",
+      "optional": false,
+      "reasoning_level": "extra_high",
+      "requirements": [
+        "3.1",
+        "3.2",
+        "3.3",
+        "3.4",
+        "3.5",
+        "3.6",
+        "3.7",
+        "3.8",
+        "3.9",
+        "3.11",
+        "5.1",
+        "6.2"
+      ],
+      "resolved_model": "claude-opus-5",
+      "risk": "medium; an overly strict check drops valid predictions, caught by orchestrator tests; rollback is unsetting `AMTRAK_TRACKS`",
+      "stage": 3,
+      "task_category": "heavy_reasoning",
+      "title": "Stamp platform stops; enforce rules in orchestrator",
+      "verification": "`cargo test --features status`; `cargo clippy --bins --tests --features status -- -D warnings`; review doc comments"
+    },
+    {
+      "capability_tier": "balanced",
+      "checked": true,
+      "delegation": "controller",
+      "dependency_delivery": "none",
+      "dependency_resolution": "none",
+      "depends_on": [
+        "2.1"
+      ],
+      "files": [
+        "src/bin/status/station.rs",
+        "src/bin/status/train.rs"
+      ],
+      "id": "3.2",
+      "interfaces": "Consumes: static `Stop::platform_code`, `Stop::parent_station`, and stamped stop times shaped by the design; Produces: status rows whose station and track come from the static feed",
+      "optional": false,
+      "reasoning_level": "medium",
+      "requirements": [
+        "8.1",
+        "8.2"
+      ],
+      "resolved_model": "claude-sonnet-5",
+      "risk": "low; affects only the operator CLI; rollback is reverting the change",
+      "stage": 3,
+      "task_category": "code_analysis",
+      "title": "Resolve stations and platform codes in the status tool",
+      "verification": "`cargo test --features status`; `cargo clippy --bins --tests --features status -- -D warnings`; review doc comments"
+    },
+    {
+      "capability_tier": "frontier",
+      "checked": true,
+      "delegation": "controller",
+      "dependency_delivery": "none",
+      "dependency_resolution": "none",
+      "depends_on": [
+        "3.1",
+        "3.2"
+      ],
+      "files": [
+        "src/main.rs",
+        "README.md",
+        "CHANGELOG.md",
+        "docker-compose.yml"
+      ],
+      "id": "4.1",
+      "interfaces": "Consumes: `run_board_refresher`, `AssignmentStore`, `WithTracks`, `PlatformTable`, and the changed static pipeline signatures; Produces: a service where `AMTRAK_TRACKS=on` enables all three paths and off preserves current behavior",
+      "optional": false,
+      "reasoning_level": "high",
+      "requirements": [
+        "3.10",
+        "6.1",
+        "6.2",
+        "6.3"
+      ],
+      "resolved_model": "claude-opus-5",
+      "risk": "medium; mis-wiring could enable board fetches when disabled, covered by a disabled-path test; rollback is reverting the change",
+      "stage": 4,
+      "task_category": "code_analysis",
+      "title": "Wire refresher and stamper; document the feature",
+      "verification": "`cargo test --features status`; `cargo clippy --bins --tests --features status -- -D warnings`; `docker compose config`; review README and CHANGELOG against the design's configuration table"
+    },
+    {
+      "capability_tier": "balanced",
+      "checked": true,
+      "delegation": "controller",
+      "dependency_delivery": "none",
+      "dependency_resolution": "none",
+      "depends_on": [
+        "3.1",
+        "3.2"
+      ],
+      "files": [
+        "scripts/validate-feeds.sh",
+        ".github/workflows/validate-feeds.yml"
+      ],
+      "id": "4.2",
+      "interfaces": "Consumes: the service binary with `AMTRAK_TRACKS` and the existing ratchet; Produces: per-pass validation reports and a job that fails on a new `ERROR` code in either pass",
+      "optional": false,
+      "reasoning_level": "medium",
+      "requirements": [
+        "8.3",
+        "8.4"
+      ],
+      "resolved_model": "claude-sonnet-5",
+      "risk": "low; the job is scheduled rather than a PR gate, and rollback is reverting the script",
+      "stage": 4,
+      "task_category": "code_analysis",
+      "title": "Add a tracks-enabled pass to scheduled feed validation",
+      "verification": "`bash -n scripts/validate-feeds.sh`; `scripts/validate-feeds.sh --offline-fixtures`; run the script locally in live mode and confirm both passes report and ratchet"
+    },
+    {
+      "capability_tier": "frontier",
+      "checked": true,
+      "delegation": "controller",
+      "dependency_delivery": "none",
+      "dependency_resolution": "none",
+      "depends_on": [
+        "4.1",
+        "4.2"
+      ],
+      "files": [
+        ".specs/track-assignments/05_execution.md"
+      ],
+      "id": "5.1",
+      "interfaces": "Consumes: all prior task outputs; Produces: recorded verification evidence and an integration decision",
+      "optional": false,
+      "reasoning_level": "high",
+      "requirements": [
+        "1.1",
+        "2.1",
+        "3.1",
+        "6.3",
+        "8.3"
+      ],
+      "resolved_model": "claude-opus-5",
+      "risk": "medium; live sources can be unavailable, in which case the fixture evidence stands and the gap is recorded",
+      "stage": 5,
+      "task_category": "review",
+      "title": "Verify the complete feature before integration",
+      "verification": "`cargo test --features status`; `cargo clippy --bins --tests --features status -- -D warnings`; [`scripts/test-release-controls.sh`](../../scripts/test-release-controls.sh); live run evidence recorded"
+    }
+  ]
+}

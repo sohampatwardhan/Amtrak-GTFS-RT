@@ -1,4 +1,5 @@
 use crate::orchestrator::StaticSnapshot;
+use crate::static_augment::{augment_static, PlatformTable};
 use async_trait::async_trait;
 use gtfs_structures::Gtfs;
 use serde_json::Value;
@@ -81,6 +82,11 @@ impl StaticStandardsValidator for MobilityDataStaticValidator {
 
 /// Fetches a static ZIP once, validates, then retains and parses those bytes.
 ///
+/// With `platforms`, the upstream ZIP is augmented with platform stops first, and the augmented
+/// bytes are the ones parsed, validated, and returned. If augmentation fails or the validator
+/// rejects the augmented bytes, the upstream bytes are parsed and validated from scratch and
+/// returned instead, so enabling tracks can never block static publication.
+///
 /// # Errors
 ///
 /// Returns [`StaticError`] when the request, HTTP status, body read, GTFS parse,
@@ -89,13 +95,15 @@ impl StaticStandardsValidator for MobilityDataStaticValidator {
 pub async fn fetch_static(
     url: &str,
     validator: &dyn StaticStandardsValidator,
+    platforms: Option<&PlatformTable>,
 ) -> Result<StaticSnapshot, StaticError> {
-    fetch_static_at(url, validator, SystemTime::now()).await
+    fetch_static_at(url, validator, platforms, SystemTime::now()).await
 }
 
 async fn fetch_static_at(
     url: &str,
     validator: &dyn StaticStandardsValidator,
+    platforms: Option<&PlatformTable>,
     now: SystemTime,
 ) -> Result<StaticSnapshot, StaticError> {
     let response = reqwest::get(url)
@@ -107,8 +115,13 @@ async fn fetch_static_at(
         .bytes()
         .await
         .map_err(|_| StaticError("static body failed".into()))?;
+    if let Some(table) = platforms {
+        if let Some(snapshot) = augmented_snapshot(bytes.as_ref(), table, validator, now).await {
+            return Ok(snapshot);
+        }
+    }
     let zip: Arc<[u8]> = Arc::from(bytes.as_ref());
-    let snapshot = snapshot_from_bytes(zip.clone(), now)?;
+    let snapshot = snapshot_from_bytes(zip.clone(), now, None)?;
     validator
         .validate(zip)
         .await
@@ -116,7 +129,48 @@ async fn fetch_static_at(
     Ok(snapshot)
 }
 
-fn snapshot_from_bytes(zip: Arc<[u8]>, now: SystemTime) -> Result<StaticSnapshot, StaticError> {
+/// Augmented, parsed, and validated snapshot, or `None` to publish upstream bytes instead.
+async fn augmented_snapshot(
+    upstream: &[u8],
+    table: &PlatformTable,
+    validator: &dyn StaticStandardsValidator,
+    now: SystemTime,
+) -> Option<StaticSnapshot> {
+    let augmented = match augment_static(upstream, table) {
+        Ok(bytes) => bytes,
+        Err(error) => {
+            tracing::warn!(%error, stage = "static", "platform augmentation failed; publishing upstream");
+            return None;
+        }
+    };
+    let zip: Arc<[u8]> = Arc::from(augmented);
+    let suffix = format!("+tracks.{}", table.digest());
+    let Ok(snapshot) = snapshot_from_bytes(zip.clone(), now, Some(&suffix)) else {
+        tracing::warn!(
+            stage = "static",
+            "augmented static did not parse; publishing upstream"
+        );
+        return None;
+    };
+    if validator.validate(zip).await.is_err() {
+        tracing::warn!(
+            stage = "static",
+            "augmented static rejected by validator; publishing upstream"
+        );
+        return None;
+    }
+    Some(snapshot)
+}
+
+/// Parses retained bytes into a snapshot whose version is `feed_version` plus `suffix`.
+///
+/// Augmentation leaves `feed_info.txt` untouched, so the `+tracks.{digest}` suffix is applied here
+/// rather than read from the feed; versionless feeds get a generated identifier first.
+fn snapshot_from_bytes(
+    zip: Arc<[u8]>,
+    now: SystemTime,
+    suffix: Option<&str>,
+) -> Result<StaticSnapshot, StaticError> {
     let parsed = Gtfs::from_reader(Cursor::new(zip.clone()))
         .map_err(|_| StaticError("static parse failed".into()))?;
     let version = parsed
@@ -127,7 +181,7 @@ fn snapshot_from_bytes(zip: Arc<[u8]>, now: SystemTime) -> Result<StaticSnapshot
         .map(str::to_owned)
         .unwrap_or_else(|| fallback_snapshot_version(now));
     Ok(StaticSnapshot {
-        version,
+        version: format!("{version}{}", suffix.unwrap_or_default()),
         parsed: Arc::new(parsed),
         zip,
     })
@@ -183,8 +237,9 @@ pub async fn stage_static(
     comparison: &StaticSnapshot,
     url: &str,
     validator: &dyn StaticStandardsValidator,
+    platforms: Option<&PlatformTable>,
 ) -> Result<Option<Arc<StaticSnapshot>>, StaticError> {
-    let candidate = Arc::new(fetch_static(url, validator).await?);
+    let candidate = Arc::new(fetch_static(url, validator, platforms).await?);
     if candidate.zip.as_ref() == comparison.zip.as_ref() {
         return Ok(None);
     }
@@ -271,8 +326,9 @@ impl StaticSnapshotState {
 pub async fn bootstrap_static(
     static_url: &str,
     validator: &dyn StaticStandardsValidator,
+    platforms: Option<&PlatformTable>,
 ) -> Result<StaticSnapshotState, StaticError> {
-    let snapshot = fetch_static(static_url, validator).await?;
+    let snapshot = fetch_static(static_url, validator, platforms).await?;
     Ok(StaticSnapshotState::new(Arc::new(snapshot)))
 }
 
@@ -292,12 +348,13 @@ pub async fn refresh_snapshot_once(
     state: &StaticSnapshotState,
     static_url: &str,
     validator: &dyn StaticStandardsValidator,
+    platforms: Option<&PlatformTable>,
 ) -> StaticRefreshOutcome {
     let comparison = match state.pending().await {
         Some(pending) => pending,
         None => state.active().await,
     };
-    match stage_static(&comparison, static_url, validator).await {
+    match stage_static(&comparison, static_url, validator, platforms).await {
         Ok(Some(snapshot)) => {
             let version = snapshot.version.clone();
             state.stage(snapshot).await;
@@ -314,12 +371,20 @@ pub async fn run_snapshot_refresh(
     static_url: String,
     interval: Duration,
     validator: Arc<dyn StaticStandardsValidator>,
+    platforms: Option<Arc<PlatformTable>>,
 ) {
     let mut ticker = tokio::time::interval(interval);
     ticker.tick().await;
     loop {
         ticker.tick().await;
-        match refresh_snapshot_once(&state, &static_url, validator.as_ref()).await {
+        match refresh_snapshot_once(
+            &state,
+            &static_url,
+            validator.as_ref(),
+            platforms.as_deref(),
+        )
+        .await
+        {
             StaticRefreshOutcome::Staged(version) => {
                 tracing::info!(
                     outcome = "staged",
@@ -537,6 +602,7 @@ mod tests {
         let snapshot = snapshot_from_bytes(
             Arc::from(bytes.clone()),
             UNIX_EPOCH + Duration::from_secs(1),
+            None,
         )
         .unwrap();
         assert_eq!(snapshot.zip.as_ref(), bytes);
@@ -547,10 +613,12 @@ mod tests {
         let first = snapshot_from_bytes(
             Arc::from(bytes.clone()),
             UNIX_EPOCH + Duration::from_secs(2),
+            None,
         )
         .unwrap();
         let second =
-            snapshot_from_bytes(Arc::from(bytes), UNIX_EPOCH + Duration::from_secs(2)).unwrap();
+            snapshot_from_bytes(Arc::from(bytes), UNIX_EPOCH + Duration::from_secs(2), None)
+                .unwrap();
         assert_ne!(first.version, second.version);
         assert!(first.version.starts_with("snapshot-"));
         assert_ne!(first.version, "unknown");
@@ -586,7 +654,8 @@ mod tests {
             stream.write_all(&response_bytes).await.unwrap();
         });
 
-        let current = snapshot_from_bytes(Arc::from(fixture_zip(Some("OLD"))), UNIX_EPOCH).unwrap();
+        let current =
+            snapshot_from_bytes(Arc::from(fixture_zip(Some("OLD"))), UNIX_EPOCH, None).unwrap();
         let validator = RecordingValidator {
             seen: Mutex::new(Vec::new()),
             result: Ok(()),
@@ -595,6 +664,7 @@ mod tests {
             &current,
             &format!("http://{address}/static.zip"),
             &validator,
+            None,
         )
         .await
         .unwrap()
@@ -630,7 +700,8 @@ mod tests {
             result: Err(StaticValidationError("fixture error".into())),
         };
 
-        let result = bootstrap_static(&format!("http://{address}/static.zip"), &validator).await;
+        let result =
+            bootstrap_static(&format!("http://{address}/static.zip"), &validator, None).await;
         server.await.unwrap();
 
         assert!(result.is_err());
@@ -695,12 +766,15 @@ mod tests {
 
     #[tokio::test]
     async fn snapshot_state_promotes_only_the_committed_pending_value() {
-        let active =
-            Arc::new(snapshot_from_bytes(Arc::from(fixture_zip(Some("A"))), UNIX_EPOCH).unwrap());
-        let first =
-            Arc::new(snapshot_from_bytes(Arc::from(fixture_zip(Some("B"))), UNIX_EPOCH).unwrap());
-        let newer =
-            Arc::new(snapshot_from_bytes(Arc::from(fixture_zip(Some("C"))), UNIX_EPOCH).unwrap());
+        let active = Arc::new(
+            snapshot_from_bytes(Arc::from(fixture_zip(Some("A"))), UNIX_EPOCH, None).unwrap(),
+        );
+        let first = Arc::new(
+            snapshot_from_bytes(Arc::from(fixture_zip(Some("B"))), UNIX_EPOCH, None).unwrap(),
+        );
+        let newer = Arc::new(
+            snapshot_from_bytes(Arc::from(fixture_zip(Some("C"))), UNIX_EPOCH, None).unwrap(),
+        );
         let state = StaticSnapshotState::new(active);
         state.stage(first.clone()).await;
         state.stage(newer.clone()).await;
@@ -714,10 +788,12 @@ mod tests {
 
     #[tokio::test]
     async fn rejected_static_refresh_preserves_active_and_pending_snapshots() {
-        let active =
-            Arc::new(snapshot_from_bytes(Arc::from(fixture_zip(Some("A"))), UNIX_EPOCH).unwrap());
-        let pending =
-            Arc::new(snapshot_from_bytes(Arc::from(fixture_zip(Some("B"))), UNIX_EPOCH).unwrap());
+        let active = Arc::new(
+            snapshot_from_bytes(Arc::from(fixture_zip(Some("A"))), UNIX_EPOCH, None).unwrap(),
+        );
+        let pending = Arc::new(
+            snapshot_from_bytes(Arc::from(fixture_zip(Some("B"))), UNIX_EPOCH, None).unwrap(),
+        );
         let state = StaticSnapshotState::new(active.clone());
         state.stage(pending.clone()).await;
 
@@ -740,9 +816,13 @@ mod tests {
             result: Err(StaticValidationError("fixture error".into())),
         };
 
-        let result =
-            refresh_snapshot_once(&state, &format!("http://{address}/static.zip"), &validator)
-                .await;
+        let result = refresh_snapshot_once(
+            &state,
+            &format!("http://{address}/static.zip"),
+            &validator,
+            None,
+        )
+        .await;
         server.await.unwrap();
 
         assert_eq!(result, StaticRefreshOutcome::Rejected);
@@ -759,5 +839,133 @@ mod tests {
         assert_eq!(active.version, "committed-fallback");
         assert_eq!(active.zip.as_ref(), zip.as_ref());
         assert!(active.parsed.trips.contains_key("t"));
+    }
+
+    fn served_zip(bytes: Vec<u8>) -> (String, tokio::task::JoinHandle<()>) {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        listener.set_nonblocking(true).unwrap();
+        let address = listener.local_addr().unwrap();
+        let listener = tokio::net::TcpListener::from_std(listener).unwrap();
+        let server = tokio::spawn(async move {
+            loop {
+                let Ok((mut stream, _)) = listener.accept().await else {
+                    return;
+                };
+                let mut request = [0_u8; 1024];
+                let _ = stream.read(&mut request).await;
+                let header = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                    bytes.len()
+                );
+                let _ = stream.write_all(header.as_bytes()).await;
+                let _ = stream.write_all(&bytes).await;
+            }
+        });
+        (format!("http://{address}/static.zip"), server)
+    }
+
+    fn augmentable_zip(version: &str) -> Vec<u8> {
+        let cursor = Cursor::new(Vec::new());
+        let mut archive = zip::ZipWriter::new(cursor);
+        let options = SimpleFileOptions::default();
+        let files = [
+            ("agency.txt", "agency_id,agency_name,agency_url,agency_timezone\na,Amtrak,https://amtrak.com,America/New_York\n"),
+            ("stops.txt", "stop_id,stop_name,stop_lat,stop_lon\nNWK,Newark,40.7,-74.1\n"),
+            ("routes.txt", "route_id,agency_id,route_short_name,route_long_name,route_type\nr,a,R,Regional,2\n"),
+            ("trips.txt", "route_id,service_id,trip_id\nr,svc,t\n"),
+            ("stop_times.txt", "trip_id,arrival_time,departure_time,stop_id,stop_sequence\nt,10:00:00,10:00:00,NWK,1\n"),
+            ("calendar_dates.txt", "service_id,date,exception_type\nsvc,20260813,1\n"),
+        ];
+        for (name, contents) in files {
+            archive.start_file(name, options).unwrap();
+            archive.write_all(contents.as_bytes()).unwrap();
+        }
+        archive.start_file("feed_info.txt", options).unwrap();
+        archive
+            .write_all(format!("feed_publisher_name,feed_publisher_url,feed_lang,feed_version\nAmtrak,https://amtrak.com,en,{version}\n").as_bytes())
+            .unwrap();
+        archive.finish().unwrap().into_inner()
+    }
+
+    /// Accepts only archives without platform stops, to drive the fallback path.
+    struct RejectAugmented {
+        seen: Mutex<Vec<Arc<[u8]>>>,
+    }
+
+    #[async_trait]
+    impl StaticStandardsValidator for RejectAugmented {
+        async fn validate(&self, zip: Arc<[u8]>) -> Result<(), StaticValidationError> {
+            self.seen.lock().unwrap().push(zip.clone());
+            let parsed = Gtfs::from_reader(Cursor::new(zip)).unwrap();
+            if parsed.stops.keys().any(|id| id.contains(":track:")) {
+                Err(StaticValidationError("fixture rejects platforms".into()))
+            } else {
+                Ok(())
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn augmented_bytes_are_validated_published_and_versioned() {
+        let upstream = augmentable_zip("20260927");
+        let (url, server) = served_zip(upstream.clone());
+        let validator = RecordingValidator {
+            seen: Mutex::new(Vec::new()),
+            result: Ok(()),
+        };
+        let table = PlatformTable::parse("NWK=1-2").unwrap();
+        let snapshot = fetch_static(&url, &validator, Some(&table)).await.unwrap();
+        assert_eq!(
+            snapshot.version,
+            format!("20260927+tracks.{}", table.digest())
+        );
+        assert!(snapshot.parsed.stops.contains_key("NWK:track:2"));
+        assert_ne!(snapshot.zip.as_ref(), upstream.as_slice());
+        {
+            let seen = validator.seen.lock().unwrap();
+            assert_eq!(seen.len(), 1);
+            assert_eq!(seen[0].as_ref(), snapshot.zip.as_ref());
+        }
+
+        let other = PlatformTable::parse("NWK=1-3").unwrap();
+        let changed = fetch_static(&url, &validator, Some(&other)).await.unwrap();
+        assert_ne!(changed.version, snapshot.version);
+        let same = fetch_static(&url, &validator, Some(&table)).await.unwrap();
+        assert_eq!(same.version, snapshot.version);
+        assert_eq!(same.zip.as_ref(), snapshot.zip.as_ref());
+
+        let disabled = fetch_static(&url, &validator, None).await.unwrap();
+        assert_eq!(disabled.version, "20260927");
+        assert_eq!(disabled.zip.as_ref(), upstream.as_slice());
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn rejected_or_failed_augmentation_publishes_upstream_bytes() {
+        let upstream = augmentable_zip("20260927");
+        let (url, server) = served_zip(upstream.clone());
+        let validator = RejectAugmented {
+            seen: Mutex::new(Vec::new()),
+        };
+        let table = PlatformTable::parse("NWK=1").unwrap();
+        let snapshot = fetch_static(&url, &validator, Some(&table)).await.unwrap();
+        assert_eq!(snapshot.zip.as_ref(), upstream.as_slice());
+        assert_eq!(snapshot.version, "20260927");
+        assert!(!snapshot.parsed.stops.contains_key("NWK:track:1"));
+        assert_eq!(validator.seen.lock().unwrap().len(), 2);
+
+        // A generated id colliding with an existing stop fails augmentation before validation.
+        let colliding = PlatformTable::parse("NWK=1").unwrap();
+        let mut archive = zip::ZipWriter::new(Cursor::new(Vec::new()));
+        let options = SimpleFileOptions::default();
+        archive.start_file("stops.txt", options).unwrap();
+        archive
+            .write_all(
+                b"stop_id,stop_name,stop_lat,stop_lon\nNWK,Newark,40,-74\nNWK:station,X,40,-74\n",
+            )
+            .unwrap();
+        let broken = archive.finish().unwrap().into_inner();
+        assert!(augment_static(&broken, &colliding).is_err());
+        server.abort();
     }
 }

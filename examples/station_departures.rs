@@ -20,7 +20,10 @@ const STATIC_URL: &str = "https://content.amtrak.com/content/gtfs/GTFS.zip";
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let mut args = std::env::args().skip(1);
-    let station_code = args.next().unwrap_or_else(|| "NHV".to_string()).to_uppercase();
+    let station_code = args
+        .next()
+        .unwrap_or_else(|| "NHV".to_string())
+        .to_uppercase();
     let limit: usize = args.next().and_then(|v| v.parse().ok()).unwrap_or(20);
 
     eprintln!("Loading Amtrak static GTFS ...");
@@ -61,7 +64,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             continue;
         };
         for stu in &update.stop_time_update {
-            let Some(stop_id) = &stu.stop_id else { continue };
+            let Some(stop_id) = &stu.stop_id else {
+                continue;
+            };
             if !stop_id.eq_ignore_ascii_case(&station_code) {
                 continue;
             }

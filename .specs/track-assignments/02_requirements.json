@@ -1,0 +1,425 @@
+{
+  "schema_version": 1,
+  "generated_from": {
+    "file": "02_requirements.md",
+    "sha256": "7d6554431f70ecf4688fbf8ed63fcee12528a1cd8c62af36ba12e2298f0f8921"
+  },
+  "requirements": [
+    {
+      "id": "1",
+      "user_story": {
+        "role": "transit-app consumer",
+        "capability": "each covered station's tracks published as stops",
+        "benefit": "a platform assignment resolves to a stop defined in the static feed"
+      },
+      "criteria": [
+        {
+          "id": "1.1",
+          "kind": "optional",
+          "trigger": "tracks are enabled",
+          "actor": "Static_Augmenter",
+          "behavior": "add one platform stop for each configured track of each covered station to the published static feed"
+        },
+        {
+          "id": "1.2",
+          "kind": "optional",
+          "trigger": "tracks are enabled",
+          "actor": "Static_Augmenter",
+          "behavior": "add one parent station for each covered station to the published static feed"
+        },
+        {
+          "id": "1.3",
+          "kind": "optional",
+          "trigger": "tracks are enabled",
+          "actor": "Static_Augmenter",
+          "behavior": "set the parent of each covered station's original Amtrak stop to that station's new parent station"
+        },
+        {
+          "id": "1.4",
+          "kind": "optional",
+          "trigger": "tracks are enabled",
+          "actor": "Static_Augmenter",
+          "behavior": "set the parent of each platform stop to the parent station of its covered station"
+        },
+        {
+          "id": "1.5",
+          "kind": "optional",
+          "trigger": "tracks are enabled",
+          "actor": "Static_Augmenter",
+          "behavior": "set each platform stop's `platform_code` to its track label"
+        },
+        {
+          "id": "1.6",
+          "kind": "optional",
+          "trigger": "tracks are enabled",
+          "actor": "Static_Augmenter",
+          "behavior": "keep every stop id, trip, stop time, and non-stop file of the upstream feed unchanged"
+        },
+        {
+          "id": "1.7",
+          "kind": "optional",
+          "trigger": "tracks are disabled",
+          "actor": "Static_Augmenter",
+          "behavior": "publish the upstream static feed bytes unchanged"
+        },
+        {
+          "id": "1.8",
+          "kind": "unwanted",
+          "trigger": "a covered station's stop id is absent from the upstream feed",
+          "actor": "Static_Augmenter",
+          "behavior": "omit that station's parent station and platform stops"
+        },
+        {
+          "id": "1.9",
+          "kind": "unwanted",
+          "trigger": "augmentation of an upstream snapshot fails",
+          "actor": "Static_Augmenter",
+          "behavior": "publish the upstream static feed bytes unchanged for that snapshot"
+        }
+      ]
+    },
+    {
+      "id": "2",
+      "user_story": {
+        "role": "operator",
+        "capability": "the augmented feed validated and versioned predictably",
+        "benefit": "consumers reload static data only when it actually changes"
+      },
+      "criteria": [
+        {
+          "id": "2.1",
+          "kind": "unconditional",
+          "trigger": "",
+          "actor": "Static_Pipeline",
+          "behavior": "submit the exact bytes it will publish to the standards validator"
+        },
+        {
+          "id": "2.2",
+          "kind": "unwanted",
+          "trigger": "the standards validator reports an `ERROR` notice for the augmented static feed",
+          "actor": "Static_Pipeline",
+          "behavior": "publish the upstream static feed bytes unchanged for that snapshot"
+        },
+        {
+          "id": "2.3",
+          "kind": "event",
+          "trigger": "the same upstream static feed is augmented twice with the same track configuration",
+          "actor": "Static_Augmenter",
+          "behavior": "produce byte-identical output"
+        },
+        {
+          "id": "2.4",
+          "kind": "optional",
+          "trigger": "tracks are enabled",
+          "actor": "Static_Pipeline",
+          "behavior": "report a static version that differs from the upstream version when the track configuration differs"
+        },
+        {
+          "id": "2.5",
+          "kind": "event",
+          "trigger": "neither the upstream static feed nor the track configuration changes",
+          "actor": "Static_Pipeline",
+          "behavior": "report the same static version"
+        }
+      ]
+    },
+    {
+      "id": "3",
+      "user_story": {
+        "role": "transit-app consumer",
+        "capability": "trip updates to name the assigned platform stop",
+        "benefit": "my app can show the rider's track"
+      },
+      "criteria": [
+        {
+          "id": "3.1",
+          "kind": "event",
+          "trigger": "a trip update stop time matches a fresh track assignment for a configured track",
+          "actor": "Track_Stamper",
+          "behavior": "set its `assigned_stop_id` to that track's platform stop id"
+        },
+        {
+          "id": "3.2",
+          "kind": "event",
+          "trigger": "the Track_Stamper sets an `assigned_stop_id`",
+          "actor": "Track_Stamper",
+          "behavior": "populate that stop time's `stop_sequence` from the static trip"
+        },
+        {
+          "id": "3.3",
+          "kind": "event",
+          "trigger": "the Track_Stamper sets an `assigned_stop_id`",
+          "actor": "Track_Stamper",
+          "behavior": "clear that stop time's `stop_id`"
+        },
+        {
+          "id": "3.4",
+          "kind": "unwanted",
+          "trigger": "a scheduled station occurs more than once in the static trip",
+          "actor": "Track_Stamper",
+          "behavior": "leave that stop time unassigned"
+        },
+        {
+          "id": "3.5",
+          "kind": "unwanted",
+          "trigger": "a stop time is `SKIPPED`",
+          "actor": "Track_Stamper",
+          "behavior": "leave that stop time unassigned"
+        },
+        {
+          "id": "3.6",
+          "kind": "unwanted",
+          "trigger": "a reported track label is not configured for its station",
+          "actor": "Track_Stamper",
+          "behavior": "leave the stop time unassigned"
+        },
+        {
+          "id": "3.7",
+          "kind": "unwanted",
+          "trigger": "a reported track label is not configured for its station",
+          "actor": "Track_Stamper",
+          "behavior": "log the station and label without logging credentials"
+        },
+        {
+          "id": "3.8",
+          "kind": "unconditional",
+          "trigger": "",
+          "actor": "Orchestrator",
+          "behavior": "reject an `assigned_stop_id` that is not a stop in the active static feed"
+        },
+        {
+          "id": "3.9",
+          "kind": "unconditional",
+          "trigger": "",
+          "actor": "Orchestrator",
+          "behavior": "reject an `assigned_stop_id` whose parent station differs from the parent station of the scheduled stop"
+        },
+        {
+          "id": "3.10",
+          "kind": "optional",
+          "trigger": "tracks are disabled",
+          "actor": "Track_Stamper",
+          "behavior": "leave every trip update unchanged"
+        },
+        {
+          "id": "3.11",
+          "kind": "unwanted",
+          "trigger": "a stop time has no arrival or departure time between one hour before and twelve hours after the generation time",
+          "actor": "Track_Stamper",
+          "behavior": "leave that stop time unassigned"
+        }
+      ]
+    },
+    {
+      "id": "4",
+      "user_story": {
+        "role": "operator",
+        "capability": "NJ Transit data read only through my registered RailData account",
+        "benefit": "the service uses NJT's sanctioned access"
+      },
+      "criteria": [
+        {
+          "id": "4.1",
+          "kind": "unconditional",
+          "trigger": "",
+          "actor": "RailData_Client",
+          "behavior": "request NJ Transit schedules only with a token issued to the configured RailData credentials"
+        },
+        {
+          "id": "4.2",
+          "kind": "unconditional",
+          "trigger": "",
+          "actor": "Service",
+          "behavior": "contain no DepartureVision session bootstrap and no key copied from NJ Transit's web client"
+        },
+        {
+          "id": "4.3",
+          "kind": "state",
+          "trigger": "a stored RailData token is younger than its validity period",
+          "actor": "RailData_Client",
+          "behavior": "reuse it instead of requesting a new token"
+        },
+        {
+          "id": "4.4",
+          "kind": "event",
+          "trigger": "the service restarts with a stored unexpired RailData token",
+          "actor": "RailData_Client",
+          "behavior": "reuse the stored token"
+        },
+        {
+          "id": "4.5",
+          "kind": "unconditional",
+          "trigger": "",
+          "actor": "RailData_Client",
+          "behavior": "request at most 10 tokens in any rolling 24-hour period"
+        },
+        {
+          "id": "4.6",
+          "kind": "unwanted",
+          "trigger": "RailData rejects a token",
+          "actor": "RailData_Client",
+          "behavior": "request one replacement token before the next schedule request"
+        },
+        {
+          "id": "4.7",
+          "kind": "unwanted",
+          "trigger": "RailData credentials are not configured",
+          "actor": "Board_Refresher",
+          "behavior": "skip NJ Transit stations and log that they are unconfigured"
+        },
+        {
+          "id": "4.8",
+          "kind": "unconditional",
+          "trigger": "",
+          "actor": "Service",
+          "behavior": "never write RailData credentials to logs, responses, or published files"
+        }
+      ]
+    },
+    {
+      "id": "5",
+      "user_story": {
+        "role": "rider",
+        "capability": "tracks that reflect current board data",
+        "benefit": "I am never sent to a platform from an earlier train or day"
+      },
+      "criteria": [
+        {
+          "id": "5.1",
+          "kind": "unconditional",
+          "trigger": "",
+          "actor": "Track_Stamper",
+          "behavior": "ignore a track assignment older than the configured maximum age"
+        },
+        {
+          "id": "5.2",
+          "kind": "unwanted",
+          "trigger": "a board refresh fails",
+          "actor": "Board_Refresher",
+          "behavior": "keep each earlier assignment only until it exceeds the configured maximum age"
+        },
+        {
+          "id": "5.3",
+          "kind": "event",
+          "trigger": "a board refresh succeeds for a station",
+          "actor": "Board_Refresher",
+          "behavior": "replace that station's earlier assignments with the new ones"
+        }
+      ]
+    },
+    {
+      "id": "6",
+      "user_story": {
+        "role": "operator",
+        "capability": "board fetching separated from feed generation",
+        "benefit": "a slow or failed board cannot delay the feed"
+      },
+      "criteria": [
+        {
+          "id": "6.1",
+          "kind": "unconditional",
+          "trigger": "",
+          "actor": "Board_Refresher",
+          "behavior": "fetch boards on its own schedule outside feed generation"
+        },
+        {
+          "id": "6.2",
+          "kind": "event",
+          "trigger": "a generation runs",
+          "actor": "Track_Stamper",
+          "behavior": "use the latest available assignments without waiting for a board request"
+        },
+        {
+          "id": "6.3",
+          "kind": "unwanted",
+          "trigger": "every board request times out",
+          "actor": "Orchestrator",
+          "behavior": "publish the generation within the time it takes when tracks are disabled plus one second"
+        },
+        {
+          "id": "6.4",
+          "kind": "unconditional",
+          "trigger": "",
+          "actor": "Board_Refresher",
+          "behavior": "bound each board request by a configured timeout"
+        }
+      ]
+    },
+    {
+      "id": "7",
+      "user_story": {
+        "role": "operator",
+        "capability": "the NJ Transit stations and New Haven Union read by default",
+        "benefit": "tracks appear where these sources publish them"
+      },
+      "criteria": [
+        {
+          "id": "7.1",
+          "kind": "unconditional",
+          "trigger": "",
+          "actor": "Board_Refresher",
+          "behavior": "read Amtrak track assignments for New York Penn, Newark Penn, Newark Airport, Metropark, New Brunswick, Princeton Junction, and Trenton from RailData by default"
+        },
+        {
+          "id": "7.2",
+          "kind": "unconditional",
+          "trigger": "",
+          "actor": "Board_Refresher",
+          "behavior": "read Amtrak track assignments for New Haven Union from the Hartford Line board by default"
+        },
+        {
+          "id": "7.3",
+          "kind": "optional",
+          "trigger": "the operator configures an additional station mapping and track list",
+          "actor": "Board_Refresher",
+          "behavior": "read that station without a code change"
+        },
+        {
+          "id": "7.4",
+          "kind": "unwanted",
+          "trigger": "a board reports a track label that is empty or not a platform token",
+          "actor": "Board_Refresher",
+          "behavior": "discard that row"
+        }
+      ]
+    },
+    {
+      "id": "8",
+      "user_story": {
+        "role": "maintainer",
+        "capability": "the status tool and feed validation to understand platform assignments",
+        "benefit": "regressions are caught before release"
+      },
+      "criteria": [
+        {
+          "id": "8.1",
+          "kind": "event",
+          "trigger": "a displayed stop time has an `assigned_stop_id`",
+          "actor": "Status_Tool",
+          "behavior": "show the platform stop's `platform_code` as the track"
+        },
+        {
+          "id": "8.2",
+          "kind": "event",
+          "trigger": "a displayed stop time omits `stop_id`",
+          "actor": "Status_Tool",
+          "behavior": "identify its station from `stop_sequence` and the static trip"
+        },
+        {
+          "id": "8.3",
+          "kind": "event",
+          "trigger": "the scheduled feed validation runs",
+          "actor": "Feed_Validation",
+          "behavior": "validate a generation produced with tracks enabled using the static and GTFS-Realtime validators"
+        },
+        {
+          "id": "8.4",
+          "kind": "unwanted",
+          "trigger": "the tracks-enabled generation produces a validator `ERROR` code outside the recorded allowlist",
+          "actor": "Feed_Validation",
+          "behavior": "fail"
+        }
+      ]
+    }
+  ]
+}

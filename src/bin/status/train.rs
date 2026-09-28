@@ -25,6 +25,8 @@ pub struct StopStatus {
     pub canceled: bool,
     /// IANA timezone to render this stop's times in.
     pub tz: String,
+    /// Platform/track: the `platform_code` of the stop time's assigned platform stop, if any.
+    pub track: Option<String>,
 }
 
 /// Live status of one active trip serving a train number.
@@ -127,7 +129,8 @@ fn build_status(index: &FeedIndex, trip: &Trip, now_unix: i64) -> TrainStatus {
             }
             let effective = departure_unix.or(arrival_unix);
             if effective.map(|t| t >= now_unix).unwrap_or(false) {
-                let code = stu.stop_id.clone().unwrap_or_default();
+                let code =
+                    super::station::scheduled_stop_id(gtfs, &trip.id, stu).unwrap_or_default();
                 let (stop_name, tz) = resolve_stop(index, &code);
                 remaining_stops.push(StopStatus {
                     stop_code: code,
@@ -136,6 +139,7 @@ fn build_status(index: &FeedIndex, trip: &Trip, now_unix: i64) -> TrainStatus {
                     departure_unix,
                     canceled: stu.schedule_relationship == Some(1),
                     tz,
+                    track: super::station::track_from_update(gtfs, stu),
                 });
             }
         }
@@ -151,7 +155,12 @@ fn build_status(index: &FeedIndex, trip: &Trip, now_unix: i64) -> TrainStatus {
             let mut ordered: Vec<_> = points.iter().collect();
             ordered.sort_by_key(|p| p.sequence);
             (
-                Some(ordered.into_iter().map(|p| (p.latitude, p.longitude)).collect()),
+                Some(
+                    ordered
+                        .into_iter()
+                        .map(|p| (p.latitude, p.longitude))
+                        .collect(),
+                ),
                 false,
             )
         }
@@ -190,7 +199,11 @@ fn endpoints(trip: &Trip) -> (String, String) {
 /// Resolves an Amtrak station code to `(name, tz)` using the index, falling back to the code and
 /// agency timezone if the station is unknown.
 fn resolve_stop(index: &FeedIndex, code: &str) -> (String, String) {
-    if let Some(stop) = index.stop_by_code.get(&code.to_uppercase()).and_then(|s| s.first()) {
+    if let Some(stop) = index
+        .stop_by_code
+        .get(&code.to_uppercase())
+        .and_then(|s| s.first())
+    {
         let name = stop.name.clone().unwrap_or_else(|| code.to_string());
         let (tz, _fallback) = station_tz(index.gtfs, stop);
         return (name, tz);
@@ -200,11 +213,11 @@ fn resolve_stop(index: &FeedIndex, code: &str) -> (String, String) {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::super::source::GenerationData;
+    use super::*;
     use gtfs_realtime::{
-        trip_update::{StopTimeEvent, StopTimeUpdate},
         translated_string::Translation,
+        trip_update::{StopTimeEvent, StopTimeUpdate},
         Alert, EntitySelector, FeedEntity, FeedMessage, Position, TranslatedString, TripDescriptor,
         TripUpdate, VehiclePosition,
     };
@@ -327,7 +340,12 @@ mod tests {
         let data = generation();
         let index = FeedIndex::build(&data);
         let result = train_query(&index, "2159", NOW);
-        let TrainResult::Trains { generation_id, generated_at_unix, trains } = result else {
+        let TrainResult::Trains {
+            generation_id,
+            generated_at_unix,
+            trains,
+        } = result
+        else {
             panic!("expected active trains");
         };
         assert_eq!(generation_id, "g9"); // R5.3 source tagging
@@ -343,7 +361,10 @@ mod tests {
         assert_eq!(with_shape.remaining_stops[0].stop_name, "New York Penn");
         assert_eq!(with_shape.shape.as_ref().unwrap().len(), 2); // R4.1 geometry
         assert!(!with_shape.shape_unavailable);
-        assert_eq!(with_shape.alerts, vec!["Operating 5 minutes late".to_string()]); // R1.1
+        assert_eq!(
+            with_shape.alerts,
+            vec!["Operating 5 minutes late".to_string()]
+        ); // R1.1
 
         // R4.2: the shapeless trip reports no geometry, flagged, with the rest intact.
         let no_shape = trains.iter().find(|t| t.trip_id == "tb").unwrap();

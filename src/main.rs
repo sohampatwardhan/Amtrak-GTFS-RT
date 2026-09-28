@@ -2,6 +2,7 @@ mod config;
 mod orchestrator;
 mod serve;
 mod sources;
+mod static_augment;
 mod static_gtfs;
 mod writer;
 
@@ -9,7 +10,10 @@ use crate::config::Config;
 use crate::orchestrator::{GenerationCommitter, StoreGenerationCommitter};
 use crate::sources::advisories::WithAdvisories;
 use crate::sources::amtrak::AmtrakSource;
+use crate::sources::tracks::refresher::run_board_refresher;
+use crate::sources::tracks::{AssignmentStore, WithTracks};
 use crate::sources::{RtBatch, RtSource, SourceError};
+use crate::static_augment::PlatformTable;
 use crate::static_gtfs::{
     bootstrap_static, recover_static, MobilityDataStaticValidator, StaticSnapshotState,
     StaticStandardsValidator,
@@ -147,6 +151,7 @@ async fn initial_snapshots(
     store: &GenerationStore,
     static_url: &str,
     validator: &dyn StaticStandardsValidator,
+    platforms: Option<&PlatformTable>,
 ) -> Result<StaticSnapshotState, Box<dyn std::error::Error + Send + Sync>> {
     if let Some(generation) = store.current().await {
         return Ok(recover_static(
@@ -154,7 +159,7 @@ async fn initial_snapshots(
             generation.manifest.static_version.clone(),
         )?);
     }
-    Ok(bootstrap_static(static_url, validator).await?)
+    Ok(bootstrap_static(static_url, validator, platforms).await?)
 }
 
 fn container_healthcheck() -> std::io::Result<()> {
@@ -175,6 +180,42 @@ fn container_healthcheck() -> std::io::Result<()> {
         Ok(())
     } else {
         Err(std::io::Error::other("/livez did not return HTTP 200"))
+    }
+}
+
+/// Shared track state: the store the board refresher fills, the platform table the static feed
+/// was augmented with, and the oldest assignment age that may be stamped.
+struct TrackWiring {
+    store: Arc<AssignmentStore>,
+    table: Arc<PlatformTable>,
+    max_age: Duration,
+}
+
+/// Layers the optional advisory and track decorators. Tracks sit outside advisories so a board
+/// failure cannot hide an advisory merge, and the published source name stays the inner source's.
+fn realtime_source<S>(
+    source: S,
+    advisories: Option<crate::config::AdvisoryConfig>,
+    tracks: Option<TrackWiring>,
+) -> Box<dyn RtSource>
+where
+    S: RtSource + 'static,
+{
+    match (advisories, tracks) {
+        (None, None) => Box::new(source),
+        (Some(advisories), None) => Box::new(WithAdvisories::new(source, advisories)),
+        (None, Some(tracks)) => Box::new(WithTracks::new(
+            source,
+            tracks.store,
+            tracks.table,
+            tracks.max_age,
+        )),
+        (Some(advisories), Some(tracks)) => Box::new(WithTracks::new(
+            WithAdvisories::new(source, advisories),
+            tracks.store,
+            tracks.table,
+            tracks.max_age,
+        )),
     }
 }
 
@@ -203,27 +244,52 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let validator: Arc<dyn StaticStandardsValidator> = Arc::new(MobilityDataStaticValidator::new(
         config.gtfs_validator_jar.clone(),
     ));
-    let snapshots = initial_snapshots(&store, &config.static_url, validator.as_ref()).await?;
+    // With tracks on, every static snapshot is augmented with the configured platform stops, so
+    // the same table must reach both the bootstrap below and the periodic refresh task.
+    let track_config = crate::config::TrackConfig::from_env()?;
+    let platforms = track_config
+        .enabled
+        .then(|| Arc::new(track_config.platforms.clone()));
+    let snapshots = initial_snapshots(
+        &store,
+        &config.static_url,
+        validator.as_ref(),
+        platforms.as_deref(),
+    )
+    .await?;
 
     // The Amtrak source (optionally Capital Corridor-filtered) is optionally wrapped with the
-    // best-effort advisory scraper, which appends stop- and route-scoped advisory alerts to the
-    // alerts feed. The wrapper is fail-open, so enabling it never risks generation publication.
+    // best-effort advisory scraper and the track board. Both wrappers are fail-open and stay off
+    // unless their env flags are set, so enabling either never risks generation publication.
     let advisory_config = crate::config::AdvisoryConfig::from_env()?;
-    let sources: Arc<Vec<Box<dyn RtSource>>> =
-        match (config.filter_capital_corridor, advisory_config.enabled) {
-            (true, true) => Arc::new(vec![Box::new(WithAdvisories::new(
-                CapitalCorridorFiltered(AmtrakSource::new()),
-                advisory_config,
-            ))]),
-            (true, false) => {
-                Arc::new(vec![Box::new(CapitalCorridorFiltered(AmtrakSource::new()))])
-            }
-            (false, true) => Arc::new(vec![Box::new(WithAdvisories::new(
-                AmtrakSource::new(),
-                advisory_config,
-            ))]),
-            (false, false) => Arc::new(vec![Box::new(AmtrakSource::new())]),
-        };
+    let advisories = advisory_config.enabled.then_some(advisory_config);
+    // With tracks on, the board refresher runs as its own task and generation only reads the
+    // store it fills, so a slow board never delays a feed. Its RailData token cache lives beside,
+    // not inside, the generation directory that the API serves from.
+    let tracks = platforms.clone().map(|table| {
+        let assignments = Arc::new(AssignmentStore::new());
+        let max_age = track_config.max_age;
+        tokio::spawn(run_board_refresher(
+            assignments.clone(),
+            track_config.clone(),
+            config.output_dir.join("tracks").join("raildata-token.json"),
+        ));
+        TrackWiring {
+            store: assignments,
+            table,
+            max_age,
+        }
+    });
+    let source: Box<dyn RtSource> = if config.filter_capital_corridor {
+        realtime_source(
+            CapitalCorridorFiltered(AmtrakSource::new()),
+            advisories,
+            tracks,
+        )
+    } else {
+        realtime_source(AmtrakSource::new(), advisories, tracks)
+    };
+    let sources: Arc<Vec<Box<dyn RtSource>>> = Arc::new(vec![source]);
     let committer: Arc<dyn GenerationCommitter> = Arc::new(StoreGenerationCommitter::new(
         config.output_dir.clone(),
         store.clone(),
@@ -252,6 +318,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                 static_url,
                 static_refresh_interval,
                 validator,
+                platforms,
             )
             .await;
             Ok(())
@@ -464,6 +531,7 @@ mod tests {
             &reopened,
             "http://127.0.0.1:1/unavailable.zip",
             &RejectIfCalled,
+            None,
         )
         .await
         .unwrap();
@@ -485,6 +553,78 @@ mod tests {
         assert_eq!(reopened.current().await.unwrap().id, retained_id);
 
         std::fs::remove_dir_all(output).unwrap();
+    }
+    /// R6.3: a board that never answers must not slow a generation read.
+    #[tokio::test]
+    async fn hanging_boards_do_not_delay_generation() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            let mut held = Vec::new();
+            while let Ok((stream, _)) = listener.accept().await {
+                held.push(stream); // accept and never respond
+            }
+        });
+        let mut config = crate::config::TrackConfig::from_map(|_| None).unwrap();
+        config.njt_stations.clear();
+        config.hartford_url = Some(format!("http://{address}/board"));
+        config.request_timeout = Duration::from_secs(30);
+        let store = Arc::new(AssignmentStore::new());
+        let token_path = std::env::temp_dir().join(format!("tracks-timing-{}", std::process::id()));
+        let refresher = tokio::spawn(run_board_refresher(
+            store.clone(),
+            config.clone(),
+            token_path,
+        ));
+        tokio::time::sleep(Duration::from_millis(200)).await;
+
+        let gtfs = gtfs_structures::Gtfs::default();
+        let inner = || MockSource {
+            name: "amtrak",
+            behavior: Behavior::Ok(RtBatch::empty()),
+        };
+        let disabled = realtime_source(inner(), None, None);
+        let started = std::time::Instant::now();
+        disabled.fetch(&gtfs).await.unwrap();
+        let baseline = started.elapsed();
+
+        let enabled = realtime_source(
+            inner(),
+            None,
+            Some(TrackWiring {
+                store,
+                table: Arc::new(config.platforms.clone()),
+                max_age: config.max_age,
+            }),
+        );
+        let started = std::time::Instant::now();
+        enabled.fetch(&gtfs).await.unwrap();
+        let with_tracks = started.elapsed();
+        refresher.abort();
+        assert!(
+            with_tracks < baseline + Duration::from_secs(1),
+            "{with_tracks:?}"
+        );
+        assert_eq!(enabled.name(), "amtrak");
+    }
+
+    /// R3.10: without track wiring the source is the inner source, undecorated.
+    #[tokio::test]
+    async fn disabled_tracks_leave_the_source_undecorated() {
+        let batch = RtBatch::empty();
+        let source = realtime_source(
+            MockSource {
+                name: "amtrak",
+                behavior: Behavior::Ok(batch.clone()),
+            },
+            None,
+            None,
+        );
+        let fetched = source
+            .fetch(&gtfs_structures::Gtfs::default())
+            .await
+            .unwrap();
+        assert_eq!(fetched.trip_updates, batch.trip_updates);
     }
 }
 #[test]
