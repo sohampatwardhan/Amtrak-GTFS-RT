@@ -890,12 +890,7 @@ fn valid_stop_time_update(
         .as_ref()
         .and_then(|properties| properties.assigned_stop_id.as_ref());
     let assignment_valid = assigned_stop.is_none_or(|assigned_id| {
-        update.stop_sequence.is_some()
-            && gtfs.stops.contains_key(assigned_id)
-            && update
-                .stop_id
-                .as_ref()
-                .is_none_or(|stop_id| stop_id == assigned_id)
+        crate::sources::tracks::stop_assignment_is_valid(assigned_id, update, trip, gtfs)
     });
     if !assignment_valid {
         return false;
@@ -1477,6 +1472,31 @@ mod tests {
         conflicting_stop_id.stop_id = Some("stop".into());
         assert!(!valid_stop_time_update(
             &conflicting_stop_id,
+            &trip,
+            &snapshot.parsed
+        ));
+
+        let overlay = trip_update::StopTimeUpdate {
+            stop_sequence: Some(1),
+            stop_id: Some("stop".into()),
+            schedule_relationship: Some(ScheduleRelationship::NoData as i32),
+            stop_time_properties: Some(assignment("stop:track:4")),
+            ..Default::default()
+        };
+        assert!(valid_stop_time_update(&overlay, &trip, &snapshot.parsed));
+
+        let mut bogus_track = overlay.clone();
+        bogus_track.stop_time_properties = Some(assignment("stop:track:TBD"));
+        assert!(!valid_stop_time_update(
+            &bogus_track,
+            &trip,
+            &snapshot.parsed
+        ));
+
+        let mut unknown_station = overlay;
+        unknown_station.stop_time_properties = Some(assignment("missing:track:4"));
+        assert!(!valid_stop_time_update(
+            &unknown_station,
             &trip,
             &snapshot.parsed
         ));

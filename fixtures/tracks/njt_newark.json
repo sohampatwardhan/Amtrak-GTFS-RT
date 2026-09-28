@@ -1,0 +1,42 @@
+{
+  "STATION_2CHAR": "NP",
+  "STATIONNAME": "Newark Penn",
+  "ITEMS": [
+    {
+      "TRAIN_ID": "7885",
+      "LINE": "Northeast Corrdr",
+      "TRACK": "4",
+      "DESTINATION": "Trenton"
+    },
+    {
+      "TRAIN_ID": "A67",
+      "LINE": "Amtrak",
+      "TRACK": "4",
+      "DESTINATION": "Newport News"
+    },
+    {
+      "TRAIN_ID": "A067",
+      "LINE": "AMTRAK",
+      "TRACK": "2",
+      "DESTINATION": "New York"
+    },
+    {
+      "TRAIN_ID": "A169",
+      "LINE": "REGIONAL",
+      "TRACK": "3",
+      "DESTINATION": "Philadelphia"
+    },
+    {
+      "TRAIN_ID": "A637",
+      "LINE": "AMTRAK",
+      "TRACK": "",
+      "DESTINATION": "Philadelphia"
+    },
+    {
+      "TRAIN_ID": "A99",
+      "LINE": "Amtrak",
+      "TRACK": "TBD",
+      "DESTINATION": "Boston"
+    }
+  ]
+}

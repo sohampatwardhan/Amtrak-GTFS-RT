@@ -2,7 +2,8 @@
 #
 # Chromium stays in the advisory-fetcher image. The service build is the root
 # Dockerfile `runtime` stage (scratch). Advisories are on in this stack and
-# fail open if the fetcher is down.
+# fail open if the fetcher is down. Track enrichment stays off (`AMTRAK_TRACKS`
+# default); see the README to enable it.
 #
 #   docker compose up -d --build
 #

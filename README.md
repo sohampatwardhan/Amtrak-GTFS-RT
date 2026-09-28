@@ -273,6 +273,17 @@ identifier parsing, and manifest-first discovery.
 | `AMTRAK_ADVISORIES` | off | Set to `on`, `true`, or `1` to merge Service Alerts & Notices into `alerts.pb`. Default off; fail-open |
 | `AMTRAK_ADVISORIES_URL` | `https://www.amtrak.com/service-alerts-and-notices` | HTML snapshot URL. Point this at the advisory-fetcher sidecar; plain HTTP to `www.amtrak.com` is Akamai-blocked |
 | `AMTRAK_ADVISORIES_TTL_SECS` | `900` | Minimum seconds between advisory page fetches |
+| `AMTRAK_TRACKS` | off | Set to `on`, `true`, or `1` to add live platform/track assignments. Default off; fail-open |
+| `AMTRAK_TRACKS_TTL_SECS` | `60` | Minimum seconds between track-board fetches |
+| `AMTRAK_TRACKS_NJT_API_BASE` | `https://raildata.njtransit.com/api` | Public DepartureVision JSON API |
+| `AMTRAK_TRACKS_NJT_SPA_ORIGIN` | `https://dv.njtransit.com` | Origin of the public session script (`block1.js`) |
+| `AMTRAK_TRACKS_NJT_STATIONS` | `NP,MP,TR,NY` | NJT station codes to query. Each code needs a map entry |
+| `AMTRAK_TRACKS_STATION_MAP` | `NP=NWK,MP=MET,TR=TRE,NY=NYP` | NJT code to Amtrak GTFS `stop_id`. Overrides or extends the default |
+| `AMTRAK_TRACKS_HARTFORD_URL` | `https://hartfordline.com/connecting-train-status/` | New Haven board. Set empty to skip it |
+| `AMTRAK_TRACKS_HARTFORD_STOP` | `NHV` | Amtrak `stop_id` for that board |
+| `NJT_RAILDATA_URL` | `https://traindata.njtransit.com/NJTTrainData.asmx/getTrainScheduleJSON19Rec` | Official fallback, used only when the public API fails |
+| `NJT_RAILDATA_USERNAME` | empty | Official portal username. Set with the password, or set neither |
+| `NJT_RAILDATA_PASSWORD` | empty | Official portal password. Never commit this |
 
 ## Service Alerts & Notices
 
@@ -322,6 +333,37 @@ publishing. A missing fetcher does not fail a generation. Chromium stays in the 
 The scratch-image release workflow does not publish the fetcher; its browser base is outside that
 image's zero-match vulnerability gate.
 
+## Platform and track assignments
+
+Stop-time updates can carry a live platform when `AMTRAK_TRACKS=on`. Amtrak's static GTFS has one
+stop per station and no platform children, so the scheduled `stop_id` stays the station code
+(consumers already join on it). The track is written to
+`stop_time_properties.assigned_stop_id` as `{stop_id}:track:{track}`, for example `NWK:track:4`.
+`stop_sequence` is filled from the static trip when the feed omitted it and the stop occurs once.
+Skipped stops are left unchanged. Vehicle positions are not rewritten.
+
+The service reads two public boards and does not run a browser:
+
+- NJ Transit DepartureVision JSON for the shared stations Newark Penn (`NP` → `NWK`), Metropark
+  (`MP` → `MET`), Trenton (`TR` → `TRE`), and New York Penn (`NY` → `NYP`). Amtrak rows are the
+  ones whose `TRAIN_ID` starts with `A` (`A67`, `A067`). The leading `A` and any leading zeros are
+  stripped before matching GTFS `trip_short_name`. Empty or non-platform tracks (`TBD`) are
+  skipped. The public session bootstrap is the same one the DepartureVision page uses. If that
+  call fails and both `NJT_RAILDATA_USERNAME` and `NJT_RAILDATA_PASSWORD` are set, the official
+  `getTrainScheduleJSON19Rec` method is tried. Register those credentials at
+  [datasource.njtransit.com](https://datasource.njtransit.com/); do not put them in the repo.
+- The Hartford Line connecting-train page for New Haven Union (`NHV`). Rows whose service is
+  Amtrak contribute train number and track. Set `AMTRAK_TRACKS_HARTFORD_URL` empty to skip it.
+
+A fetch or parse failure keeps the last good board for that source and still publishes trip
+updates. The root Compose file does not set `AMTRAK_TRACKS`; the default stack is unchanged.
+
+```bash
+AMTRAK_TRACKS=on docker run --rm --network host -v amtrak-data:/data amtrak-gtfs-rt:local
+```
+
+`amtrak-status` prints `track N` on a departure or remaining stop when that assignment is present.
+
 ## Resilience
 
 - **Fallback chain.** Sources are tried in order; the first fresh, non-empty batch wins.
@@ -343,6 +385,7 @@ image's zero-match vulnerability gate.
 | `src/sources/mod.rs` | `RtSource` trait and the `RtBatch` normalization model |
 | `src/sources/amtrak.rs` | Amtrak source, wrapping the catenary crate |
 | `src/sources/advisories.rs` | Optional Service Alerts & Notices scraper (`AMTRAK_ADVISORIES`) |
+| `src/sources/tracks.rs` | Optional platform/track assignments (`AMTRAK_TRACKS`) |
 | `src/static_gtfs.rs` | Exact-byte static GTFS validation and pending/active lifecycle |
 | `src/orchestrator.rs` | Source selection, coherent generation build/validation, and recoverable polling |
 | `src/serve.rs` | Controlled immutable HTTP delivery and freshness health |

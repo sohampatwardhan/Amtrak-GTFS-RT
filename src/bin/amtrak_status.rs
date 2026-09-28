@@ -81,7 +81,9 @@ async fn run(args: Vec<String>) -> i32 {
         .unwrap_or_default();
 
     let output = match config.mode {
-        Mode::Station { code, limit } => render_station_result(station_query(&index, &code, now), limit),
+        Mode::Station { code, limit } => {
+            render_station_result(station_query(&index, &code, now), limit)
+        }
         Mode::Train { number } => render_train_result(train_query(&index, &number, now)),
     };
     print!("{output}");
@@ -153,8 +155,13 @@ fn render_departure_row(row: &DepartureRow) -> String {
     } else {
         "arrive"
     };
+    let track = row
+        .track
+        .as_ref()
+        .map(|track| format!(" track {track}"))
+        .unwrap_or_default();
     let mut out = format!(
-        "  {when}{fallback}  {kind:<8} {:<20} {:<6} → {}\n",
+        "  {when}{fallback}  {kind:<8} {:<20} {:<6} → {}{track}\n",
         row.route_name, row.train_number, row.headsign
     );
     for alert in &row.alerts {
@@ -213,8 +220,13 @@ fn render_train_status(train: &TrainStatus) -> String {
             .map(|u| local_time(u, &stop.tz).unwrap_or_else(|_| "??:??".to_string()))
             .unwrap_or_else(|| "—".to_string());
         let canceled = if stop.canceled { " (canceled)" } else { "" };
+        let track = stop
+            .track
+            .as_ref()
+            .map(|track| format!(" track {track}"))
+            .unwrap_or_default();
         out.push_str(&format!(
-            "    {when}  {} ({}){canceled}\n",
+            "    {when}  {} ({}){track}{canceled}\n",
             stop.stop_name, stop.stop_code
         ));
     }
@@ -294,6 +306,7 @@ mod tests {
             station_tz: "America/New_York".into(),
             tz_is_fallback: false,
             alerts,
+            track: None,
         }
     }
 
@@ -307,7 +320,12 @@ mod tests {
             station_code: "NYP".into(),
             station_name: "New York Penn".into(),
             rows: vec![
-                row(StopKind::Departure, 1_782_921_600, false, vec!["5 min late".into()]),
+                row(
+                    StopKind::Departure,
+                    1_782_921_600,
+                    false,
+                    vec!["5 min late".into()],
+                ),
                 row(StopKind::Departure, 1_782_925_200, true, vec![]),
             ],
         };
@@ -318,6 +336,22 @@ mod tests {
         assert!(out.contains("Acela"));
         assert!(out.contains("! 5 min late")); // R1.1
         assert!(out.contains("CANCELED")); // R2.4
+        assert!(!out.contains("track "));
+    }
+
+    #[test]
+    fn station_board_renders_assigned_track() {
+        let mut departure = row(StopKind::Departure, 1_782_921_600, false, vec![]);
+        departure.track = Some("4".into());
+        let board = StationResult::Board {
+            generation_id: "7-3".into(),
+            generated_at_unix: 1_782_921_600,
+            station_code: "NWK".into(),
+            station_name: "Newark Penn".into(),
+            rows: vec![departure],
+        };
+        let out = render_station_result(board, 20);
+        assert!(out.contains("track 4"));
     }
 
     // R2.5: an unresolved station renders a distinct message.

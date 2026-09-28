@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Live platform and track assignments** (default-off). Set `AMTRAK_TRACKS=on` to stamp
+  `stop_time_properties.assigned_stop_id` as `{stop_id}:track:{track}` on matching trip-update
+  stop times. Tracks come from NJ Transit's public DepartureVision JSON API (Newark Penn,
+  Metropark, Trenton, New York Penn) and the Hartford Line connecting-train board (New Haven).
+  The scheduled `stop_id` is unchanged. A board failure keeps the last good assignments and
+  still publishes the inner feed. Portal credentials are optional. Chromium is not required.
+
 ## [0.4.0] - 2026-09-27
 
 ### Added

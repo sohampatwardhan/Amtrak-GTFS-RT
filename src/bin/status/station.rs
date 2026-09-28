@@ -41,6 +41,8 @@ pub struct DepartureRow {
     pub tz_is_fallback: bool,
     /// Service-alert texts affecting this train.
     pub alerts: Vec<String>,
+    /// Platform/track when the feed assigned `{stop_id}:track:{track}`.
+    pub track: Option<String>,
 }
 
 /// Outcome of a station query.
@@ -60,7 +62,11 @@ pub enum StationResult {
 /// Answers a station departures query against a loaded generation index.
 pub fn station_query(index: &FeedIndex, identifier: &str, now_unix: i64) -> StationResult {
     let code = identifier.to_uppercase();
-    let Some(stop) = index.stop_by_code.get(&code).and_then(|stops| stops.first()) else {
+    let Some(stop) = index
+        .stop_by_code
+        .get(&code)
+        .and_then(|stops| stops.first())
+    else {
         return StationResult::Unresolved {
             identifier: identifier.to_string(),
         };
@@ -98,6 +104,7 @@ pub fn station_query(index: &FeedIndex, identifier: &str, now_unix: i64) -> Stat
                     .get(trip_id)
                     .cloned()
                     .unwrap_or_default(),
+                track: track_from_update(stu),
             });
         }
     }
@@ -110,6 +117,47 @@ pub fn station_query(index: &FeedIndex, identifier: &str, now_unix: i64) -> Stat
         station_name,
         rows,
     }
+}
+
+/// Track label from `assigned_stop_id` shaped `{stop_id}:track:{label}`.
+pub(super) fn track_from_update(
+    stu: &gtfs_realtime::trip_update::StopTimeUpdate,
+) -> Option<String> {
+    let assigned = stu
+        .stop_time_properties
+        .as_ref()?
+        .assigned_stop_id
+        .as_deref()?;
+    let (station, track) = assigned.rsplit_once(":track:")?;
+    if station.is_empty() || !is_display_track(track) {
+        return None;
+    }
+    Some(track.to_string())
+}
+
+fn is_display_track(track: &str) -> bool {
+    let bytes = track.as_bytes();
+    if bytes.is_empty() || bytes.len() > 4 || !bytes.iter().all(|byte| byte.is_ascii_alphanumeric())
+    {
+        return false;
+    }
+    let split_at = track
+        .find(|character: char| character.is_ascii_uppercase())
+        .unwrap_or(track.len());
+    let (digits, letters) = track.split_at(split_at);
+    if letters.len() > 1
+        || !letters
+            .chars()
+            .all(|character| character.is_ascii_uppercase())
+    {
+        return false;
+    }
+    if digits.is_empty() {
+        return letters.len() == 1;
+    }
+    digits.chars().all(|character| character.is_ascii_digit())
+        && !digits.starts_with('0')
+        && digits.len() <= 3
 }
 
 /// Resolves a trip's display route name, train number, and headsign, preferring the static schedule
@@ -131,12 +179,13 @@ fn trip_meta(gtfs: &Gtfs, trip_id: &str, update: &TripUpdate) -> (String, String
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::super::source::GenerationData;
+    use super::*;
     use gtfs_realtime::{
-        trip_update::{StopTimeEvent, StopTimeUpdate},
         translated_string::Translation,
-        Alert, EntitySelector, FeedEntity, FeedMessage, TranslatedString, TripDescriptor, TripUpdate,
+        trip_update::{StopTimeEvent, StopTimeUpdate},
+        Alert, EntitySelector, FeedEntity, FeedMessage, TranslatedString, TripDescriptor,
+        TripUpdate,
     };
     use gtfs_structures::Gtfs;
     use std::io::{Cursor, Write};
@@ -162,7 +211,12 @@ mod tests {
         Gtfs::from_reader(Cursor::new(archive.finish().unwrap().into_inner())).unwrap()
     }
 
-    fn update(trip_id: &str, arrival: Option<i64>, departure: Option<i64>, canceled: bool) -> FeedEntity {
+    fn update(
+        trip_id: &str,
+        arrival: Option<i64>,
+        departure: Option<i64>,
+        canceled: bool,
+    ) -> FeedEntity {
         let event = |time: Option<i64>| {
             time.map(|t| StopTimeEvent {
                 time: Some(t),
@@ -239,8 +293,13 @@ mod tests {
     fn board_is_ordered_and_labels_edge_cases() {
         let data = generation();
         let index = FeedIndex::build(&data);
-        let StationResult::Board { generation_id, generated_at_unix, station_name, rows, .. } =
-            station_query(&index, "nyp", NOW)
+        let StationResult::Board {
+            generation_id,
+            generated_at_unix,
+            station_name,
+            rows,
+            ..
+        } = station_query(&index, "nyp", NOW)
         else {
             panic!("expected a board");
         };
@@ -265,6 +324,28 @@ mod tests {
         assert!(rows[1].is_realtime);
         // R1.1: the departing train's alert rides on its row.
         assert_eq!(rows[1].alerts, vec!["Delay: 5 minutes late".to_string()]);
+        assert_eq!(rows[1].track, None);
+    }
+
+    #[test]
+    fn track_label_comes_from_assigned_stop_id() {
+        use gtfs_realtime::trip_update::stop_time_update::StopTimeProperties;
+        let labeled = StopTimeUpdate {
+            stop_time_properties: Some(StopTimeProperties {
+                assigned_stop_id: Some("NYP:track:4".into()),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        assert_eq!(track_from_update(&labeled).as_deref(), Some("4"));
+        let rejected = StopTimeUpdate {
+            stop_time_properties: Some(StopTimeProperties {
+                assigned_stop_id: Some("NYP:track:TBD".into()),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        assert!(track_from_update(&rejected).is_none());
     }
 
     // R2.5: an unresolvable identifier is distinct from an empty board.

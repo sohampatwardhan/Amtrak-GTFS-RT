@@ -9,6 +9,7 @@ use crate::config::Config;
 use crate::orchestrator::{GenerationCommitter, StoreGenerationCommitter};
 use crate::sources::advisories::WithAdvisories;
 use crate::sources::amtrak::AmtrakSource;
+use crate::sources::tracks::WithTracks;
 use crate::sources::{RtBatch, RtSource, SourceError};
 use crate::static_gtfs::{
     bootstrap_static, recover_static, MobilityDataStaticValidator, StaticSnapshotState,
@@ -178,6 +179,27 @@ fn container_healthcheck() -> std::io::Result<()> {
     }
 }
 
+/// Layers the optional advisory and track decorators. Tracks sit outside advisories so a board
+/// failure cannot hide an advisory merge, and the published source name stays the inner source's.
+fn realtime_source<S>(
+    source: S,
+    advisories: Option<crate::config::AdvisoryConfig>,
+    tracks: Option<crate::config::TrackConfig>,
+) -> Box<dyn RtSource>
+where
+    S: RtSource + 'static,
+{
+    match (advisories, tracks) {
+        (None, None) => Box::new(source),
+        (Some(advisories), None) => Box::new(WithAdvisories::new(source, advisories)),
+        (None, Some(tracks)) => Box::new(WithTracks::new(source, tracks)),
+        (Some(advisories), Some(tracks)) => Box::new(WithTracks::new(
+            WithAdvisories::new(source, advisories),
+            tracks,
+        )),
+    }
+}
+
 fn healthcheck_address(bind_address: &str) -> std::io::Result<SocketAddr> {
     let configured: SocketAddr = bind_address.parse().map_err(|error| {
         std::io::Error::new(
@@ -206,24 +228,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let snapshots = initial_snapshots(&store, &config.static_url, validator.as_ref()).await?;
 
     // The Amtrak source (optionally Capital Corridor-filtered) is optionally wrapped with the
-    // best-effort advisory scraper, which appends stop- and route-scoped advisory alerts to the
-    // alerts feed. The wrapper is fail-open, so enabling it never risks generation publication.
+    // best-effort advisory scraper and the track board. Both wrappers are fail-open and stay off
+    // unless their env flags are set, so enabling either never risks generation publication.
     let advisory_config = crate::config::AdvisoryConfig::from_env()?;
-    let sources: Arc<Vec<Box<dyn RtSource>>> =
-        match (config.filter_capital_corridor, advisory_config.enabled) {
-            (true, true) => Arc::new(vec![Box::new(WithAdvisories::new(
-                CapitalCorridorFiltered(AmtrakSource::new()),
-                advisory_config,
-            ))]),
-            (true, false) => {
-                Arc::new(vec![Box::new(CapitalCorridorFiltered(AmtrakSource::new()))])
-            }
-            (false, true) => Arc::new(vec![Box::new(WithAdvisories::new(
-                AmtrakSource::new(),
-                advisory_config,
-            ))]),
-            (false, false) => Arc::new(vec![Box::new(AmtrakSource::new())]),
-        };
+    let track_config = crate::config::TrackConfig::from_env()?;
+    let advisories = advisory_config.enabled.then_some(advisory_config);
+    let tracks = track_config.enabled.then_some(track_config);
+    let source: Box<dyn RtSource> = if config.filter_capital_corridor {
+        realtime_source(
+            CapitalCorridorFiltered(AmtrakSource::new()),
+            advisories,
+            tracks,
+        )
+    } else {
+        realtime_source(AmtrakSource::new(), advisories, tracks)
+    };
+    let sources: Arc<Vec<Box<dyn RtSource>>> = Arc::new(vec![source]);
     let committer: Arc<dyn GenerationCommitter> = Arc::new(StoreGenerationCommitter::new(
         config.output_dir.clone(),
         store.clone(),
