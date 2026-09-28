@@ -11,12 +11,22 @@ transit apps (Transit, Transitland, OpenTripPlanner).
 
 - **Source:** `main` contains the Rust service, advisory consumption and the Playwright
   advisory-fetcher (with advisory detail text in `alerts.pb`), the `amtrak-status` station and
-  train consumer, and root-level Compose/Bake packaging for the service plus fetcher.
-- **Releases:** `v0.4.0` is the current release line. A release is complete only when its GitHub
-  Release exists with `image-release.txt` recording the tag, revisions, manifest digest, and both
-  platform digests; until then the previous completed release, `v0.2.0`, stays the stable image.
+  train consumer, root-level Compose/Bake packaging for the service plus fetcher, and live
+  track/platform assignments (default-off via `AMTRAK_TRACKS`).
+- **Releases:** `v0.5.0` is the current release line, including those track assignments. A release
+  is complete only when its GitHub Release exists with `image-release.txt` recording the tag,
+  revisions, manifest digest, and both platform digests; until then the previous completed
+  release, `v0.4.0`, stays the stable image. Pull the version tag, and pin the manifest digest
+  from that release's `image-release.txt`:
+
+  ```bash
+  docker pull ghcr.io/sohampatwardhan/amtrak-gtfs-rt:0.5.0
+  docker pull ghcr.io/sohampatwardhan/amtrak-gtfs-rt@sha256:<release-manifest-digest>
+  ```
+
 - **Superseded:** the `v0.3.0` tag exists, but its publication never completed and it has no
-  GitHub Release. Its code is included in `v0.4.0`. Do not deploy `v0.3.0` or its partial images.
+  GitHub Release. Its code is included in `v0.4.0` and later. Do not deploy `v0.3.0` or its
+  partial images. `v0.2.0` was the last completed release before `v0.4.0`.
 - **Deployment:** this repository does not record or authorize a running production deployment,
   anonymous public feed exposure, reverse-proxy trust, or orchestration.
 
@@ -79,12 +89,13 @@ Versioned releases are published for `linux/amd64` and `linux/arm64` at
 without a registry login:
 
 ```bash
-docker pull ghcr.io/sohampatwardhan/amtrak-gtfs-rt:0.2.0
+docker pull ghcr.io/sohampatwardhan/amtrak-gtfs-rt:0.5.0
 ```
 
-`0.2.0` is the stable release tag, while `latest` is a convenience pointer that can move. Pin the
-manifest digest recorded in the corresponding GitHub Release for reproducible production
-deployment:
+`0.5.0` is the current release tag, while `latest` is a convenience pointer that can move. Until
+the `v0.5.0` GitHub Release includes `image-release.txt`, `0.4.0` remains the last completed
+image. Pin the manifest digest recorded in the corresponding GitHub Release for reproducible
+production deployment:
 
 ```bash
 docker pull ghcr.io/sohampatwardhan/amtrak-gtfs-rt@sha256:<release-manifest-digest>
@@ -141,7 +152,7 @@ disabled, use the dedicated-bridge command below instead.
 ```bash
 docker run --rm --network host \
   -v amtrak-data:/data \
-  ghcr.io/sohampatwardhan/amtrak-gtfs-rt:0.2.0
+  ghcr.io/sohampatwardhan/amtrak-gtfs-rt:0.5.0
 # manifest is reachable from the host loopback (an admitted peer):
 curl -fsS http://127.0.0.1:8080/v1/feed-set.json
 ```
@@ -159,7 +170,7 @@ docker run --rm --network amtrak-net \
   -e AMTRAK_BIND_ADDR=0.0.0.0:8080 \
   -e AMTRAK_ALLOWED_PEER_IPS=172.31.240.1 \
   -v amtrak-data:/data \
-  ghcr.io/sohampatwardhan/amtrak-gtfs-rt:0.2.0
+  ghcr.io/sohampatwardhan/amtrak-gtfs-rt:0.5.0
 ```
 
 `AMTRAK_ALLOWED_PEER_IPS` must be the **exact** source IP the container observes for admitted
