@@ -67,6 +67,15 @@ jobs:
       - name: Run validation gate
         run: ./scripts/validate-feeds.sh
 
+      # Same gate with platform stops and track assignments enabled. It runs
+      # without RailData credentials on purpose: a fresh runner has no token
+      # cache, so sharing production credentials would spend NJ Transit's 10
+      # daily token requests. The augmented static feed and Hartford Line
+      # assignments are still validated.
+      - name: Run validation gate with track assignments
+        if: always()
+        run: ./scripts/validate-feeds.sh --tracks
+
       - name: Upload validation reports
         if: always()
         uses: actions/upload-artifact@v4

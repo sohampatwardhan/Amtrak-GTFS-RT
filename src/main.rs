@@ -266,7 +266,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // With tracks on, the board refresher runs as its own task and generation only reads the
     // store it fills, so a slow board never delays a feed. Its RailData token cache lives beside,
     // not inside, the generation directory that the API serves from.
-    let tracks = track_config.enabled.then(|| {
+    let tracks = platforms.clone().map(|table| {
         let assignments = Arc::new(AssignmentStore::new());
         let max_age = track_config.max_age;
         tokio::spawn(run_board_refresher(
@@ -276,7 +276,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         ));
         TrackWiring {
             store: assignments,
-            table: Arc::new(track_config.platforms.clone()),
+            table,
             max_age,
         }
     });
@@ -553,6 +553,78 @@ mod tests {
         assert_eq!(reopened.current().await.unwrap().id, retained_id);
 
         std::fs::remove_dir_all(output).unwrap();
+    }
+    /// R6.3: a board that never answers must not slow a generation read.
+    #[tokio::test]
+    async fn hanging_boards_do_not_delay_generation() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            let mut held = Vec::new();
+            while let Ok((stream, _)) = listener.accept().await {
+                held.push(stream); // accept and never respond
+            }
+        });
+        let mut config = crate::config::TrackConfig::from_map(|_| None).unwrap();
+        config.njt_stations.clear();
+        config.hartford_url = Some(format!("http://{address}/board"));
+        config.request_timeout = Duration::from_secs(30);
+        let store = Arc::new(AssignmentStore::new());
+        let token_path = std::env::temp_dir().join(format!("tracks-timing-{}", std::process::id()));
+        let refresher = tokio::spawn(run_board_refresher(
+            store.clone(),
+            config.clone(),
+            token_path,
+        ));
+        tokio::time::sleep(Duration::from_millis(200)).await;
+
+        let gtfs = gtfs_structures::Gtfs::default();
+        let inner = || MockSource {
+            name: "amtrak",
+            behavior: Behavior::Ok(RtBatch::empty()),
+        };
+        let disabled = realtime_source(inner(), None, None);
+        let started = std::time::Instant::now();
+        disabled.fetch(&gtfs).await.unwrap();
+        let baseline = started.elapsed();
+
+        let enabled = realtime_source(
+            inner(),
+            None,
+            Some(TrackWiring {
+                store,
+                table: Arc::new(config.platforms.clone()),
+                max_age: config.max_age,
+            }),
+        );
+        let started = std::time::Instant::now();
+        enabled.fetch(&gtfs).await.unwrap();
+        let with_tracks = started.elapsed();
+        refresher.abort();
+        assert!(
+            with_tracks < baseline + Duration::from_secs(1),
+            "{with_tracks:?}"
+        );
+        assert_eq!(enabled.name(), "amtrak");
+    }
+
+    /// R3.10: without track wiring the source is the inner source, undecorated.
+    #[tokio::test]
+    async fn disabled_tracks_leave_the_source_undecorated() {
+        let batch = RtBatch::empty();
+        let source = realtime_source(
+            MockSource {
+                name: "amtrak",
+                behavior: Behavior::Ok(batch.clone()),
+            },
+            None,
+            None,
+        );
+        let fetched = source
+            .fetch(&gtfs_structures::Gtfs::default())
+            .await
+            .unwrap();
+        assert_eq!(fetched.trip_updates, batch.trip_updates);
     }
 }
 #[test]

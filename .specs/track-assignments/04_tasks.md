@@ -41,8 +41,8 @@ flowchart TD
   class n_2_1 done
   class n_3_1 done
   class n_3_2 done
-  class n_4_1 pending
-  class n_4_2 pending
+  class n_4_1 done
+  class n_4_2 done
   class n_5_1 pending
 ```
 ## Delivery Schedule
@@ -153,8 +153,8 @@ flowchart TD
     - _Requirements: 8.1, 8.2_
     - **Integration note:** 3.1 clears `stop_id`, which the status tool matches on today, so 3.1 and 3.2 are committed together.
 
-- [ ] 4. Wiring, validation, and documentation
-  - [ ] 4.1 Wire refresher and stamper; document the feature
+- [x] 4. Wiring, validation, and documentation
+  - [x] 4.1 Wire refresher and stamper; document the feature
     - In [`src/main.rs`](../../src/main.rs), add `TrackWiring { store, table, max_age }`, change `realtime_source` to take `Option<TrackWiring>`, build the `AssignmentStore`, spawn `run_board_refresher` with `{output_dir}/tracks/raildata-token.json` when tracks are enabled, pass the platform table to the static bootstrap and refresh task, and construct `WithTracks` only when enabled.
     - Add a timing test showing a generation with hanging boards completes within one second of a tracks-disabled generation.
     - Update [`README.md`](../../README.md) (platform stops, configuration table, RailData registration, consumer impact), the Unreleased section of [`CHANGELOG.md`](../../CHANGELOG.md), and the comment in [`docker-compose.yml`](../../docker-compose.yml).
@@ -171,7 +171,7 @@ flowchart TD
     - **Task category:** code_analysis
     - **Delegation:** controller
     - _Requirements: 3.10, 6.1, 6.2, 6.3_
-  - [ ] 4.2 Add a tracks-enabled pass to scheduled feed validation
+  - [x] 4.2 Add a tracks-enabled pass to scheduled feed validation
     - Extend [`scripts/validate-feeds.sh`](../../scripts/validate-feeds.sh) to run its generate-and-validate pass a second time with `AMTRAK_TRACKS=on`, writing reports to a separate directory and ratcheting both against [`validation/baseline.json`](../../validation/baseline.json).
     - Run the tracks pass without RailData credentials so CI never spends the production token budget, and note this in [`.github/workflows/validate-feeds.yml`](../../.github/workflows/validate-feeds.yml).
     - **Files:** [`scripts/validate-feeds.sh`](../../scripts/validate-feeds.sh), [`.github/workflows/validate-feeds.yml`](../../.github/workflows/validate-feeds.yml)

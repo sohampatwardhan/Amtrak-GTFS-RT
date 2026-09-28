@@ -51,6 +51,8 @@ kanban
 | run-20260928T052307Z | 2 | 2.1 | 1 | 2026-09-28T05:37:14Z | 2026-09-28T05:52:52Z | 938 | verified |
 | run-20260928T052307Z | 3 | 3.1 | 1 | 2026-09-28T05:53:00Z | 2026-09-28T05:55:44Z | 164 | verified |
 | run-20260928T052307Z | 3 | 3.2 | 1 | 2026-09-28T05:55:44Z | 2026-09-28T05:57:10Z | 86 | verified |
+| run-20260928T052307Z | 4 | 4.1 | 1 | 2026-09-28T05:57:11Z | 2026-09-28T05:59:21Z | 130 | verified |
+| run-20260928T052307Z | 4 | 4.2 | 1 | 2026-09-28T05:59:21Z | 2026-09-28T06:01:13Z | 112 | verified |
 
 ## Task Evidence
 
@@ -97,3 +99,15 @@ gantt
 - **Verification:** `cargo test --features status` passes (99 service tests, 20 status-tool tests), including a board where a stamped stop time with only `stop_sequence` stays on its station and shows track `4`, and an assignment to an unknown stop showing no track. Clippy is clean.
 - **Integration:** committed together with task 3.1 because 3.1 clears the `stop_id` this tool previously matched on.
 - **Criteria:** R8.1 and R8.2 met.
+
+### Task 4.1 — Wire refresher and stamper; document the feature
+
+- **Result:** verified. [`src/main.rs`](../../src/main.rs) builds one `Arc<PlatformTable>` when tracks are enabled and shares it between the static bootstrap, the static refresh task, and `TrackWiring`; it spawns `run_board_refresher` with `{output_dir}/tracks/raildata-token.json` and constructs `WithTracks` only when enabled. [`README.md`](../../README.md) documents the platform stops, the static version suffix, the added `stop_without_stop_time` warnings, the default coverage and why Metropark and Trenton are not covered, stamping conditions, consumer impact, RailData registration and token handling, and the new configuration table; the removed PR #17 variables are gone. [`CHANGELOG.md`](../../CHANGELOG.md) and the [`docker-compose.yml`](../../docker-compose.yml) comment match.
+- **Verification:** `cargo test --features status` passes (101 service tests, 20 status-tool tests), including `hanging_boards_do_not_delay_generation` (a board that accepts connections and never answers, with a 30-second request timeout, leaves a tracks-enabled fetch within one second of a disabled one) and `disabled_tracks_leave_the_source_undecorated`. Clippy is clean; `docker compose config` passes.
+- **Criteria:** R3.10, R6.1, R6.2, and R6.3 met.
+
+### Task 4.2 — Add a tracks-enabled pass to scheduled feed validation
+
+- **Result:** verified. [`scripts/validate-feeds.sh`](../../scripts/validate-feeds.sh) gains `--tracks`, which reruns the same generate-and-validate pass with `AMTRAK_TRACKS=on` and empty RailData credentials, writing to `$REPORT_DIR/tracks` and `$FEED_DIR-tracks` and ratcheting against the same [`validation/baseline.json`](../../validation/baseline.json). [`.github/workflows/validate-feeds.yml`](../../.github/workflows/validate-feeds.yml) runs it as a second step (`if: always()`), with a comment explaining why no credentials are passed; the existing upload step already includes the `tracks/` reports.
+- **Verification:** `bash -n` passes; `--offline-fixtures` passes all six ratchet fixtures. A live local `--tracks` run passed with no new `ERROR` codes: the published generation's static version was `20260927+tracks.612ca043`, its `stops.txt` held the 35 platform stops, static notices matched the augmented-feed run in task 2.1, and its trip updates contained a real stamped assignment, `NHV:track:1` from the Hartford Line board, which the GTFS-Realtime validator accepted. The only realtime `ERROR` codes were the baselined upstream E022 and E025.
+- **Criteria:** R8.3 and R8.4 met.
