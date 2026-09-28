@@ -13,6 +13,11 @@
 #   docker build --tag amtrak-gtfs-rt:local .
 #   docker run --rm --network host -v amtrak-data:/data amtrak-gtfs-rt:local
 
+# Fixed so the stack is one project whether started here or from
+# advisory-fetcher/ (whose compose file sets the same name). The volumes and the
+# pinned subnet below then belong to one project, not one per directory.
+name: amtrak-gtfs-rt
+
 services:
   advisory-fetcher:
     build:
@@ -40,12 +45,13 @@ services:
     environment:
       AMTRAK_ADVISORIES: "on"
       AMTRAK_ADVISORIES_URL: http://advisory-fetcher:8080/service-alerts-and-notices
-      # Published on host loopback. The container sees that traffic from the
-      # bridge gateway of the pinned subnet below, not from 127.0.0.1.
+      # Published on host loopback port 8090 (8080 is often taken on the host).
+      # The container sees that traffic from the bridge gateway of the pinned
+      # subnet below, not from 127.0.0.1.
       AMTRAK_BIND_ADDR: 0.0.0.0:8080
       AMTRAK_ALLOWED_PEER_IPS: 172.31.240.1
     ports:
-      - "127.0.0.1:8080:8080"
+      - "127.0.0.1:8090:8080"
     volumes:
       - amtrak-data:/data
     networks: [amtrak]

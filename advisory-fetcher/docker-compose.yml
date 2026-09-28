@@ -1,4 +1,8 @@
 # The stack is defined at the repository root. This include keeps
-# `docker compose` in this directory on that same definition.
+# `docker compose` in this directory on that same definition. `name:` must
+# match the root file: Compose takes the project name from this file, not the
+# included one, so without it this directory gets its own volumes and network.
+name: amtrak-gtfs-rt
+
 include:
   - path: ../docker-compose.yml

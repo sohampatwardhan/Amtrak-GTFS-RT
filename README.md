@@ -319,7 +319,8 @@ AMTRAK_BIND_ADDR=0.0.0.0:8080
 AMTRAK_ALLOWED_PEER_IPS=172.31.240.1
 ```
 
-The feed is published on host loopback (`127.0.0.1:8080`). The allowlist is the gateway of the
+The feed is published on host loopback port 8090 (`http://127.0.0.1:8090`), leaving host port
+8080 free for other services. The allowlist is the gateway of the
 Compose network `172.31.240.0/24`, which is the peer the container sees for that published port
 on Docker Engine for Linux. A `403` means the observed peer differs; the denied request logs
 `peer=<ip>`.
