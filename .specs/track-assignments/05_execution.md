@@ -135,3 +135,9 @@ gantt
     section 5
     5.1 attempt 1 (verified, 267s) :done, b_5_1_attempt1, 2026-09-28T06:01:13, 2026-09-28T06:05:40
 ```
+
+## Follow-up: additional RailData stations (2026-09-28)
+
+- **Change:** at the user's request, Newark Airport, New Brunswick, and Princeton Junction joined the default RailData stations, with codes `NA`, `NB`, and `PJ` confirmed against the station table in NJ Transit's RailData API V2.1 document and mapped to Amtrak stops `EWR`, `NBK`, and `PJC`, which exist in Amtrak's `stops.txt`. R7.1, the design's configuration table, [`src/config.rs`](../../src/config.rs), [`README.md`](../../README.md), and [`CHANGELOG.md`](../../CHANGELOG.md) were updated.
+- **Coverage:** no consulted source publishes these stations' platform track numbers (Wikipedia gives only platform and track counts), so, like Metropark and Trenton, they are read and their reported tracks logged but no platform stops are published until verified lists are added to `AMTRAK_TRACKS_PLATFORMS`.
+- **Verification:** `cargo test --features status` passes (102 service tests, 20 status-tool tests), including the updated default-station test; Clippy is clean.

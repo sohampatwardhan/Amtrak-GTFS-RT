@@ -116,7 +116,7 @@ so that tracks appear where these sources publish them.
 
 #### Acceptance Criteria
 
-1. **R7.1** THE Board_Refresher SHALL read Amtrak track assignments for New York Penn, Newark Penn, Metropark, and Trenton from RailData by default.
+1. **R7.1** THE Board_Refresher SHALL read Amtrak track assignments for New York Penn, Newark Penn, Newark Airport, Metropark, New Brunswick, Princeton Junction, and Trenton from RailData by default.
 2. **R7.2** THE Board_Refresher SHALL read Amtrak track assignments for New Haven Union from the Hartford Line board by default.
 3. **R7.3** WHERE the operator configures an additional station mapping and track list, THE Board_Refresher SHALL read that station without a code change.
 4. **R7.4** IF a board reports a track label that is empty or not a platform token, THEN THE Board_Refresher SHALL discard that row.

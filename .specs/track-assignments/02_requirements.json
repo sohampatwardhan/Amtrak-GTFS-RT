@@ -2,7 +2,7 @@
   "schema_version": 1,
   "generated_from": {
     "file": "02_requirements.md",
-    "sha256": "771040a88e7525c13d60922ada279fdcb427d5e4148370a6b29f93dc8430a08a"
+    "sha256": "7d6554431f70ecf4688fbf8ed63fcee12528a1cd8c62af36ba12e2298f0f8921"
   },
   "requirements": [
     {
@@ -358,7 +358,7 @@
           "kind": "unconditional",
           "trigger": "",
           "actor": "Board_Refresher",
-          "behavior": "read Amtrak track assignments for New York Penn, Newark Penn, Metropark, and Trenton from RailData by default"
+          "behavior": "read Amtrak track assignments for New York Penn, Newark Penn, Newark Airport, Metropark, New Brunswick, Princeton Junction, and Trenton from RailData by default"
         },
         {
           "id": "7.2",

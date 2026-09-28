@@ -281,8 +281,8 @@ identifier parsing, and manifest-first discovery.
 | `AMTRAK_TRACKS_RAILDATA_BASE` | `https://raildata.njtransit.com/api/TrainData` | NJ Transit RailData `TrainData` base URL |
 | `NJT_RAILDATA_USERNAME` | empty | Registered RailData username. Set with the password, or set neither |
 | `NJT_RAILDATA_PASSWORD` | empty | Registered RailData password. Never commit this |
-| `AMTRAK_TRACKS_NJT_STATIONS` | `NY,NP,MP,TR` | RailData station codes to read. Each code needs a map entry |
-| `AMTRAK_TRACKS_STATION_MAP` | `NY=NYP,NP=NWK,MP=MET,TR=TRE` | RailData code to Amtrak GTFS `stop_id`. Overrides or extends the default |
+| `AMTRAK_TRACKS_NJT_STATIONS` | `NY,NP,NA,MP,NB,PJ,TR` | RailData station codes to read. Each code needs a map entry |
+| `AMTRAK_TRACKS_STATION_MAP` | `NY=NYP,NP=NWK,NA=EWR,MP=MET,NB=NBK,PJ=PJC,TR=TRE` | RailData code to Amtrak GTFS `stop_id`. Overrides or extends the default |
 | `AMTRAK_TRACKS_HARTFORD_URL` | `https://hartfordline.com/connecting-train-status/` | New Haven board. Set empty to skip it |
 | `AMTRAK_TRACKS_HARTFORD_STOP` | `NHV` | Amtrak `stop_id` for that board |
 
@@ -355,9 +355,11 @@ The only new validator notice is a `stop_without_stop_time` warning per platform
 scheduled trip calls at a platform directly.
 
 The default list covers tracks from published track maps: New York Penn 1–21, Newark Penn A and
-1–5, and New Haven Union's platform tracks (1–4, 8, 10, 12, 14). Metropark and Trenton are read
-but not covered, because their platform numbering is not published; a reported track that is not
-in the list is logged once and not published. Add verified tracks with `AMTRAK_TRACKS_PLATFORMS`.
+1–5, and New Haven Union's platform tracks (1–4, 8, 10, 12, 14). Newark Airport, Metropark, New
+Brunswick, Princeton Junction, and Trenton are read but not covered, because their platform
+numbering is not published; a reported track that is not in the list is logged once and not
+published. Add verified tracks with `AMTRAK_TRACKS_PLATFORMS`, for example
+`NYP=1-21;NWK=A,1-5;NHV=1-4,8,10,12,14;EWR=1-4`.
 
 **Trip updates.** A matching stop time gets `assigned_stop_id={stop}:track:{label}` and its
 `stop_sequence`, and its `stop_id` is removed, as the reference prefers. A stop time is stamped only
@@ -372,7 +374,8 @@ absent. Consumers that list every row of `stops.txt` should filter by `location_
 reads its latest results, so a slow or failed board never delays the feed. A reading is published
 for at most `AMTRAK_TRACKS_MAX_AGE_SECS`, and a failed refresh never extends it.
 
-- NJ Transit RailData, for New York Penn, Newark Penn, Metropark, and Trenton. This needs a
+- NJ Transit RailData, for New York Penn, Newark Penn, Newark Airport, Metropark, New Brunswick,
+  Princeton Junction, and Trenton. This needs a
   registered RailData account from the [NJ Transit developer portal](https://developer.njtransit.com/registration);
   set `NJT_RAILDATA_USERNAME` and `NJT_RAILDATA_PASSWORD` in the environment, never in the repo.
   NJ Transit allows 10 token requests a day, so the token is cached in

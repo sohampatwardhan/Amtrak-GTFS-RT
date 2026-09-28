@@ -116,8 +116,8 @@ Default table (evidence in [Current Technology Evidence](#current-technology-evi
 | `NWK` | A, 1–5 |
 | `NHV` | 1, 2, 3, 4, 8, 10, 12, 14 |
 
-`MET` and `TRE` have no published track numbering in the sources consulted, so they are read from
-RailData but not covered. An unlisted label is logged (R3.7), so the operator can add a verified
+`EWR`, `MET`, `NBK`, `PJC`, and `TRE` have no published track numbering in the sources consulted,
+so they are read from RailData but not covered. An unlisted label is logged (R3.7), so the operator can add a verified
 list through configuration.
 
 ### Static augmenter ([`src/static_augment.rs`](../../src/static_augment.rs))
@@ -295,8 +295,8 @@ is ratcheted against the same baseline, so a new `ERROR` code in either pass fai
 | `AMTRAK_TRACKS_REQUEST_TIMEOUT_SECS` | `10` | Per-request timeout |
 | `AMTRAK_TRACKS_RAILDATA_BASE` | `https://raildata.njtransit.com/api/TrainData` | RailData base URL |
 | `NJT_RAILDATA_USERNAME`, `NJT_RAILDATA_PASSWORD` | empty | Registered RailData credentials; both or neither |
-| `AMTRAK_TRACKS_NJT_STATIONS` | `NY,NP,MP,TR` | RailData stations to read |
-| `AMTRAK_TRACKS_STATION_MAP` | `NY=NYP,NP=NWK,MP=MET,TR=TRE` | RailData code to Amtrak stop |
+| `AMTRAK_TRACKS_NJT_STATIONS` | `NY,NP,NA,MP,NB,PJ,TR` | RailData stations to read |
+| `AMTRAK_TRACKS_STATION_MAP` | `NY=NYP,NP=NWK,NA=EWR,MP=MET,NB=NBK,PJ=PJC,TR=TRE` | RailData code to Amtrak stop |
 | `AMTRAK_TRACKS_HARTFORD_URL` | `https://hartfordline.com/connecting-train-status/` | Hartford board; empty disables |
 | `AMTRAK_TRACKS_HARTFORD_STOP` | `NHV` | Amtrak stop for that board |
 

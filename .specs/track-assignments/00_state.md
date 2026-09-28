@@ -17,4 +17,4 @@
 
 - The feature replaces PR #17's output model and NJ Transit access on the same branch; its board parsers and track-label rules are kept.
 - Publishing a transformed `static.zip` changes the service's contract that `static.zip` is Amtrak's bytes. The change applies only when tracks are enabled.
-- Adding stations or tracks is configuration, not a discovery change. Changing where tracks appear in the feed requires discovery re-approval.
+- Adding stations or tracks is configuration, not a discovery change. On 2026-09-28 the user asked for Newark Airport (`NA`→`EWR`), New Brunswick (`NB`→`NBK`), and Princeton Junction (`PJ`→`PJC`) to be read by default; R7.1 and the design's defaults were updated under the standing approval. Changing where tracks appear in the feed requires discovery re-approval.

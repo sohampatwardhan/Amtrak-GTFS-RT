@@ -78,10 +78,13 @@ const DEFAULT_TRACKS_REQUEST_TIMEOUT_SECS: u64 = 10;
 const DEFAULT_RAILDATA_BASE: &str = "https://raildata.njtransit.com/api/TrainData";
 const DEFAULT_HARTFORD_URL: &str = "https://hartfordline.com/connecting-train-status/";
 const DEFAULT_HARTFORD_STOP: &str = "NHV";
-const DEFAULT_NJT_STATIONS: &str = "NY,NP,MP,TR";
+/// RailData stations with Amtrak service, north to south: New York Penn, Newark Penn, Newark
+/// Airport, Metropark, New Brunswick, Princeton Junction, Trenton.
+const DEFAULT_NJT_STATIONS: &str = "NY,NP,NA,MP,NB,PJ,TR";
 /// Sourced platform tracks: New York Penn 1–21, Newark Penn A and 1–5, New Haven Union's platform
-/// tracks (track 6 has no platform). Metropark and Trenton have no published numbering and are not
-/// covered until an operator configures a verified list.
+/// tracks (track 6 has no platform). Newark Airport, Metropark, New Brunswick, Princeton Junction,
+/// and Trenton have no published platform numbering, so they are read but not covered until an
+/// operator configures a verified list; their reported tracks are logged meanwhile.
 const DEFAULT_TRACK_PLATFORMS: &str = "NYP=1-21;NWK=A,1-5;NHV=1-4,8,10,12,14";
 
 /// Live platform/track enrichment. Default **off** and fail-open: a board failure never fails a
@@ -278,10 +281,18 @@ fn split_csv(value: String) -> Vec<String> {
 }
 
 fn default_njt_station_map() -> Vec<(String, String)> {
-    [("NP", "NWK"), ("MP", "MET"), ("TR", "TRE"), ("NY", "NYP")]
-        .into_iter()
-        .map(|(njt, amtrak)| (njt.to_string(), amtrak.to_string()))
-        .collect()
+    [
+        ("NY", "NYP"),
+        ("NP", "NWK"),
+        ("NA", "EWR"),
+        ("MP", "MET"),
+        ("NB", "NBK"),
+        ("PJ", "PJC"),
+        ("TR", "TRE"),
+    ]
+    .into_iter()
+    .map(|(njt, amtrak)| (njt.to_string(), amtrak.to_string()))
+    .collect()
 }
 
 fn merge_station_map(map: &mut Vec<(String, String)>, raw: &str) -> Result<(), ConfigError> {
@@ -779,7 +790,16 @@ mod tests {
             defaults.raildata_base,
             "https://raildata.njtransit.com/api/TrainData"
         );
-        assert_eq!(defaults.njt_stations, vec!["NY", "NP", "MP", "TR"]);
+        assert_eq!(
+            defaults.njt_stations,
+            vec!["NY", "NP", "NA", "MP", "NB", "PJ", "TR"]
+        );
+        for (njt, amtrak) in [("NA", "EWR"), ("NB", "NBK"), ("PJ", "PJC")] {
+            assert!(defaults
+                .station_map
+                .iter()
+                .any(|(code, stop)| code == njt && stop == amtrak));
+        }
         assert!(defaults.platforms.contains("NYP", "21"));
         assert!(defaults.platforms.contains("NWK", "A"));
         assert!(defaults.platforms.contains("NHV", "14"));

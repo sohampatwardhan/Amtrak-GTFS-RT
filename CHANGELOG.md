@@ -14,7 +14,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   with `platform_code`) at each covered station, and trip updates point
   `stop_time_properties.assigned_stop_id` at the platform stop with `stop_sequence` set and
   `stop_id` omitted, as the GTFS-Realtime reference requires. Tracks come from NJ Transit's
-  registered RailData API (New York Penn, Newark Penn, Metropark, Trenton) and the CTrail Hartford
+  registered RailData API (New York Penn, Newark Penn, Newark Airport, Metropark, New Brunswick,
+  Princeton Junction, Trenton) and the CTrail Hartford
   Line board (New Haven Union). Defaults cover New York Penn, Newark Penn, and New Haven Union;
   other tracks are added with `AMTRAK_TRACKS_PLATFORMS`. Boards refresh in the background,
   readings expire after five minutes, and the RailData token is cached so the service stays within
