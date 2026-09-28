@@ -1,0 +1,33 @@
+flowchart LR
+  subgraph static["Static path"]
+    amtrak_zip@{ shape: lean-r, label: "Amtrak GTFS.zip" }
+    augment@{ shape: rect, label: "Platform augmentation" }
+    validator@{ shape: diamond, label: "Standards validator" }
+    snapshot@{ shape: cyl, label: "Active static snapshot" }
+  end
+  subgraph boards["Board path (background)"]
+    raildata@{ shape: lean-r, label: "NJT RailData API" }
+    hartford@{ shape: lean-r, label: "Hartford Line board" }
+    token@{ shape: cyl, label: "Token cache in /data" }
+    refresher@{ shape: rect, label: "Board refresher" }
+    store@{ shape: cyl, label: "Assignment store" }
+  end
+  subgraph gen["Generation path"]
+    amtrak_rt@{ shape: lean-r, label: "Amtrak realtime batch" }
+    stamper@{ shape: rect, label: "Track stamper" }
+    orch@{ shape: diamond, label: "Orchestrator validation" }
+    feedset@{ shape: doc, label: "Published feed set" }
+  end
+  amtrak_zip -->|"tracks enabled"| augment
+  augment -->|"augmented bytes"| validator
+  validator -->|"zero ERROR"| snapshot
+  token -->|"token"| refresher
+  raildata -->|"19-record schedules"| refresher
+  hartford -->|"HTML rows"| refresher
+  refresher -->|"per-station replace"| store
+  amtrak_rt --> stamper
+  store -->|"fresh assignments"| stamper
+  snapshot -->|"platform stops"| stamper
+  stamper -->|"assigned_stop_id"| orch
+  orch -->|"valid updates"| feedset
+  snapshot -->|"static.zip"| feedset

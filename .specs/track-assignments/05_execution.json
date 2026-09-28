@@ -1,0 +1,57 @@
+{
+  "gantt": {
+    "axisFormat": "%m-%d %H:%M",
+    "dateFormat": "YYYY-MM-DDTHH:mm:ss",
+    "diagram": "timeline",
+    "sections": [
+      {
+        "bars": [
+          {
+            "end": "2026-09-28T05:36:24",
+            "id": "b_1_1_attempt1",
+            "label": "1.1 attempt 1 (verified, 427s)",
+            "start": "2026-09-28T05:29:17",
+            "tags": [
+              "done"
+            ]
+          }
+        ],
+        "name": "1"
+      }
+    ],
+    "target": "gantt"
+  },
+  "generated_from": {
+    "file": "05_execution.md",
+    "sha256": "1085512d40441452cf96d10b8aaf59bd695f08839c0b95c5b5f205eaea9eaa4c"
+  },
+  "runs": [
+    {
+      "elapsed_seconds": "pending",
+      "outcome": "active",
+      "run_id": "run-20260928T052307Z",
+      "started_utc": "2026-09-28T05:23:07Z",
+      "stopped_utc": "pending"
+    }
+  ],
+  "schema_version": 1,
+  "task_attempts": [
+    {
+      "attempt": 1,
+      "elapsed_seconds": 427,
+      "outcome": "verified",
+      "run_id": "run-20260928T052307Z",
+      "stage_wave": "1",
+      "started_utc": "2026-09-28T05:29:17Z",
+      "stopped_utc": "2026-09-28T05:36:24Z",
+      "task": "1.1"
+    }
+  ],
+  "unresolved": [
+    {
+      "id": "run-20260928T052307Z",
+      "kind": "run",
+      "reason": "active"
+    }
+  ]
+}

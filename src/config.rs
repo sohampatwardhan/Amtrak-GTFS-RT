@@ -72,35 +72,35 @@ impl AdvisoryConfig {
     }
 }
 
-const DEFAULT_TRACKS_TTL_SECS: u64 = 60;
-const DEFAULT_NJT_API_BASE: &str = "https://raildata.njtransit.com/api";
-const DEFAULT_NJT_SPA_ORIGIN: &str = "https://dv.njtransit.com";
-const DEFAULT_NJT_OFFICIAL_URL: &str =
-    "https://traindata.njtransit.com/NJTTrainData.asmx/getTrainScheduleJSON19Rec";
+const DEFAULT_TRACKS_REFRESH_SECS: u64 = 60;
+const DEFAULT_TRACKS_MAX_AGE_SECS: u64 = 300;
+const DEFAULT_TRACKS_REQUEST_TIMEOUT_SECS: u64 = 10;
+const DEFAULT_RAILDATA_BASE: &str = "https://raildata.njtransit.com/api/TrainData";
 const DEFAULT_HARTFORD_URL: &str = "https://hartfordline.com/connecting-train-status/";
 const DEFAULT_HARTFORD_STOP: &str = "NHV";
-const DEFAULT_NJT_STATIONS: &str = "NP,MP,TR,NY";
+const DEFAULT_NJT_STATIONS: &str = "NY,NP,MP,TR";
 
-/// Live platform/track enrichment. Default **off** and fail-open: a fetch or parse failure never
-/// fails a generation.
+/// Live platform/track enrichment. Default **off** and fail-open: a board failure never fails a
+/// generation.
 ///
-/// Debug output redacts NJT portal credentials.
+/// NJ Transit data is read only through the operator's registered RailData account, so the
+/// credentials are the one secret here. `Debug` reports only whether they are set.
 #[derive(Clone)]
 pub struct TrackConfig {
     /// Env `AMTRAK_TRACKS` (`1` / `true` / `on`). Default off.
     pub enabled: bool,
-    /// Minimum interval between board fetches. Env `AMTRAK_TRACKS_TTL_SECS` (default 60).
-    pub ttl: Duration,
-    /// Public DepartureVision JSON API. Env `AMTRAK_TRACKS_NJT_API_BASE`.
-    pub njt_api_base: String,
-    /// Origin that serves `block1.js` for the public session bootstrap. Env `AMTRAK_TRACKS_NJT_SPA_ORIGIN`.
-    pub njt_spa_origin: String,
-    /// Official RailData JSON method, used only when portal credentials are set and the public API fails.
-    /// Env `NJT_RAILDATA_URL`.
-    pub njt_official_url: String,
-    /// Portal username. Env `NJT_RAILDATA_USERNAME`. Never written to the repo.
+    /// Interval between background board refreshes. Env `AMTRAK_TRACKS_REFRESH_SECS` (default 60).
+    pub refresh_interval: Duration,
+    /// Oldest board observation that may still be stamped. Env `AMTRAK_TRACKS_MAX_AGE_SECS`
+    /// (default 300). Tracks are same-day data, so an expired board is dropped, never reused.
+    pub max_age: Duration,
+    /// Timeout for each board request. Env `AMTRAK_TRACKS_REQUEST_TIMEOUT_SECS` (default 10).
+    pub request_timeout: Duration,
+    /// RailData `TrainData` base URL. Env `AMTRAK_TRACKS_RAILDATA_BASE`.
+    pub raildata_base: String,
+    /// Registered RailData username. Env `NJT_RAILDATA_USERNAME`. Never written to the repo.
     pub njt_username: Option<String>,
-    /// Portal password. Env `NJT_RAILDATA_PASSWORD`.
+    /// Registered RailData password. Env `NJT_RAILDATA_PASSWORD`.
     pub njt_password: Option<String>,
     /// NJT 2-character station codes to query. Env `AMTRAK_TRACKS_NJT_STATIONS`.
     pub njt_stations: Vec<String>,
@@ -117,10 +117,10 @@ impl fmt::Debug for TrackConfig {
         formatter
             .debug_struct("TrackConfig")
             .field("enabled", &self.enabled)
-            .field("ttl", &self.ttl)
-            .field("njt_api_base", &self.njt_api_base)
-            .field("njt_spa_origin", &self.njt_spa_origin)
-            .field("njt_official_url", &self.njt_official_url)
+            .field("refresh_interval", &self.refresh_interval)
+            .field("max_age", &self.max_age)
+            .field("request_timeout", &self.request_timeout)
+            .field("raildata_base", &self.raildata_base)
             .field("njt_username_set", &self.njt_username.is_some())
             .field("njt_password_set", &self.njt_password.is_some())
             .field("njt_stations", &self.njt_stations)
@@ -136,8 +136,8 @@ impl TrackConfig {
     ///
     /// # Errors
     ///
-    /// Returns a string naming a malformed TTL, station list, station map, or a password set
-    /// without a username (and the reverse).
+    /// Returns a [`ConfigError`] naming a malformed or zero duration, station list, station map,
+    /// or a password set without a username (and the reverse).
     pub fn from_env() -> Result<TrackConfig, ConfigError> {
         TrackConfig::from_map(|key| std::env::var(key).ok())
     }
@@ -146,16 +146,26 @@ impl TrackConfig {
     ///
     /// # Errors
     ///
-    /// Returns a string naming the malformed environment field.
+    /// Returns a [`ConfigError`] naming the malformed environment field.
     pub fn from_map<F: Fn(&str) -> Option<String>>(get: F) -> Result<TrackConfig, ConfigError> {
-        let ttl_secs = parse_u64(&get, "AMTRAK_TRACKS_TTL_SECS", DEFAULT_TRACKS_TTL_SECS)?;
         let enabled = flag_enabled(get("AMTRAK_TRACKS"));
-        let njt_api_base =
-            get("AMTRAK_TRACKS_NJT_API_BASE").unwrap_or_else(|| DEFAULT_NJT_API_BASE.to_string());
-        let njt_spa_origin = get("AMTRAK_TRACKS_NJT_SPA_ORIGIN")
-            .unwrap_or_else(|| DEFAULT_NJT_SPA_ORIGIN.to_string());
-        let njt_official_url =
-            get("NJT_RAILDATA_URL").unwrap_or_else(|| DEFAULT_NJT_OFFICIAL_URL.to_string());
+        let refresh_interval = positive_secs(
+            &get,
+            "AMTRAK_TRACKS_REFRESH_SECS",
+            DEFAULT_TRACKS_REFRESH_SECS,
+        )?;
+        let max_age = positive_secs(
+            &get,
+            "AMTRAK_TRACKS_MAX_AGE_SECS",
+            DEFAULT_TRACKS_MAX_AGE_SECS,
+        )?;
+        let request_timeout = positive_secs(
+            &get,
+            "AMTRAK_TRACKS_REQUEST_TIMEOUT_SECS",
+            DEFAULT_TRACKS_REQUEST_TIMEOUT_SECS,
+        )?;
+        let raildata_base =
+            get("AMTRAK_TRACKS_RAILDATA_BASE").unwrap_or_else(|| DEFAULT_RAILDATA_BASE.to_string());
         let njt_username = nonempty(get("NJT_RAILDATA_USERNAME"));
         let njt_password = nonempty(get("NJT_RAILDATA_PASSWORD"));
         if njt_username.is_some() != njt_password.is_some() {
@@ -196,10 +206,10 @@ impl TrackConfig {
         };
         Ok(TrackConfig {
             enabled,
-            ttl: Duration::from_secs(ttl_secs),
-            njt_api_base,
-            njt_spa_origin,
-            njt_official_url,
+            refresh_interval,
+            max_age,
+            request_timeout,
+            raildata_base,
             njt_username,
             njt_password,
             njt_stations,
@@ -208,6 +218,23 @@ impl TrackConfig {
             hartford_stop_id,
         })
     }
+
+    /// Registered RailData credentials, when both are configured.
+    pub fn raildata_credentials(&self) -> Option<(&str, &str)> {
+        Some((self.njt_username.as_deref()?, self.njt_password.as_deref()?))
+    }
+}
+
+fn positive_secs<F: Fn(&str) -> Option<String>>(
+    get: &F,
+    field: &'static str,
+    default: u64,
+) -> Result<Duration, ConfigError> {
+    let secs = parse_u64(get, field, default)?;
+    if secs == 0 {
+        return Err(ConfigError::new(field, "must be greater than zero"));
+    }
+    Ok(Duration::from_secs(secs))
 }
 
 fn flag_enabled(value: Option<String>) -> bool {
@@ -732,8 +759,14 @@ mod tests {
     fn track_config_defaults_off_and_maps_shared_stations() {
         let defaults = TrackConfig::from_map(|_| None).unwrap();
         assert!(!defaults.enabled);
-        assert_eq!(defaults.ttl, Duration::from_secs(60));
-        assert_eq!(defaults.njt_stations, vec!["NP", "MP", "TR", "NY"]);
+        assert_eq!(defaults.refresh_interval, Duration::from_secs(60));
+        assert_eq!(defaults.max_age, Duration::from_secs(300));
+        assert_eq!(defaults.request_timeout, Duration::from_secs(10));
+        assert_eq!(
+            defaults.raildata_base,
+            "https://raildata.njtransit.com/api/TrainData"
+        );
+        assert_eq!(defaults.njt_stations, vec!["NY", "NP", "MP", "TR"]);
         assert!(defaults
             .station_map
             .iter()
@@ -780,6 +813,15 @@ mod tests {
             |key| (key == "AMTRAK_TRACKS_NJT_STATIONS").then(|| "ZZ".into())
         )
         .is_err());
+        for field in [
+            "AMTRAK_TRACKS_REFRESH_SECS",
+            "AMTRAK_TRACKS_MAX_AGE_SECS",
+            "AMTRAK_TRACKS_REQUEST_TIMEOUT_SECS",
+        ] {
+            let error =
+                TrackConfig::from_map(|key| (key == field).then(|| "0".into())).unwrap_err();
+            assert_eq!(error.field(), field);
+        }
     }
     use std::collections::HashMap;
 

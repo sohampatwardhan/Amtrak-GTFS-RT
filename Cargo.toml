@@ -23,13 +23,9 @@ tracing = "0.1"
 tracing-subscriber = "0.3"
 serde_json = "1.0"
 sha2 = "0.10.9"
-# DepartureVision session bootstrap (AES-192-ECB + PBKDF2/AES-GCM). Pure Rust, so the scratch
-# service image stays free of Chromium and of a system OpenSSL.
-aes = "0.8"
-aes-gcm = "0.10"
-base64 = "0.22"
-cipher = "0.4"
-pbkdf2 = "0.12"
+# Rewrites stops.txt when platform stops are added to the published static feed. Already in the
+# resolved graph through gtfs-structures.
+csv = "1.4"
 # Consumer-only (station & train status): per-station local-time rendering with DST. Optional so
 # the released service binary and container link no additional code. Already in the resolved graph.
 chrono-tz = { version = "0.10", optional = true }

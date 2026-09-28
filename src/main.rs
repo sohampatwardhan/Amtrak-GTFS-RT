@@ -9,7 +9,8 @@ use crate::config::Config;
 use crate::orchestrator::{GenerationCommitter, StoreGenerationCommitter};
 use crate::sources::advisories::WithAdvisories;
 use crate::sources::amtrak::AmtrakSource;
-use crate::sources::tracks::WithTracks;
+use crate::sources::tracks::refresher::run_board_refresher;
+use crate::sources::tracks::{AssignmentStore, WithTracks};
 use crate::sources::{RtBatch, RtSource, SourceError};
 use crate::static_gtfs::{
     bootstrap_static, recover_static, MobilityDataStaticValidator, StaticSnapshotState,
@@ -184,7 +185,7 @@ fn container_healthcheck() -> std::io::Result<()> {
 fn realtime_source<S>(
     source: S,
     advisories: Option<crate::config::AdvisoryConfig>,
-    tracks: Option<crate::config::TrackConfig>,
+    tracks: Option<(Arc<AssignmentStore>, Duration)>,
 ) -> Box<dyn RtSource>
 where
     S: RtSource + 'static,
@@ -192,10 +193,11 @@ where
     match (advisories, tracks) {
         (None, None) => Box::new(source),
         (Some(advisories), None) => Box::new(WithAdvisories::new(source, advisories)),
-        (None, Some(tracks)) => Box::new(WithTracks::new(source, tracks)),
-        (Some(advisories), Some(tracks)) => Box::new(WithTracks::new(
+        (None, Some((store, max_age))) => Box::new(WithTracks::new(source, store, max_age)),
+        (Some(advisories), Some((store, max_age))) => Box::new(WithTracks::new(
             WithAdvisories::new(source, advisories),
-            tracks,
+            store,
+            max_age,
         )),
     }
 }
@@ -233,7 +235,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let advisory_config = crate::config::AdvisoryConfig::from_env()?;
     let track_config = crate::config::TrackConfig::from_env()?;
     let advisories = advisory_config.enabled.then_some(advisory_config);
-    let tracks = track_config.enabled.then_some(track_config);
+    // With tracks on, the board refresher runs as its own task and generation only reads the
+    // store it fills, so a slow board never delays a feed. Its RailData token cache lives beside,
+    // not inside, the generation directory that the API serves from.
+    let tracks = track_config.enabled.then(|| {
+        let assignments = Arc::new(AssignmentStore::new());
+        let max_age = track_config.max_age;
+        tokio::spawn(run_board_refresher(
+            assignments.clone(),
+            track_config.clone(),
+            config.output_dir.join("tracks").join("raildata-token.json"),
+        ));
+        (assignments, max_age)
+    });
     let source: Box<dyn RtSource> = if config.filter_capital_corridor {
         realtime_source(
             CapitalCorridorFiltered(AmtrakSource::new()),

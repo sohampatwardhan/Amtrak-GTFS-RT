@@ -138,8 +138,8 @@ struct Manifest {
 /// Parses the `/v1/feed-set.json` body into the fields the consumer needs, or a `Decode` error
 /// naming the missing/invalid field.
 fn parse_manifest(body: &[u8]) -> Result<Manifest, SourceError> {
-    let value: serde_json::Value =
-        serde_json::from_slice(body).map_err(|_| SourceError::Decode("manifest is not JSON".into()))?;
+    let value: serde_json::Value = serde_json::from_slice(body)
+        .map_err(|_| SourceError::Decode("manifest is not JSON".into()))?;
     let string_field = |v: &serde_json::Value, key: &str| {
         v.get(key)
             .and_then(serde_json::Value::as_str)
@@ -213,7 +213,10 @@ async fn load_from_local<G: HttpGet>(
     let manifest = parse_manifest(&body)?;
 
     let fetch = |path: String| async move {
-        let (status, bytes) = http.get(&resolve(base_url, &path)).await.map_err(SourceError::Fetch)?;
+        let (status, bytes) = http
+            .get(&resolve(base_url, &path))
+            .await
+            .map_err(SourceError::Fetch)?;
         match status {
             200 => Ok(bytes),
             503 => Err(SourceError::Unavailable),
@@ -333,10 +336,22 @@ mod tests {
         let base = "http://svc";
         let mut responses = HashMap::new();
         responses.insert(format!("{base}/v1/feed-set.json"), (200, manifest_json()));
-        responses.insert(format!("{base}/v1/generations/7-3/static.zip"), (200, minimal_static_zip()));
-        responses.insert(format!("{base}/v1/generations/7-3/trip-updates.pb"), (200, empty_feed()));
-        responses.insert(format!("{base}/v1/generations/7-3/vehicle-positions.pb"), (200, empty_feed()));
-        responses.insert(format!("{base}/v1/generations/7-3/alerts.pb"), (200, empty_feed()));
+        responses.insert(
+            format!("{base}/v1/generations/7-3/static.zip"),
+            (200, minimal_static_zip()),
+        );
+        responses.insert(
+            format!("{base}/v1/generations/7-3/trip-updates.pb"),
+            (200, empty_feed()),
+        );
+        responses.insert(
+            format!("{base}/v1/generations/7-3/vehicle-positions.pb"),
+            (200, empty_feed()),
+        );
+        responses.insert(
+            format!("{base}/v1/generations/7-3/alerts.pb"),
+            (200, empty_feed()),
+        );
         MockGet { responses }
     }
 
