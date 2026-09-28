@@ -18,8 +18,8 @@
       "status": "approved"
     },
     "execution": {
-      "evidence": "Pending",
-      "status": "not_started"
+      "evidence": "2026-09-28: seven tasks and 48 criteria verified; preflight hardening self-approved under delegated authority; independent final review passed after one fix (flexible CSV reader)",
+      "status": "complete"
     },
     "requirements": {
       "evidence": "Approved 2026-09-28 under standing approval: eight requirements / 48 criteria (revised 2026-09-28 in design: event-time window R3.11, status-tool station resolution R8.2, feed validation moved to the scheduled job R8.3\u2013R8.4) covering platform stops, static integrity, conformant stamping, authorized RailData access, freshness, timing, sources, and tools/CI",
@@ -32,7 +32,7 @@
   },
   "generated_from": {
     "file": "00_state.md",
-    "sha256": "7d27c7f968c22c6cedb3c9a99fae8fbf27726eae47dabdac3fc5bcd76be81c0e"
+    "sha256": "e7307ec4c7174ad27d114a0484de4717ea8568eb068b95eda14a6dd28b267f08"
   },
   "schema_version": 1
 }

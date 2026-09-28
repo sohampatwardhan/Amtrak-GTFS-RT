@@ -10,7 +10,6 @@
 %%{init: {'flowchart': {'defaultRenderer': 'elk'}}}%%
 flowchart TD
   classDef done fill:#dcfce7,stroke:#22c55e,stroke-width:1.5px,color:#14532d
-  classDef pending fill:#f1f5f9,stroke:#94a3b8,stroke-width:1.5px,color:#334155
   subgraph n_stage_1["Stage 1"]
     n_1_1@{ shape: rect, label: "1.1: Registered RailData client, assignment store, refresher" }
   end
@@ -43,7 +42,7 @@ flowchart TD
   class n_3_2 done
   class n_4_1 done
   class n_4_2 done
-  class n_5_1 pending
+  class n_5_1 done
 ```
 ## Delivery Schedule
 
@@ -188,8 +187,8 @@ flowchart TD
     - **Delegation:** controller
     - _Requirements: 8.3, 8.4_
 
-- [ ] 5. Checkpoint — feature complete
-  - [ ] 5.1 Verify the complete feature before integration
+- [x] 5. Checkpoint — feature complete
+  - [x] 5.1 Verify the complete feature before integration
     - Run the full Rust suite, Clippy, the advisory-fetcher and release-control tests, and a live local run with tracks enabled that fetches the Hartford board and publishes an augmented `static.zip` that passes the standards validator.
     - Confirm every criterion's evidence in [05_execution.md](05_execution.md).
     - **Files:** [`.specs/track-assignments/05_execution.md`](05_execution.md)

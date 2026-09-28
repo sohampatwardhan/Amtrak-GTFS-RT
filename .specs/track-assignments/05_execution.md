@@ -29,20 +29,19 @@
 
 ```mermaid
 kanban
-  pending[Pending]
-    t_kanban_2_1[⚪ 2.1: Platform table, static augmenter, augmented pipeline]
-    t_kanban_3_1[⚪ 3.1: Stamp platform stops enforce rules in orchestrator]
-    t_kanban_3_2[⚪ 3.2: Resolve stations and platform codes in the status tool]
-    t_kanban_4_1[⚪ 4.1: Wire refresher and stamper document the feature]
-    t_kanban_4_2[⚪ 4.2: Add a tracks-enabled pass to scheduled feed validation]
-    t_kanban_5_1[⚪ 5.1: Verify the complete feature before integration]
   done[Done]
     t_kanban_1_1[🟢 1.1: Registered RailData client, assignment store, refresher]
+    t_kanban_2_1[🟢 2.1: Platform table, static augmenter, augmented pipeline]
+    t_kanban_3_1[🟢 3.1: Stamp platform stops enforce rules in orchestrator]
+    t_kanban_3_2[🟢 3.2: Resolve stations and platform codes in the status tool]
+    t_kanban_4_1[🟢 4.1: Wire refresher and stamper document the feature]
+    t_kanban_4_2[🟢 4.2: Add a tracks-enabled pass to scheduled feed validation]
+    t_kanban_5_1[🟢 5.1: Verify the complete feature before integration]
 ```
 ### Run Intervals
 | Run ID | Started UTC | Stopped UTC | Elapsed Seconds | Outcome |
 |---|---|---|---:|---|
-| run-20260928T052307Z | 2026-09-28T05:23:07Z | pending | pending | active |
+| run-20260928T052307Z | 2026-09-28T05:23:07Z | 2026-09-28T06:05:40Z | 2553 | complete |
 
 ### Task Attempt Intervals
 | Run ID | Stage/Wave | Task | Attempt | Started UTC | Stopped UTC | Elapsed Seconds | Outcome |
@@ -53,6 +52,7 @@ kanban
 | run-20260928T052307Z | 3 | 3.2 | 1 | 2026-09-28T05:55:44Z | 2026-09-28T05:57:10Z | 86 | verified |
 | run-20260928T052307Z | 4 | 4.1 | 1 | 2026-09-28T05:57:11Z | 2026-09-28T05:59:21Z | 130 | verified |
 | run-20260928T052307Z | 4 | 4.2 | 1 | 2026-09-28T05:59:21Z | 2026-09-28T06:01:13Z | 112 | verified |
+| run-20260928T052307Z | 5 | 5.1 | 1 | 2026-09-28T06:01:13Z | 2026-09-28T06:05:40Z | 267 | verified |
 
 ## Task Evidence
 
@@ -64,16 +64,6 @@ kanban
 - **Dependencies:** `aes`, `aes-gcm`, `base64`, `cipher`, and `pbkdf2` removed (eleven crates leave [`Cargo.lock`](../../Cargo.lock)); `csv = "1.4"` promoted to direct at 1.4.0; [`THIRD_PARTY_LICENSES.html`](../../THIRD_PARTY_LICENSES.html) regenerated. The audit tool's 1 MB `cargo metadata` cap was raised in memory for these runs (no skill file edited), giving complete inventories: both reports are `warnings`, exit 0, with the same twelve pre-existing transitive advisories and no new findings.
 - **Verification:** `cargo test --features status` passes (84 service tests, 20 status-tool tests), including local-server tests for token reuse across restart, file mode `0600`, secret-free cache and errors, invalid-token replacement, budget refusal across restart and recovery after 24 hours, credential suspension, unconfigured skip, Hartford refresh and expiry, and a hanging board bounded by the request timeout. `cargo clippy --bins --tests --features status -- -D warnings` is clean; `cargo fmt` applied.
 - **Criteria:** R4.1–R4.8, R5.2, R5.3, R6.1, R6.4, R7.1–R7.4 met.
-
-### Execution Gantt
-
-```mermaid
-gantt
-    dateFormat YYYY-MM-DDTHH:mm:ss
-    axisFormat %m-%d %H:%M
-    section 1
-    1.1 attempt 1 (verified, 427s) :done, b_1_1_attempt1, 2026-09-28T05:29:17, 2026-09-28T05:36:24
-```
 
 ### Task 2.1 — Platform table, static augmenter, augmented pipeline
 
@@ -111,3 +101,37 @@ gantt
 - **Result:** verified. [`scripts/validate-feeds.sh`](../../scripts/validate-feeds.sh) gains `--tracks`, which reruns the same generate-and-validate pass with `AMTRAK_TRACKS=on` and empty RailData credentials, writing to `$REPORT_DIR/tracks` and `$FEED_DIR-tracks` and ratcheting against the same [`validation/baseline.json`](../../validation/baseline.json). [`.github/workflows/validate-feeds.yml`](../../.github/workflows/validate-feeds.yml) runs it as a second step (`if: always()`), with a comment explaining why no credentials are passed; the existing upload step already includes the `tracks/` reports.
 - **Verification:** `bash -n` passes; `--offline-fixtures` passes all six ratchet fixtures. A live local `--tracks` run passed with no new `ERROR` codes: the published generation's static version was `20260927+tracks.612ca043`, its `stops.txt` held the 35 platform stops, static notices matched the augmented-feed run in task 2.1, and its trip updates contained a real stamped assignment, `NHV:track:1` from the Hartford Line board, which the GTFS-Realtime validator accepted. The only realtime `ERROR` codes were the baselined upstream E022 and E025.
 - **Criteria:** R8.3 and R8.4 met.
+
+### Task 5.1 — Verify the complete feature before integration
+
+- **Full suite:** `cargo test --features status` passes (102 service tests, 20 status-tool tests); the default-feature `cargo build` used by the container passes; `cargo clippy --bins --tests --features status -- -D warnings` is clean; `cargo fmt --check` passes; [`scripts/test-release-controls.sh`](../../scripts/test-release-controls.sh) passes.
+- **Live evidence:** task 2.1's augmentation of Amtrak's feed passed MobilityData 8.0.1 with zero `ERROR` notices, and task 4.2's live tracks-enabled run published `20260927+tracks.612ca043` with the 35 platform stops and a real stamped `NHV:track:1` assignment that the GTFS-Realtime validator accepted. NJ Transit stations were not exercised live because no RailData account is configured; their path is covered by the local-server tests in task 1.1.
+- **Independent review (2 reviewers, balanced tier, high reasoning):** requirements compliance passed for all 48 criteria and task quality passed. The correctness and security review found one real defect: the `stops.txt` reader was not `flexible`, so a legal row omitting trailing fields would have failed augmentation and silently fallen back to upstream bytes. Fixed with `csv::ReaderBuilder::flexible(true)` (rows were already padded to the header width) and a regression test; the suite was rerun green. Reviewed and not changed: multipart fields are unescaped, but every value is operator configuration, not external input; any `getToken` `errorMessage` is classified as budget exhaustion, which fails closed either way.
+- **Housekeeping:** the tracks pass’s feed directory (`$FEED_DIR-tracks`) was briefly committed and is now untracked and ignored in [`.gitignore`](../../.gitignore).
+- **Integration decision:** handed to `spec-finish`.
+
+## Outcome
+
+All seven tasks and all 48 criteria are verified. The branch `track-assignments` holds the reworked PR #17 on top of `5ce2feb`, in four work-in-progress commits plus the final fix; nothing has been pushed.
+
+### Execution Gantt
+
+```mermaid
+gantt
+    dateFormat YYYY-MM-DDTHH:mm:ss
+    axisFormat %m-%d %H:%M
+    section Execution Runs
+    run-20260928T052307Z (complete, 2553s) :done, run_20260928T052307Z, 2026-09-28T05:23:07, 2026-09-28T06:05:40
+    section 1
+    1.1 attempt 1 (verified, 427s) :done, b_1_1_attempt1, 2026-09-28T05:29:17, 2026-09-28T05:36:24
+    section 2
+    2.1 attempt 1 (verified, 938s) :done, b_2_1_attempt1, 2026-09-28T05:37:14, 2026-09-28T05:52:52
+    section 3
+    3.1 attempt 1 (verified, 164s) :done, b_3_1_attempt1, 2026-09-28T05:53:00, 2026-09-28T05:55:44
+    3.2 attempt 1 (verified, 86s) :done, b_3_2_attempt1, 2026-09-28T05:55:44, 2026-09-28T05:57:10
+    section 4
+    4.1 attempt 1 (verified, 130s) :done, b_4_1_attempt1, 2026-09-28T05:57:11, 2026-09-28T05:59:21
+    4.2 attempt 1 (verified, 112s) :done, b_4_2_attempt1, 2026-09-28T05:59:21, 2026-09-28T06:01:13
+    section 5
+    5.1 attempt 1 (verified, 267s) :done, b_5_1_attempt1, 2026-09-28T06:01:13, 2026-09-28T06:05:40
+```

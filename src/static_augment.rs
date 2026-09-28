@@ -200,7 +200,9 @@ fn fail(stage: &str, error: impl std::fmt::Display) -> AugmentError {
 
 fn augment_stops(raw: &[u8], table: &PlatformTable) -> Result<Vec<u8>, AugmentError> {
     let body = raw.strip_prefix(UTF8_BOM).unwrap_or(raw);
-    let mut reader = csv::ReaderBuilder::new().from_reader(body);
+    // GTFS producers may omit trailing empty fields, so short rows are legal; they are padded to
+    // the header width below rather than failing the whole augmentation.
+    let mut reader = csv::ReaderBuilder::new().flexible(true).from_reader(body);
     let mut headers: Vec<String> = reader
         .headers()
         .map_err(|error| fail("stops.txt header", error))?
@@ -455,6 +457,20 @@ X,Stop,40,-73,0,P\n";
             .stops
             .keys()
             .any(|id| id.contains(":track:") || id.contains(":station")));
+    }
+
+    #[test]
+    fn rows_omitting_trailing_fields_are_accepted() {
+        let stops = "stop_id,stop_name,stop_lat,stop_lon,stop_timezone,stop_url\n\
+NWK,Newark,40.73,-74.16\n\
+NYP,Penn,40.75,-73.99,America/New_York,https://www.amtrak.com/stations/nyp\n";
+        let augmented = augment_static(&fixture_zip(stops.as_bytes()), &table()).unwrap();
+        let gtfs = Gtfs::from_reader(Cursor::new(augmented)).unwrap();
+        assert!(gtfs.stops.contains_key("NWK:track:A"));
+        assert_eq!(
+            gtfs.stops["NWK"].parent_station.as_deref(),
+            Some("NWK:station")
+        );
     }
 
     #[test]
