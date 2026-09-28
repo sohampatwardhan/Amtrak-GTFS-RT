@@ -18,6 +18,7 @@ This realizes the approved direction in [01_discovery.md](01_discovery.md): pres
 The repository graph confirms the current boundaries in [src/main.rs](../../src/main.rs), [src/orchestrator.rs](../../src/orchestrator.rs), [src/static_gtfs.rs](../../src/static_gtfs.rs), [src/serve.rs](../../src/serve.rs), and [src/writer.rs](../../src/writer.rs). The main architectural correction is to replace independently mutable static/realtime files and stores with one `GenerationStore` and one commit point.
 
 ```mermaid
+%%{init: {'flowchart': {'defaultRenderer': 'elk'}}}%%
 block
   columns 2
   block:ingestion["Candidate ingestion"]
