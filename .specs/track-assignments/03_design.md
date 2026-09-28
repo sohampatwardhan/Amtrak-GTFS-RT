@@ -89,7 +89,7 @@ flowchart LR
 
 ## Components and Interfaces
 
-### Platform table (`src/static_augment.rs`)
+### Platform table ([`src/static_augment.rs`](../../src/static_augment.rs))
 
 Parsed from `AMTRAK_TRACKS_PLATFORMS`, a semicolon-separated list of `STOP=labels`, where labels are
 comma-separated track labels or numeric ranges (`1-5`). Every label must pass `is_track_label`.
@@ -120,7 +120,7 @@ Default table (evidence in [Current Technology Evidence](#current-technology-evi
 RailData but not covered. An unlisted label is logged (R3.7), so the operator can add a verified
 list through configuration.
 
-### Static augmenter (`src/static_augment.rs`)
+### Static augmenter ([`src/static_augment.rs`](../../src/static_augment.rs))
 
 ```rust
 pub fn augment_static(upstream: &[u8], table: &PlatformTable) -> Result<Vec<u8>, AugmentError>;

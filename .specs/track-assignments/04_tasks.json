@@ -1,27 +1,36 @@
 {
   "concurrency": {
-    "active_stage": 2,
+    "active_stage": 3,
     "blocked": {},
     "parallel_candidates": [],
     "ready": [
-      "2.1"
+      "3.1",
+      "3.2"
     ],
     "serial_candidates": [
-      "2.1"
+      "3.1",
+      "3.2"
     ],
     "waves": [
       {
         "mode": "serial",
         "tasks": [
-          "2.1"
+          "3.1"
         ],
         "wave": 1
+      },
+      {
+        "mode": "serial",
+        "tasks": [
+          "3.2"
+        ],
+        "wave": 2
       }
     ]
   },
   "generated_from": {
     "file": "04_tasks.md",
-    "sha256": "f31268235b8bc80249fa46a9d1695a954fae950cf2aec2b3b42fde7598ac3d39"
+    "sha256": "dfd74ac535adb1b59bf7fb849d6280a23f75ff0ddf6e5c09648b72c0472cc545"
   },
   "requirement_count": 48,
   "schema_version": 1,
@@ -96,10 +105,10 @@
     },
     {
       "capability_tier": "frontier",
-      "checked": false,
+      "checked": true,
       "delegation": "controller",
       "dependency_delivery": "none",
-      "dependency_resolution": "none",
+      "dependency_resolution": "change",
       "depends_on": [
         "1.1"
       ],
@@ -107,10 +116,12 @@
         "src/static_augment.rs",
         "src/static_gtfs.rs",
         "src/config.rs",
-        "src/main.rs"
+        "src/main.rs",
+        "Cargo.toml",
+        "Cargo.lock"
       ],
       "id": "2.1",
-      "interfaces": "Consumes: `csv` from 1.1, the revised `TrackConfig`, and upstream GTFS ZIP bytes; Produces: `PlatformTable`, `augment_static`, `platform_stop_id`, `parent_station_id`, and static snapshots whose bytes and version reflect augmentation",
+      "interfaces": "Consumes: `csv` from 1.1 and the promoted `zip` dependency, the revised `TrackConfig`, and upstream GTFS ZIP bytes; Produces: `PlatformTable`, `augment_static`, `platform_stop_id`, `parent_station_id`, and static snapshots whose bytes and version reflect augmentation",
       "optional": false,
       "reasoning_level": "extra_high",
       "requirements": [

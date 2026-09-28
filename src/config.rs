@@ -79,6 +79,10 @@ const DEFAULT_RAILDATA_BASE: &str = "https://raildata.njtransit.com/api/TrainDat
 const DEFAULT_HARTFORD_URL: &str = "https://hartfordline.com/connecting-train-status/";
 const DEFAULT_HARTFORD_STOP: &str = "NHV";
 const DEFAULT_NJT_STATIONS: &str = "NY,NP,MP,TR";
+/// Sourced platform tracks: New York Penn 1–21, Newark Penn A and 1–5, New Haven Union's platform
+/// tracks (track 6 has no platform). Metropark and Trenton have no published numbering and are not
+/// covered until an operator configures a verified list.
+const DEFAULT_TRACK_PLATFORMS: &str = "NYP=1-21;NWK=A,1-5;NHV=1-4,8,10,12,14";
 
 /// Live platform/track enrichment. Default **off** and fail-open: a board failure never fails a
 /// generation.
@@ -110,6 +114,9 @@ pub struct TrackConfig {
     pub hartford_url: Option<String>,
     /// Amtrak `stop_id` for the Hartford board (New Haven Union). Env `AMTRAK_TRACKS_HARTFORD_STOP`.
     pub hartford_stop_id: String,
+    /// Covered stations and their real tracks; each becomes a platform stop in the published
+    /// static feed. Env `AMTRAK_TRACKS_PLATFORMS`.
+    pub platforms: crate::static_augment::PlatformTable,
 }
 
 impl fmt::Debug for TrackConfig {
@@ -127,6 +134,7 @@ impl fmt::Debug for TrackConfig {
             .field("station_map", &self.station_map)
             .field("hartford_url", &self.hartford_url)
             .field("hartford_stop_id", &self.hartford_stop_id)
+            .field("platforms", &self.platforms)
             .finish()
     }
 }
@@ -204,6 +212,10 @@ impl TrackConfig {
             Some(value) => Some(value),
             None => Some(DEFAULT_HARTFORD_URL.to_string()),
         };
+        let platforms = crate::static_augment::PlatformTable::parse(
+            &get("AMTRAK_TRACKS_PLATFORMS").unwrap_or_else(|| DEFAULT_TRACK_PLATFORMS.to_string()),
+        )
+        .map_err(|reason| ConfigError::new("AMTRAK_TRACKS_PLATFORMS", reason))?;
         Ok(TrackConfig {
             enabled,
             refresh_interval,
@@ -216,6 +228,7 @@ impl TrackConfig {
             station_map,
             hartford_url,
             hartford_stop_id,
+            platforms,
         })
     }
 
@@ -767,6 +780,19 @@ mod tests {
             "https://raildata.njtransit.com/api/TrainData"
         );
         assert_eq!(defaults.njt_stations, vec!["NY", "NP", "MP", "TR"]);
+        assert!(defaults.platforms.contains("NYP", "21"));
+        assert!(defaults.platforms.contains("NWK", "A"));
+        assert!(defaults.platforms.contains("NHV", "14"));
+        assert!(!defaults.platforms.contains("NHV", "6"));
+        assert!(!defaults.platforms.contains("TRE", "1"));
+        assert_eq!(
+            TrackConfig::from_map(
+                |key| (key == "AMTRAK_TRACKS_PLATFORMS").then(|| "NWK=TBD".into())
+            )
+            .unwrap_err()
+            .field(),
+            "AMTRAK_TRACKS_PLATFORMS"
+        );
         assert!(defaults
             .station_map
             .iter()

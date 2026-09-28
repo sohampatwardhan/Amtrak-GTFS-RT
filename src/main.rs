@@ -2,6 +2,7 @@ mod config;
 mod orchestrator;
 mod serve;
 mod sources;
+mod static_augment;
 mod static_gtfs;
 mod writer;
 
@@ -12,6 +13,7 @@ use crate::sources::amtrak::AmtrakSource;
 use crate::sources::tracks::refresher::run_board_refresher;
 use crate::sources::tracks::{AssignmentStore, WithTracks};
 use crate::sources::{RtBatch, RtSource, SourceError};
+use crate::static_augment::PlatformTable;
 use crate::static_gtfs::{
     bootstrap_static, recover_static, MobilityDataStaticValidator, StaticSnapshotState,
     StaticStandardsValidator,
@@ -149,6 +151,7 @@ async fn initial_snapshots(
     store: &GenerationStore,
     static_url: &str,
     validator: &dyn StaticStandardsValidator,
+    platforms: Option<&PlatformTable>,
 ) -> Result<StaticSnapshotState, Box<dyn std::error::Error + Send + Sync>> {
     if let Some(generation) = store.current().await {
         return Ok(recover_static(
@@ -156,7 +159,7 @@ async fn initial_snapshots(
             generation.manifest.static_version.clone(),
         )?);
     }
-    Ok(bootstrap_static(static_url, validator).await?)
+    Ok(bootstrap_static(static_url, validator, platforms).await?)
 }
 
 fn container_healthcheck() -> std::io::Result<()> {
@@ -227,13 +230,24 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let validator: Arc<dyn StaticStandardsValidator> = Arc::new(MobilityDataStaticValidator::new(
         config.gtfs_validator_jar.clone(),
     ));
-    let snapshots = initial_snapshots(&store, &config.static_url, validator.as_ref()).await?;
+    // With tracks on, every static snapshot is augmented with the configured platform stops, so
+    // the same table must reach both the bootstrap below and the periodic refresh task.
+    let track_config = crate::config::TrackConfig::from_env()?;
+    let platforms = track_config
+        .enabled
+        .then(|| Arc::new(track_config.platforms.clone()));
+    let snapshots = initial_snapshots(
+        &store,
+        &config.static_url,
+        validator.as_ref(),
+        platforms.as_deref(),
+    )
+    .await?;
 
     // The Amtrak source (optionally Capital Corridor-filtered) is optionally wrapped with the
     // best-effort advisory scraper and the track board. Both wrappers are fail-open and stay off
     // unless their env flags are set, so enabling either never risks generation publication.
     let advisory_config = crate::config::AdvisoryConfig::from_env()?;
-    let track_config = crate::config::TrackConfig::from_env()?;
     let advisories = advisory_config.enabled.then_some(advisory_config);
     // With tracks on, the board refresher runs as its own task and generation only reads the
     // store it fills, so a slow board never delays a feed. Its RailData token cache lives beside,
@@ -286,6 +300,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                 static_url,
                 static_refresh_interval,
                 validator,
+                platforms,
             )
             .await;
             Ok(())
@@ -498,6 +513,7 @@ mod tests {
             &reopened,
             "http://127.0.0.1:1/unavailable.zip",
             &RejectIfCalled,
+            None,
         )
         .await
         .unwrap();

@@ -38,7 +38,7 @@ flowchart TD
   n_4_1 --> n_5_1
   n_4_2 --> n_5_1
   class n_1_1 done
-  class n_2_1 pending
+  class n_2_1 done
   class n_3_1 pending
   class n_3_2 pending
   class n_4_1 pending
@@ -89,20 +89,26 @@ flowchart TD
     - **Delegation:** controller
     - _Requirements: 4.1, 4.2, 4.3, 4.4, 4.5, 4.6, 4.7, 4.8, 5.2, 5.3, 6.1, 6.4, 7.1, 7.2, 7.3, 7.4_
 
-- [ ] 2. Platform stops in the static feed
-  - [ ] 2.1 Platform table, static augmenter, augmented pipeline
-    - Create `src/static_augment.rs` with `PlatformTable::{parse, digest, contains, station_ids}`, `parent_station_id`, `platform_stop_id`, and `augment_static(upstream: &[u8], table: &PlatformTable) -> Result<Vec<u8>, AugmentError>` as specified in the design, and register the module in [`src/main.rs`](../../src/main.rs).
+- [x] 2. Platform stops in the static feed
+  - [x] 2.1 Platform table, static augmenter, augmented pipeline
+    - Create [`src/static_augment.rs`](../../src/static_augment.rs) with `PlatformTable::{parse, digest, contains, station_ids}`, `parent_station_id`, `platform_stop_id`, and `augment_static(upstream: &[u8], table: &PlatformTable) -> Result<Vec<u8>, AugmentError>` as specified in the design, and register the module in [`src/main.rs`](../../src/main.rs).
     - Add `AMTRAK_TRACKS_PLATFORMS` (default `NYP=1-21;NWK=A,1-5;NHV=1-4,8,10,12,14`) to `TrackConfig` in [`src/config.rs`](../../src/config.rs) as a parsed `PlatformTable`.
     - Thread `platforms: Option<&PlatformTable>` through `fetch_static`, `stage_static`, `bootstrap_static`, and `refresh_snapshot_once`, and `Option<Arc<PlatformTable>>` through `run_snapshot_refresh`, in [`src/static_gtfs.rs`](../../src/static_gtfs.rs), augmenting inside `fetch_static_at` before `snapshot_from_bytes`, re-parsing and re-validating the upstream bytes on augmentation or validation failure, and adding an optional version-suffix argument to `snapshot_from_bytes` for `+tracks.{digest}`.
     - Update existing callers and tests to pass `None` where tracks are not under test.
+    - Promote `zip` from a dev-dependency to a normal dependency in [`Cargo.toml`](../../Cargo.toml) (already locked at 6.0.0).
     - Strip a leading UTF-8 byte-order mark from `stops.txt` before parsing.
     - Test the fixture round trip, a byte-order-mark input, byte-identical non-stop entries, determinism, skipped stations, id collisions, column appending, version changes, and both fallback paths with a stub validator.
-    - **Files:** `src/static_augment.rs`, [`src/static_gtfs.rs`](../../src/static_gtfs.rs), [`src/config.rs`](../../src/config.rs), [`src/main.rs`](../../src/main.rs)
-    - **Dependency resolution:** none
+    - **Files:** [`src/static_augment.rs`](../../src/static_augment.rs), [`src/static_gtfs.rs`](../../src/static_gtfs.rs), [`src/config.rs`](../../src/config.rs), [`src/main.rs`](../../src/main.rs), [`Cargo.toml`](../../Cargo.toml), [`Cargo.lock`](../../Cargo.lock)
+    - **Dependency resolution:** change
     - **Dependency delivery:** none
+    - **Context7 evidence:** state=completed | identity=/zip-rs/zip2 | version=6.0.0 | decision=ZipWriter::raw_copy_file copies untouched entries; SimpleFileOptions::last_modified_time fixes the stops.txt timestamp
+    - **Pre-change dependency audit:** state=completed | command=dependency-security-audit change | mode=change | timestamp=2026-09-28T05:40:20.832196Z | project_revision=80abb567c5731ee5639aef1e16ca3272f8f8cb2f | inventory_fingerprint=b76b6e2f9f75a31b261dfc2041d63eba200c2cd1d48ec23edfe2625202743de7 | json=[`.security/dependency-audit/track-assignments-zip-pre.json`](../../.security/dependency-audit/track-assignments-zip-pre.json) | markdown=[`.security/dependency-audit/track-assignments-zip-pre.md`](../../.security/dependency-audit/track-assignments-zip-pre.md) | review=completed | result=warnings | exit=0 | decision=proceed; twelve pre-existing transitive advisories, none blocking | warnings_reviewed=true | clean=false
+    - **Resolution edit:** state=completed | files=[`Cargo.toml`](../../Cargo.toml), [`Cargo.lock`](../../Cargo.lock)
+    - **Project tests:** state=completed | evidence=[`.specs/track-assignments/05_execution.md`](../../.specs/track-assignments/05_execution.md)
+    - **Post-change dependency audit:** state=completed | command=dependency-security-audit change | mode=change | timestamp=2026-09-28T05:52:16.805147Z | project_revision=80abb567c5731ee5639aef1e16ca3272f8f8cb2f | inventory_fingerprint=57329c694a70decfc6ff8c6d302fd76ec126289da0cc84c57fc8335c5e1f3a36 | json=[`.security/dependency-audit/track-assignments-zip-post.json`](../../.security/dependency-audit/track-assignments-zip-post.json) | markdown=[`.security/dependency-audit/track-assignments-zip-post.md`](../../.security/dependency-audit/track-assignments-zip-post.md) | review=completed | result=warnings | exit=0 | decision=proceed; zip moves from dev to normal dependency at the locked 6.0.0 with no new findings | warnings_reviewed=true | clean=false
     - **Depends on:** 1.1
     - **Stage:** 2
-    - **Interfaces:** Consumes: `csv` from 1.1, the revised `TrackConfig`, and upstream GTFS ZIP bytes; Produces: `PlatformTable`, `augment_static`, `platform_stop_id`, `parent_station_id`, and static snapshots whose bytes and version reflect augmentation
+    - **Interfaces:** Consumes: `csv` from 1.1 and the promoted `zip` dependency, the revised `TrackConfig`, and upstream GTFS ZIP bytes; Produces: `PlatformTable`, `augment_static`, `platform_stop_id`, `parent_station_id`, and static snapshots whose bytes and version reflect augmentation
     - **Documentation:** module docs for `static_augment` explaining why covered stops are re-parented rather than converted, the determinism contract, and the fallback rule; doc comments on the changed `static_gtfs` functions
     - **Verification:** `cargo test --features status`; `cargo clippy --bins --tests --features status -- -D warnings`; augment the downloaded Amtrak `GTFS.zip` and run the MobilityData 8.0.1 validator on the result with zero `ERROR` notices; review doc comments
     - **Estimated effort:** 2.5-3.5 hours

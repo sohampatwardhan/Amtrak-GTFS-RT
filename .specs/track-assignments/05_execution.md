@@ -48,6 +48,7 @@ kanban
 | Run ID | Stage/Wave | Task | Attempt | Started UTC | Stopped UTC | Elapsed Seconds | Outcome |
 |---|---|---|---:|---|---|---:|---|
 | run-20260928T052307Z | 1 | 1.1 | 1 | 2026-09-28T05:29:17Z | 2026-09-28T05:36:24Z | 427 | verified |
+| run-20260928T052307Z | 2 | 2.1 | 1 | 2026-09-28T05:37:14Z | 2026-09-28T05:52:52Z | 938 | verified |
 
 ## Task Evidence
 
@@ -69,3 +70,12 @@ gantt
     section 1
     1.1 attempt 1 (verified, 427s) :done, b_1_1_attempt1, 2026-09-28T05:29:17, 2026-09-28T05:36:24
 ```
+
+### Task 2.1 — Platform table, static augmenter, augmented pipeline
+
+- **Result:** verified. [`src/static_augment.rs`](../../src/static_augment.rs) adds `PlatformTable` (ranges, letters, canonical digest), `parent_station_id`, `platform_stop_id`, and `augment_static`, which rewrites only `stops.txt` (byte-order mark stripped, columns appended, covered stops re-parented, parent station and platform rows added) and copies every other entry raw with a fixed `stops.txt` timestamp. [`src/static_gtfs.rs`](../../src/static_gtfs.rs) augments inside `fetch_static_at` before parsing, validates the augmented bytes, falls back to a fresh parse and validation of the upstream bytes on any failure, and versions augmented snapshots `{feed_version}+tracks.{digest}` through a new `snapshot_from_bytes` suffix argument. `AMTRAK_TRACKS_PLATFORMS` (default `NYP=1-21;NWK=A,1-5;NHV=1-4,8,10,12,14`) is part of `TrackConfig`, and [`src/main.rs`](../../src/main.rs) passes the table to the bootstrap and refresh task when tracks are enabled.
+- **Contract repairs:** `zip` was only a dev-dependency, so the task became a dependency-resolution change that promotes it (no [`Cargo.lock`](../../Cargo.lock) change; complete pre/post audits both `warnings` with the same twelve pre-existing advisories). `PlatformTable::parse` returns a message string that `TrackConfig` wraps in `ConfigError`, because `ConfigError::new` is private to the config module.
+- **Debugging note:** the first full test run hung. Root cause: a new test held a `std::sync::Mutex` guard on the recording validator while calling `fetch_static` again, so the validator blocked on the same lock. Scoping the guard fixed it; no production code was involved.
+- **Live validation:** augmenting Amtrak's `GTFS.zip` (feed version 20260927) with the default table and running MobilityData validator 8.0.1 gives zero `ERROR` notices, the same notices as the upstream feed, plus `stop_without_stop_time` (WARNING) for exactly the 35 added platform stops, which no scheduled trip references by design.
+- **Verification:** `cargo test --features status` passes (92 service tests, 20 status-tool tests), including round trip, byte-identical untouched entries, determinism, byte-order mark, skipped stations, collisions, version change with the table and stability without it, and both fallback paths. `cargo clippy --bins --tests --features status -- -D warnings` is clean.
+- **Criteria:** R1.1–R1.9 and R2.1–R2.5 met.

@@ -26,6 +26,9 @@ sha2 = "0.10.9"
 # Rewrites stops.txt when platform stops are added to the published static feed. Already in the
 # resolved graph through gtfs-structures.
 csv = "1.4"
+# Rewrites the static ZIP (copying untouched entries raw) when platform stops are added. Already
+# resolved at this version through gtfs-structures; previously only a dev-dependency.
+zip = { version = "6.0", default-features = false, features = ["deflate"] }
 # Consumer-only (station & train status): per-station local-time rendering with DST. Optional so
 # the released service binary and container link no additional code. Already in the resolved graph.
 chrono-tz = { version = "0.10", optional = true }
@@ -39,7 +42,6 @@ rustix = { version = "1.1.4", features = ["fs", "process"] }
 
 [dev-dependencies]
 tower = { version = "0.5", features = ["util"] }
-zip = { version = "6.0", default-features = false, features = ["deflate"] }
 
 # Station & train status consumer CLI. Gated behind the `status` feature so the default build and
 # the container image (which build no features) never compile this target or `chrono-tz`.
