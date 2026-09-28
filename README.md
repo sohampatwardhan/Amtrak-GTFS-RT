@@ -9,32 +9,16 @@ transit apps (Transit, Transitland, OpenTripPlanner).
 
 ## Repository, release, and deployment state
 
-- **Source:** `main` contains the Rust service, advisory consumption from merged PR #8, and the
-  Playwright advisory-fetcher from merged PR #9.
-- **Completed release:** `v0.2.0` is the latest completed GitHub/GHCR release and remains the
-  documented stable image below.
-- **Incomplete publication:** the immutable `v0.3.0` source tag exists, but its release workflow
-  did not complete publication. Do not describe or deploy it as a completed release until the
-  workflow produces both platform evidence artifacts, the exact two-platform manifest, and the
-  corresponding GitHub Release.
+- **Source:** `main` contains the Rust service, advisory consumption and the Playwright
+  advisory-fetcher (with advisory detail text in `alerts.pb`), the `amtrak-status` station and
+  train consumer, and root-level Compose/Bake packaging for the service plus fetcher.
+- **Releases:** `v0.4.0` is the current release line. A release is complete only when its GitHub
+  Release exists with `image-release.txt` recording the tag, revisions, manifest digest, and both
+  platform digests; until then the previous completed release, `v0.2.0`, stays the stable image.
+- **Superseded:** the `v0.3.0` tag exists, but its publication never completed and it has no
+  GitHub Release. Its code is included in `v0.4.0`. Do not deploy `v0.3.0` or its partial images.
 - **Deployment:** this repository does not record or authorize a running production deployment,
   anonymous public feed exposure, reverse-proxy trust, or orchestration.
-- **Separate work:** PR #7 remains an open, conflicting workstream and is not part of the
-  repository-health recovery.
-
-After this recovery change is merged to `main`, an operator may retry the immutable `v0.3.0`
-publication with corrected controls while building only from the existing tag:
-
-```bash
-gh workflow run release.yml --ref main -f tag=v0.3.0
-```
-
-Before treating the recovery as complete, require successful `linux/amd64` and `linux/arm64`
-platform jobs, retained `release-platform-linux-amd64` and `release-platform-linux-arm64`
-artifacts, a zero-match canonical Grype report for each exact digest, successful SBOM attestations,
-the exact two-platform manifest, and a GitHub Release whose `image-release.txt` records the tag,
-release revision, control revision, manifest digest, and both platform digests. This command is a
-post-merge operator handoff; pull-request validation never dispatches it.
 
 It loads Amtrak's official static `GTFS.zip`, then on an interval delegates the
 decrypt → parse → match → encode work to the

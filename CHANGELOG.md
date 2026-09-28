@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-09-27
+
+### Added
+
+- **Advisory detail text in `alerts.pb`.** The advisory-fetcher now snapshots each
+  advisory's detail page, and the service copies its paragraphs, effective date, and
+  PSN into the alert's `description_text`. A missing detail page keeps the title-only
+  description.
+- **`amtrak-status` consumer** for station departures and train status, reading
+  either the local feed set or Amtrak directly.
+- **Root-level packaging.** `docker compose up -d --build` at the repository root
+  builds and runs the scratch service and the advisory-fetcher together with
+  advisories on, published on host loopback port 8090. `docker buildx bake` builds
+  both images without starting them. Chromium stays out of the service image.
+
+### Changed
+
+- CI now also runs the advisory-fetcher's offline tests, the release-control
+  fixtures, and a Compose/Bake config check, and release scan failures upload the
+  reports that explain them.
+
+### Notes
+
+- `v0.3.0` never completed publication; its changes ship in this release.
+
 ## [0.3.0] - 2026-08-18
 
 ### Added
