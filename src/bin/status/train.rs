@@ -25,7 +25,7 @@ pub struct StopStatus {
     pub canceled: bool,
     /// IANA timezone to render this stop's times in.
     pub tz: String,
-    /// Platform/track when the feed assigned `{stop_id}:track:{track}`.
+    /// Platform/track: the `platform_code` of the stop time's assigned platform stop, if any.
     pub track: Option<String>,
 }
 
@@ -129,7 +129,8 @@ fn build_status(index: &FeedIndex, trip: &Trip, now_unix: i64) -> TrainStatus {
             }
             let effective = departure_unix.or(arrival_unix);
             if effective.map(|t| t >= now_unix).unwrap_or(false) {
-                let code = stu.stop_id.clone().unwrap_or_default();
+                let code =
+                    super::station::scheduled_stop_id(gtfs, &trip.id, stu).unwrap_or_default();
                 let (stop_name, tz) = resolve_stop(index, &code);
                 remaining_stops.push(StopStatus {
                     stop_code: code,
@@ -138,7 +139,7 @@ fn build_status(index: &FeedIndex, trip: &Trip, now_unix: i64) -> TrainStatus {
                     departure_unix,
                     canceled: stu.schedule_relationship == Some(1),
                     tz,
-                    track: super::station::track_from_update(stu),
+                    track: super::station::track_from_update(gtfs, stu),
                 });
             }
         }

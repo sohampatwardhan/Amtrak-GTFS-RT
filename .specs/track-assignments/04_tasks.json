@@ -1,28 +1,28 @@
 {
   "concurrency": {
-    "active_stage": 3,
+    "active_stage": 4,
     "blocked": {},
     "parallel_candidates": [],
     "ready": [
-      "3.1",
-      "3.2"
+      "4.1",
+      "4.2"
     ],
     "serial_candidates": [
-      "3.1",
-      "3.2"
+      "4.1",
+      "4.2"
     ],
     "waves": [
       {
         "mode": "serial",
         "tasks": [
-          "3.1"
+          "4.1"
         ],
         "wave": 1
       },
       {
         "mode": "serial",
         "tasks": [
-          "3.2"
+          "4.2"
         ],
         "wave": 2
       }
@@ -30,7 +30,7 @@
   },
   "generated_from": {
     "file": "04_tasks.md",
-    "sha256": "dfd74ac535adb1b59bf7fb849d6280a23f75ff0ddf6e5c09648b72c0472cc545"
+    "sha256": "acccc1303645ea91e1d12c07079e97261879d6b302cc129e1bd7a1e1f5b07384"
   },
   "requirement_count": 48,
   "schema_version": 1,
@@ -149,7 +149,7 @@
     },
     {
       "capability_tier": "frontier",
-      "checked": false,
+      "checked": true,
       "delegation": "controller",
       "dependency_delivery": "none",
       "dependency_resolution": "none",
@@ -158,7 +158,9 @@
       ],
       "files": [
         "src/sources/tracks/mod.rs",
-        "src/orchestrator.rs"
+        "src/orchestrator.rs",
+        "src/static_augment.rs",
+        "src/main.rs"
       ],
       "id": "3.1",
       "interfaces": "Consumes: `AssignmentStore::fresh_board`, `TrackBoard`, `PlatformTable`, `platform_stop_id`, and the active parsed `Gtfs`; Produces: stamped `StopTimeUpdate`s and `stop_assignment_is_valid(assigned_id, update, trip, gtfs) -> bool`",
@@ -187,7 +189,7 @@
     },
     {
       "capability_tier": "balanced",
-      "checked": false,
+      "checked": true,
       "delegation": "controller",
       "dependency_delivery": "none",
       "dependency_resolution": "none",
@@ -196,8 +198,7 @@
       ],
       "files": [
         "src/bin/status/station.rs",
-        "src/bin/status/train.rs",
-        "src/bin/amtrak_status.rs"
+        "src/bin/status/train.rs"
       ],
       "id": "3.2",
       "interfaces": "Consumes: static `Stop::platform_code`, `Stop::parent_station`, and stamped stop times shaped by the design; Produces: status rows whose station and track come from the static feed",

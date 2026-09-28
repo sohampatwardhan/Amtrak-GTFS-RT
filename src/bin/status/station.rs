@@ -41,7 +41,7 @@ pub struct DepartureRow {
     pub tz_is_fallback: bool,
     /// Service-alert texts affecting this train.
     pub alerts: Vec<String>,
-    /// Platform/track when the feed assigned `{stop_id}:track:{track}`.
+    /// Platform/track: the `platform_code` of the stop time's assigned platform stop, if any.
     pub track: Option<String>,
 }
 
@@ -77,7 +77,9 @@ pub fn station_query(index: &FeedIndex, identifier: &str, now_unix: i64) -> Stat
     let mut rows = Vec::new();
     for (trip_id, update) in &index.update_by_trip {
         for stu in &update.stop_time_update {
-            if stu.stop_id.as_deref().unwrap_or_default().to_uppercase() != code {
+            let at_station = scheduled_stop_id(index.gtfs, trip_id, stu)
+                .is_some_and(|stop_id| stop_id.to_uppercase() == code);
+            if !at_station {
                 continue;
             }
             let (kind, event) = match (&stu.departure, &stu.arrival) {
@@ -104,7 +106,7 @@ pub fn station_query(index: &FeedIndex, identifier: &str, now_unix: i64) -> Stat
                     .get(trip_id)
                     .cloned()
                     .unwrap_or_default(),
-                track: track_from_update(stu),
+                track: track_from_update(index.gtfs, stu),
             });
         }
     }
@@ -119,8 +121,33 @@ pub fn station_query(index: &FeedIndex, identifier: &str, now_unix: i64) -> Stat
     }
 }
 
-/// Track label from `assigned_stop_id` shaped `{stop_id}:track:{label}`.
+/// The stop a stop-time update refers to: its `stop_id`, or the static trip's stop at its
+/// `stop_sequence` when `stop_id` is absent.
+///
+/// A platform assignment clears `stop_id` (GTFS-Realtime prefers only `stop_sequence` alongside
+/// `assigned_stop_id`), so the sequence is authoritative whenever the id is missing; without this a
+/// stamped stop would silently drop off its station's board.
+pub(super) fn scheduled_stop_id(
+    gtfs: &Gtfs,
+    trip_id: &str,
+    stu: &gtfs_realtime::trip_update::StopTimeUpdate,
+) -> Option<String> {
+    if let Some(stop_id) = stu.stop_id.as_deref() {
+        return Some(stop_id.to_string());
+    }
+    let sequence = stu.stop_sequence?;
+    gtfs.trips
+        .get(trip_id)?
+        .stop_times
+        .iter()
+        .find(|time| time.stop_sequence == sequence)
+        .map(|time| time.stop.id.clone())
+}
+
+/// Track shown for a stop time: the `platform_code` of its assigned platform stop in the static
+/// feed, which is where the service publishes the track number.
 pub(super) fn track_from_update(
+    gtfs: &Gtfs,
     stu: &gtfs_realtime::trip_update::StopTimeUpdate,
 ) -> Option<String> {
     let assigned = stu
@@ -128,36 +155,11 @@ pub(super) fn track_from_update(
         .as_ref()?
         .assigned_stop_id
         .as_deref()?;
-    let (station, track) = assigned.rsplit_once(":track:")?;
-    if station.is_empty() || !is_display_track(track) {
-        return None;
-    }
-    Some(track.to_string())
-}
-
-fn is_display_track(track: &str) -> bool {
-    let bytes = track.as_bytes();
-    if bytes.is_empty() || bytes.len() > 4 || !bytes.iter().all(|byte| byte.is_ascii_alphanumeric())
-    {
-        return false;
-    }
-    let split_at = track
-        .find(|character: char| character.is_ascii_uppercase())
-        .unwrap_or(track.len());
-    let (digits, letters) = track.split_at(split_at);
-    if letters.len() > 1
-        || !letters
-            .chars()
-            .all(|character| character.is_ascii_uppercase())
-    {
-        return false;
-    }
-    if digits.is_empty() {
-        return letters.len() == 1;
-    }
-    digits.chars().all(|character| character.is_ascii_digit())
-        && !digits.starts_with('0')
-        && digits.len() <= 3
+    gtfs.stops
+        .get(assigned)?
+        .platform_code
+        .clone()
+        .filter(|code| !code.trim().is_empty())
 }
 
 /// Resolves a trip's display route name, train number, and headsign, preferring the static schedule
@@ -199,7 +201,7 @@ mod tests {
         let options = SimpleFileOptions::default();
         for (name, contents) in [
             ("agency.txt", "agency_id,agency_name,agency_url,agency_timezone\na,Amtrak,https://amtrak.com,America/New_York\n"),
-            ("stops.txt", "stop_id,stop_name,stop_lat,stop_lon,stop_timezone\nNYP,New York Penn,40.75,-73.99,America/New_York\n"),
+            ("stops.txt", "stop_id,stop_name,stop_lat,stop_lon,stop_timezone,location_type,parent_station,platform_code\nNYP,New York Penn,40.75,-73.99,America/New_York,0,NYP:station,\nNYP:station,New York Penn,40.75,-73.99,America/New_York,1,,\nNYP:track:4,New York Penn Track 4,40.75,-73.99,America/New_York,0,NYP:station,4\n"),
             ("routes.txt", "route_id,agency_id,route_short_name,route_long_name,route_type\n40751,a,,Acela,2\n88,a,,Northeast Regional,2\n"),
             ("trips.txt", "route_id,service_id,trip_id,trip_short_name,trip_headsign\n40751,svc,t_dep,2159,Washington\n88,svc,t_arr,171,New York\n40751,svc,t_cancel,2160,Washington\n"),
             ("stop_times.txt", "trip_id,arrival_time,departure_time,stop_id,stop_sequence\nt_dep,11:00:00,11:00:00,NYP,1\nt_arr,12:00:00,12:00:00,NYP,1\nt_cancel,13:00:00,13:00:00,NYP,1\n"),
@@ -328,24 +330,36 @@ mod tests {
     }
 
     #[test]
-    fn track_label_comes_from_assigned_stop_id() {
+    fn a_platform_assignment_keeps_its_station_and_shows_the_track() {
         use gtfs_realtime::trip_update::stop_time_update::StopTimeProperties;
-        let labeled = StopTimeUpdate {
+        let mut data = generation();
+        let stamped = &mut data.trip_updates.entity[0]
+            .trip_update
+            .as_mut()
+            .unwrap()
+            .stop_time_update[0];
+        stamped.stop_id = None;
+        stamped.stop_sequence = Some(1);
+        stamped.stop_time_properties = Some(StopTimeProperties {
+            assigned_stop_id: Some("NYP:track:4".into()),
+            ..Default::default()
+        });
+        let index = FeedIndex::build(&data);
+        let StationResult::Board { rows, .. } = station_query(&index, "nyp", NOW) else {
+            panic!("expected a board");
+        };
+        let departure = rows.iter().find(|row| row.train_number == "2159").unwrap();
+        assert_eq!(departure.track.as_deref(), Some("4"));
+        assert_eq!(rows.len(), 3);
+
+        let unknown = StopTimeUpdate {
             stop_time_properties: Some(StopTimeProperties {
-                assigned_stop_id: Some("NYP:track:4".into()),
+                assigned_stop_id: Some("NYP:track:99".into()),
                 ..Default::default()
             }),
             ..Default::default()
         };
-        assert_eq!(track_from_update(&labeled).as_deref(), Some("4"));
-        let rejected = StopTimeUpdate {
-            stop_time_properties: Some(StopTimeProperties {
-                assigned_stop_id: Some("NYP:track:TBD".into()),
-                ..Default::default()
-            }),
-            ..Default::default()
-        };
-        assert!(track_from_update(&rejected).is_none());
+        assert!(track_from_update(&data.static_gtfs, &unknown).is_none());
     }
 
     // R2.5: an unresolvable identifier is distinct from an empty board.

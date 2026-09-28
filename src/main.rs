@@ -183,12 +183,20 @@ fn container_healthcheck() -> std::io::Result<()> {
     }
 }
 
+/// Shared track state: the store the board refresher fills, the platform table the static feed
+/// was augmented with, and the oldest assignment age that may be stamped.
+struct TrackWiring {
+    store: Arc<AssignmentStore>,
+    table: Arc<PlatformTable>,
+    max_age: Duration,
+}
+
 /// Layers the optional advisory and track decorators. Tracks sit outside advisories so a board
 /// failure cannot hide an advisory merge, and the published source name stays the inner source's.
 fn realtime_source<S>(
     source: S,
     advisories: Option<crate::config::AdvisoryConfig>,
-    tracks: Option<(Arc<AssignmentStore>, Duration)>,
+    tracks: Option<TrackWiring>,
 ) -> Box<dyn RtSource>
 where
     S: RtSource + 'static,
@@ -196,11 +204,17 @@ where
     match (advisories, tracks) {
         (None, None) => Box::new(source),
         (Some(advisories), None) => Box::new(WithAdvisories::new(source, advisories)),
-        (None, Some((store, max_age))) => Box::new(WithTracks::new(source, store, max_age)),
-        (Some(advisories), Some((store, max_age))) => Box::new(WithTracks::new(
+        (None, Some(tracks)) => Box::new(WithTracks::new(
+            source,
+            tracks.store,
+            tracks.table,
+            tracks.max_age,
+        )),
+        (Some(advisories), Some(tracks)) => Box::new(WithTracks::new(
             WithAdvisories::new(source, advisories),
-            store,
-            max_age,
+            tracks.store,
+            tracks.table,
+            tracks.max_age,
         )),
     }
 }
@@ -260,7 +274,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             track_config.clone(),
             config.output_dir.join("tracks").join("raildata-token.json"),
         ));
-        (assignments, max_age)
+        TrackWiring {
+            store: assignments,
+            table: Arc::new(track_config.platforms.clone()),
+            max_age,
+        }
     });
     let source: Box<dyn RtSource> = if config.filter_capital_corridor {
         realtime_source(

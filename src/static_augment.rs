@@ -82,7 +82,6 @@ impl PlatformTable {
     }
 
     /// Whether `label` is a configured track of covered stop `stop_id`.
-    #[allow(dead_code)] // Read by the track stamper, which lands in the next task.
     pub fn contains(&self, stop_id: &str, label: &str) -> bool {
         self.stations
             .get(&stop_id.to_uppercase())

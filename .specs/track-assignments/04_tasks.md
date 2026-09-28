@@ -39,8 +39,8 @@ flowchart TD
   n_4_2 --> n_5_1
   class n_1_1 done
   class n_2_1 done
-  class n_3_1 pending
-  class n_3_2 pending
+  class n_3_1 done
+  class n_3_2 done
   class n_4_1 pending
   class n_4_2 pending
   class n_5_1 pending
@@ -117,12 +117,12 @@ flowchart TD
     - **Delegation:** controller
     - _Requirements: 1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 1.7, 1.8, 1.9, 2.1, 2.2, 2.3, 2.4, 2.5_
 
-- [ ] 3. Assignments in trip updates and tools
-  - [ ] 3.1 Stamp platform stops; enforce rules in orchestrator
+- [x] 3. Assignments in trip updates and tools
+  - [x] 3.1 Stamp platform stops; enforce rules in orchestrator
     - Rewrite `WithTracks` and `apply_track_assignments` in [`src/sources/tracks/mod.rs`](../../src/sources/tracks/mod.rs) to read `AssignmentStore::fresh_board` and stamp `assigned_stop_id = platform_stop_id(stop, label)`, set `stop_sequence`, and clear `stop_id`, under the design's five conditions (the duplicate-station check runs even when `stop_sequence` is present), logging each unlisted (stop, label) once. Change the constructor to `WithTracks::new(inner, store, table, max_age)`.
     - Replace `stop_assignment_is_valid` so it lives in [`src/orchestrator.rs`](../../src/orchestrator.rs) and requires `stop_sequence`, an existing assigned stop, a matching `stop_id` when present, and the same parent station as the scheduled stop.
     - Rewrite the orchestrator overlay tests for the new rule, and test every stamping condition and the one-hour/twelve-hour window.
-    - **Files:** [`src/sources/tracks/mod.rs`](../../src/sources/tracks/mod.rs), [`src/orchestrator.rs`](../../src/orchestrator.rs)
+    - **Files:** [`src/sources/tracks/mod.rs`](../../src/sources/tracks/mod.rs), [`src/orchestrator.rs`](../../src/orchestrator.rs), [`src/static_augment.rs`](../../src/static_augment.rs), [`src/main.rs`](../../src/main.rs)
     - **Dependency resolution:** none
     - **Dependency delivery:** none
     - **Depends on:** 2.1
@@ -135,10 +135,10 @@ flowchart TD
     - **Task category:** heavy_reasoning
     - **Delegation:** controller
     - _Requirements: 3.1, 3.2, 3.3, 3.4, 3.5, 3.6, 3.7, 3.8, 3.9, 3.11, 5.1, 6.2_
-  - [ ] 3.2 Resolve stations and platform codes in the status tool
+  - [x] 3.2 Resolve stations and platform codes in the status tool
     - In [`src/bin/status/station.rs`](../../src/bin/status/station.rs) and [`src/bin/status/train.rs`](../../src/bin/status/train.rs), resolve each stop time's station from `stop_id` or from `stop_sequence` and the static trip, and read the track from the assigned stop's `platform_code`.
-    - Update [`src/bin/amtrak_status.rs`](../../src/bin/amtrak_status.rs) only where the station and track helpers are called, and replace the `{stop}:track:{label}` string-parsing tests with platform-stop fixtures.
-    - **Files:** [`src/bin/status/station.rs`](../../src/bin/status/station.rs), [`src/bin/status/train.rs`](../../src/bin/status/train.rs), [`src/bin/amtrak_status.rs`](../../src/bin/amtrak_status.rs)
+    - Replace the `{stop}:track:{label}` string-parsing tests with platform-stop fixtures.
+    - **Files:** [`src/bin/status/station.rs`](../../src/bin/status/station.rs), [`src/bin/status/train.rs`](../../src/bin/status/train.rs)
     - **Dependency resolution:** none
     - **Dependency delivery:** none
     - **Depends on:** 2.1

@@ -849,6 +849,52 @@ fn valid_alert_selector(selector: &gtfs_realtime::EntitySelector, gtfs: &Gtfs) -
     })
 }
 
+/// Whether `assigned_id` is a legal GTFS-Realtime stop assignment for `update`.
+///
+/// Enforces the reference's rules for `StopTimeProperties.assigned_stop_id`: `stop_sequence` must
+/// be set, the assigned id must be a stop in the active static feed, and a present `stop_id` must
+/// equal it. The assignment must also stay within the scheduled station, which the reference asks
+/// for ("should not result in a significantly different trip experience"): it is either the
+/// scheduled stop itself or shares that stop's non-empty `parent_station`.
+fn stop_assignment_is_valid(
+    assigned_id: &str,
+    update: &gtfs_realtime::trip_update::StopTimeUpdate,
+    trip: &gtfs_structures::Trip,
+    gtfs: &Gtfs,
+) -> bool {
+    let Some(sequence) = update.stop_sequence else {
+        return false;
+    };
+    let Some(assigned) = gtfs.stops.get(assigned_id) else {
+        return false;
+    };
+    if update
+        .stop_id
+        .as_ref()
+        .is_some_and(|stop_id| stop_id != assigned_id)
+    {
+        return false;
+    }
+    let Some(scheduled) = trip
+        .stop_times
+        .iter()
+        .find(|time| time.stop_sequence == sequence)
+    else {
+        return false;
+    };
+    if scheduled.stop.id == assigned_id {
+        return true;
+    }
+    let parent = |id: &str| {
+        gtfs.stops
+            .get(id)
+            .and_then(|stop| stop.parent_station.clone())
+            .filter(|parent| !parent.is_empty())
+    };
+    parent(&scheduled.stop.id)
+        .is_some_and(|station| assigned.parent_station.as_deref() == Some(station.as_str()))
+}
+
 fn valid_stop_time_update(
     update: &gtfs_realtime::trip_update::StopTimeUpdate,
     descriptor: &gtfs_realtime::TripDescriptor,
@@ -889,9 +935,8 @@ fn valid_stop_time_update(
         .stop_time_properties
         .as_ref()
         .and_then(|properties| properties.assigned_stop_id.as_ref());
-    let assignment_valid = assigned_stop.is_none_or(|assigned_id| {
-        crate::sources::tracks::stop_assignment_is_valid(assigned_id, update, trip, gtfs)
-    });
+    let assignment_valid = assigned_stop
+        .is_none_or(|assigned_id| stop_assignment_is_valid(assigned_id, update, trip, gtfs));
     if !assignment_valid {
         return false;
     }
@@ -1009,16 +1054,24 @@ mod tests {
         });
         let stop = Arc::new(Stop {
             id: "stop".into(),
+            parent_station: Some("station".into()),
             ..Default::default()
         });
         gtfs.stops.insert("stop".into(), stop.clone());
-        gtfs.stops.insert(
-            "platform".into(),
-            Arc::new(Stop {
-                id: "platform".into(),
-                ..Default::default()
-            }),
-        );
+        for (id, parent) in [
+            ("station", None),
+            ("platform", Some("station")),
+            ("elsewhere", Some("other")),
+        ] {
+            gtfs.stops.insert(
+                id.into(),
+                Arc::new(Stop {
+                    id: id.into(),
+                    parent_station: parent.map(str::to_string),
+                    ..Default::default()
+                }),
+            );
+        }
         let raw_stop_time = RawStopTime {
             stop_sequence: 1,
             ..Default::default()
@@ -1476,27 +1529,26 @@ mod tests {
             &snapshot.parsed
         ));
 
-        let overlay = trip_update::StopTimeUpdate {
-            stop_sequence: Some(1),
-            stop_id: Some("stop".into()),
-            schedule_relationship: Some(ScheduleRelationship::NoData as i32),
-            stop_time_properties: Some(assignment("stop:track:4")),
-            ..Default::default()
-        };
-        assert!(valid_stop_time_update(&overlay, &trip, &snapshot.parsed));
-
-        let mut bogus_track = overlay.clone();
-        bogus_track.stop_time_properties = Some(assignment("stop:track:TBD"));
+        let mut other_station = valid.clone();
+        other_station.stop_time_properties = Some(assignment("elsewhere"));
         assert!(!valid_stop_time_update(
-            &bogus_track,
+            &other_station,
             &trip,
             &snapshot.parsed
         ));
 
-        let mut unknown_station = overlay;
-        unknown_station.stop_time_properties = Some(assignment("missing:track:4"));
+        let mut scheduled_itself = valid.clone();
+        scheduled_itself.stop_time_properties = Some(assignment("stop"));
+        assert!(valid_stop_time_update(
+            &scheduled_itself,
+            &trip,
+            &snapshot.parsed
+        ));
+
+        let mut synthetic_overlay = valid.clone();
+        synthetic_overlay.stop_time_properties = Some(assignment("stop:track:4"));
         assert!(!valid_stop_time_update(
-            &unknown_station,
+            &synthetic_overlay,
             &trip,
             &snapshot.parsed
         ));

@@ -49,6 +49,8 @@ kanban
 |---|---|---|---:|---|---|---:|---|
 | run-20260928T052307Z | 1 | 1.1 | 1 | 2026-09-28T05:29:17Z | 2026-09-28T05:36:24Z | 427 | verified |
 | run-20260928T052307Z | 2 | 2.1 | 1 | 2026-09-28T05:37:14Z | 2026-09-28T05:52:52Z | 938 | verified |
+| run-20260928T052307Z | 3 | 3.1 | 1 | 2026-09-28T05:53:00Z | 2026-09-28T05:55:44Z | 164 | verified |
+| run-20260928T052307Z | 3 | 3.2 | 1 | 2026-09-28T05:55:44Z | 2026-09-28T05:57:10Z | 86 | verified |
 
 ## Task Evidence
 
@@ -79,3 +81,19 @@ gantt
 - **Live validation:** augmenting Amtrak's `GTFS.zip` (feed version 20260927) with the default table and running MobilityData validator 8.0.1 gives zero `ERROR` notices, the same notices as the upstream feed, plus `stop_without_stop_time` (WARNING) for exactly the 35 added platform stops, which no scheduled trip references by design.
 - **Verification:** `cargo test --features status` passes (92 service tests, 20 status-tool tests), including round trip, byte-identical untouched entries, determinism, byte-order mark, skipped stations, collisions, version change with the table and stability without it, and both fallback paths. `cargo clippy --bins --tests --features status -- -D warnings` is clean.
 - **Criteria:** R1.1–R1.9 and R2.1–R2.5 met.
+
+### Task 3.1 — Stamp platform stops; enforce rules in orchestrator
+
+- **Result:** verified. `WithTracks::new(inner, store, table, max_age)` in [`src/sources/tracks/mod.rs`](../../src/sources/tracks/mod.rs) stamps `assigned_stop_id = {stop}:track:{label}`, fills `stop_sequence`, and clears `stop_id` only when the stop time is not skipped, has a predicted time from one hour before to twelve hours after generation, visits its station exactly once in the trip (checked even when `stop_sequence` is already set), has a fresh board track, and that track is configured with a platform stop present in the active feed; an unconfigured (stop, track) pair is logged once. PR #17's synthetic overlay, `split_track_assignment`, and the tracks-module validator are removed. The orchestrator's new `stop_assignment_is_valid` in [`src/orchestrator.rs`](../../src/orchestrator.rs) requires `stop_sequence`, an existing assigned stop, a matching `stop_id` when present, and the scheduled stop itself or a sibling under the same non-empty parent.
+- **Contract repair:** the constructor change required the `TrackWiring { store, table, max_age }` struct and `realtime_source(…, Option<TrackWiring>)` in [`src/main.rs`](../../src/main.rs) now rather than in task 4.1, and the temporary `dead_code` allowance on `PlatformTable::contains` in [`src/static_augment.rs`](../../src/static_augment.rs) was removed.
+- **Test correction:** an added orchestrator case with `stop_id` equal to the platform and the scheduled stop's sequence failed. It was an invalid test: the orchestrator's existing check that `stop_id` agrees with `stop_sequence` rejects that pair before the assignment rule, and the stamper never produces it because it clears `stop_id`. The case was removed; the existing check is unchanged.
+- **Verification:** `cargo test --features status` passes (99 service tests, 20 status-tool tests), covering stamping by `stop_id` and by sequence, a station visited twice, skipped stops, both window edges and a missing time, an unconfigured track, a configured track whose platform is absent, a mismatched `stop_id`/sequence, stale and fresh store rows through the decorator, and orchestrator acceptance of sibling platforms and rejection of other stations, unknown stops, and synthetic overlays. Clippy is clean.
+- **Criteria:** R3.1–R3.9, R3.11, R5.1, and R6.2 met.
+
+### Task 3.2 — Resolve stations and platform codes in the status tool
+
+- **Result:** verified. [`src/bin/status/station.rs`](../../src/bin/status/station.rs) adds `scheduled_stop_id`, which uses `stop_id` or, when a platform assignment cleared it, the static trip's stop at `stop_sequence`; the station board and [`src/bin/status/train.rs`](../../src/bin/status/train.rs) both use it. `track_from_update` now returns the assigned platform stop's `platform_code` from the static feed instead of parsing the id string. [`src/bin/amtrak_status.rs`](../../src/bin/amtrak_status.rs) only renders the `track` field and needed no change, so it was dropped from the task's files.
+- **Repair note:** a text replacement initially removed the neighbouring `trip_meta` helper; the build failed immediately and the helper was restored verbatim from the previous commit.
+- **Verification:** `cargo test --features status` passes (99 service tests, 20 status-tool tests), including a board where a stamped stop time with only `stop_sequence` stays on its station and shows track `4`, and an assignment to an unknown stop showing no track. Clippy is clean.
+- **Integration:** committed together with task 3.1 because 3.1 clears the `stop_id` this tool previously matched on.
+- **Criteria:** R8.1 and R8.2 met.
