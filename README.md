@@ -116,8 +116,21 @@ source.
 
 ### Build locally
 
+The scratch service image is still the default build. `runtime` is the last Dockerfile stage, so
+this does not include the advisory fetcher or a browser:
+
 ```bash
 docker build --tag amtrak-gtfs-rt:local .
+```
+
+[`docker-bake.hcl`](docker-bake.hcl) builds that image and the separate advisory-fetcher image.
+The fetcher target uses [`advisory-fetcher/Dockerfile`](advisory-fetcher/Dockerfile); the service
+target stays `runtime`.
+
+```bash
+docker buildx bake                  # both images
+docker buildx bake service          # scratch service only
+docker buildx bake advisory-fetcher # browser sidecar only
 ```
 
 **Image contract:** runs as UID/GID `10001`, entrypoint `/usr/local/bin/amtrak-gtfs-rt-service`
@@ -289,22 +302,41 @@ date, paragraphs, and PSN). A missing detail page keeps that alert's title and e
 A list fetch or parse failure adds no advisory entities and still publishes trip updates and
 vehicle positions.
 
-From `advisory-fetcher/`:
+From the repository root, one Compose file builds both images and runs them with advisories on.
+The service container is the scratch `runtime` image. The fetcher is the other image, with
+`/dev/shm` sized for Chromium, and is not published to the host:
 
 ```bash
 docker compose up -d --build
 ```
 
-`advisory-fetcher/docker-compose.yml` sets the service half of that stack to:
+That stack sets:
 
 ```text
 AMTRAK_ADVISORIES=on
 AMTRAK_ADVISORIES_URL=http://advisory-fetcher:8080/service-alerts-and-notices
+AMTRAK_BIND_ADDR=0.0.0.0:8080
+AMTRAK_ALLOWED_PEER_IPS=172.31.240.1
 ```
 
-The fetcher has no published host port; only the service container on the `advisory` network
-should GET it. To turn advisories back off, unset `AMTRAK_ADVISORIES` (or stop the fetcher). No
-service rebuild is required. Chromium stays in the fetcher image.
+The feed is published on host loopback port 8090 (`http://127.0.0.1:8090`), leaving host port
+8080 free for other services. The allowlist is the gateway of the
+Compose network `172.31.240.0/24`, which is the peer the container sees for that published port
+on Docker Engine for Linux. A `403` means the observed peer differs; the denied request logs
+`peer=<ip>`.
+
+To run the Rust service alone with advisories left off, do not use this Compose file's service
+environment. Build and run the scratch image by itself:
+
+```bash
+docker build --tag amtrak-gtfs-rt:local .
+docker run --rm --network host -v amtrak-data:/data amtrak-gtfs-rt:local
+```
+
+Stopping the fetcher, or unsetting `AMTRAK_ADVISORIES`, leaves trip updates and vehicle positions
+publishing. A missing fetcher does not fail a generation. Chromium stays in the fetcher image.
+The scratch-image release workflow does not publish the fetcher; its browser base is outside that
+image's zero-match vulnerability gate.
 
 ## Resilience
 

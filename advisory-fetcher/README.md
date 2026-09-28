@@ -42,21 +42,23 @@ scratch/musl, no-vulnerabilities posture.
 
 ## Run
 
-`src/main.rs` wraps the Amtrak source in `WithAdvisories` only when advisories are enabled.
-Turn them on with exactly:
+The primary stack is the repository-root [`docker-compose.yml`](../docker-compose.yml). It builds
+this image and the scratch service image, and turns advisories on:
 
 ```text
 AMTRAK_ADVISORIES=on
 AMTRAK_ADVISORIES_URL=http://advisory-fetcher:8080/service-alerts-and-notices
 ```
 
-Those two variables are already set on the `amtrak-gtfs-rt-service` service in
-[`docker-compose.yml`](docker-compose.yml). From this directory, build and start the fetcher
-and the service together:
+From the repository root:
 
 ```bash
 docker compose up -d --build
 ```
+
+[`docker-compose.yml`](docker-compose.yml) in this directory includes that root file, so the same
+stack starts from here. `docker buildx bake` at the root builds both images without starting them.
+The scratch service can still be built and run alone, with advisories left off; see the root README.
 
 Advisory *consumption* from
 [PR #8](https://github.com/sohampatwardhan/Amtrak-GTFS-RT/pull/8) and this fetcher from

@@ -1,0 +1,69 @@
+# Primary packaging: scratch GTFS-RT service plus the advisory-fetcher image.
+#
+# Chromium stays in the advisory-fetcher image. The service build is the root
+# Dockerfile `runtime` stage (scratch). Advisories are on in this stack and
+# fail open if the fetcher is down.
+#
+#   docker compose up -d --build
+#
+# Build both images without starting them: `docker buildx bake`
+#
+# Rust service alone, advisories off (image default; do not set AMTRAK_ADVISORIES):
+#
+#   docker build --tag amtrak-gtfs-rt:local .
+#   docker run --rm --network host -v amtrak-data:/data amtrak-gtfs-rt:local
+
+# Fixed so the stack is one project whether started here or from
+# advisory-fetcher/ (whose compose file sets the same name). The volumes and the
+# pinned subnet below then belong to one project, not one per directory.
+name: amtrak-gtfs-rt
+
+services:
+  advisory-fetcher:
+    build:
+      context: ./advisory-fetcher
+      dockerfile: Dockerfile
+    image: advisory-fetcher:local
+    restart: unless-stopped
+    shm_size: "1gb"
+    environment:
+      POLL_INTERVAL_SECS: "900"
+      BROWSER_MODE: headless-shell
+      BLOCK_SUBRESOURCES: "true"
+    volumes:
+      - advisory-snapshots:/snapshot
+    networks: [amtrak]
+
+  amtrak-gtfs-rt:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runtime
+    image: amtrak-gtfs-rt:local
+    restart: unless-stopped
+    depends_on: [advisory-fetcher]
+    environment:
+      AMTRAK_ADVISORIES: "on"
+      AMTRAK_ADVISORIES_URL: http://advisory-fetcher:8080/service-alerts-and-notices
+      # Published on host loopback port 8090 (8080 is often taken on the host).
+      # The container sees that traffic from the bridge gateway of the pinned
+      # subnet below, not from 127.0.0.1.
+      AMTRAK_BIND_ADDR: 0.0.0.0:8080
+      AMTRAK_ALLOWED_PEER_IPS: 172.31.240.1
+    ports:
+      - "127.0.0.1:8090:8080"
+    volumes:
+      - amtrak-data:/data
+    networks: [amtrak]
+
+networks:
+  amtrak:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.31.240.0/24
+          gateway: 172.31.240.1
+
+volumes:
+  amtrak-data:
+  advisory-snapshots:
