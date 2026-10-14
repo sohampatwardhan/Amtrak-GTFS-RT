@@ -45,6 +45,21 @@ pub fn station_tz(gtfs: &Gtfs, stop: &Stop) -> (String, bool) {
     }
 }
 
+/// Rider-facing label for a delay in seconds: `on time`, `12 min late`, or `3 min early`.
+///
+/// Rounds to the nearest minute; a delay under half a minute reads as on time, which matches
+/// how riders (and Amtrak's own boards) treat small deviations.
+pub fn delay_label(delay_secs: i64) -> String {
+    let mins = (delay_secs.abs() + 30) / 60;
+    if mins == 0 {
+        "on time".to_string()
+    } else if delay_secs > 0 {
+        format!("{mins} min late")
+    } else {
+        format!("{mins} min early")
+    }
+}
+
 /// A timezone name that could not be parsed, or a timestamp outside the representable range.
 #[derive(Debug)]
 pub struct TzError(pub String);
@@ -125,6 +140,16 @@ mod tests {
             station_tz(&gtfs, blank),
             ("America/New_York".to_string(), true)
         );
+    }
+
+    #[test]
+    fn delay_label_rounds_and_signs() {
+        assert_eq!(delay_label(0), "on time");
+        assert_eq!(delay_label(29), "on time"); // sub-half-minute rounds away
+        assert_eq!(delay_label(-29), "on time");
+        assert_eq!(delay_label(720), "12 min late");
+        assert_eq!(delay_label(89), "1 min late"); // nearest minute
+        assert_eq!(delay_label(-180), "3 min early");
     }
 
     // R6.1: the same instant renders in the station's zone with the correct DST abbreviation.

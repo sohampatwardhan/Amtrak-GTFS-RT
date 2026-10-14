@@ -2,8 +2,10 @@
 //!
 //! Contract: [`train_query`] resolves an Amtrak train number (GTFS `trip_short_name`) to the
 //! trip(s) *active in the loaded generation* and reports each one's live status — current position,
-//! remaining stops with predicted times, overall delay when the feed carries one, route/headsign,
-//! its route geometry, and its service alerts. A number that resolves to no active trip is reported
+//! remaining stops with predicted times and per-stop delays, overall delay, route/headsign,
+//! its route geometry, and its service alerts. Delays come from the feed's own GTFS-Realtime
+//! `delay` when it carries one and are otherwise derived against the static schedule (see
+//! `station::stop_delay_secs`) — Amtrak's feed publishes predictions without `delay` values. A number that resolves to no active trip is reported
 //! as `NotRunning` (not an obscure failure); a number with several active trips returns them all,
 //! each carrying origin/destination so they can be told apart.
 
@@ -21,6 +23,9 @@ pub struct StopStatus {
     pub arrival_unix: Option<i64>,
     /// Predicted departure (Unix seconds), when the feed provides one.
     pub departure_unix: Option<i64>,
+    /// Delay in seconds at this stop (positive = late), when derivable from the feed or the
+    /// schedule.
+    pub delay_secs: Option<i64>,
     /// Whether the stop is canceled for this train.
     pub canceled: bool,
     /// IANA timezone to render this stop's times in.
@@ -45,7 +50,7 @@ pub struct TrainStatus {
     pub destination: String,
     /// Current position as `(lat, lon)`, when a vehicle position is available.
     pub position: Option<(f64, f64)>,
-    /// Overall delay in seconds, when derivable from the feed.
+    /// Overall delay in seconds: the first stop delay derivable for the trip, in update order.
     pub overall_delay_secs: Option<i64>,
     /// Remaining stops (time at/after the query time), earliest first.
     pub remaining_stops: Vec<StopStatus>,
@@ -119,24 +124,20 @@ fn build_status(index: &FeedIndex, trip: &Trip, now_unix: i64) -> TrainStatus {
         for stu in &update.stop_time_update {
             let arrival_unix = stu.arrival.as_ref().and_then(|e| e.time);
             let departure_unix = stu.departure.as_ref().and_then(|e| e.time);
+            let code = super::station::scheduled_stop_id(gtfs, &trip.id, stu).unwrap_or_default();
+            let (stop_name, tz) = resolve_stop(index, &code);
+            let delay_secs = super::station::stop_delay_secs(gtfs, &trip.id, stu, &tz);
             if overall_delay_secs.is_none() {
-                overall_delay_secs = stu
-                    .departure
-                    .as_ref()
-                    .and_then(|e| e.delay)
-                    .or_else(|| stu.arrival.as_ref().and_then(|e| e.delay))
-                    .map(i64::from);
+                overall_delay_secs = delay_secs;
             }
             let effective = departure_unix.or(arrival_unix);
             if effective.map(|t| t >= now_unix).unwrap_or(false) {
-                let code =
-                    super::station::scheduled_stop_id(gtfs, &trip.id, stu).unwrap_or_default();
-                let (stop_name, tz) = resolve_stop(index, &code);
                 remaining_stops.push(StopStatus {
                     stop_code: code,
                     stop_name,
                     arrival_unix,
                     departure_unix,
+                    delay_secs,
                     canceled: stu.schedule_relationship == Some(1),
                     tz,
                     track: super::station::track_from_update(gtfs, stu),
@@ -372,6 +373,44 @@ mod tests {
         assert!(no_shape.shape_unavailable);
         assert!(no_shape.position.is_none()); // no vehicle for tb
         assert!(no_shape.alerts.is_empty()); // R1.2 no alert -> still present, empty
+    }
+
+    // Delay derivation: with no `delay` in the feed, the stop delay and the overall delay are
+    // derived against the static schedule — NYP scheduled 11:00 EDT, predicted 11:12 EDT.
+    #[test]
+    fn delay_is_derived_when_the_feed_omits_it() {
+        let mut data = generation();
+        // Replace trip t's update with a prediction-only one (no delay field), as Amtrak emits.
+        data.trip_updates.entity[0] = FeedEntity {
+            id: "t".into(),
+            trip_update: Some(TripUpdate {
+                trip: TripDescriptor {
+                    trip_id: Some("t".into()),
+                    route_id: Some("40751".into()),
+                    ..Default::default()
+                },
+                stop_time_update: vec![StopTimeUpdate {
+                    stop_id: Some("NYP".into()),
+                    departure: Some(StopTimeEvent {
+                        // 2026-08-17 15:12 UTC = 11:12 EDT.
+                        time: Some(1_786_979_520),
+                        ..Default::default()
+                    }),
+                    ..Default::default()
+                }],
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        let index = FeedIndex::build(&data);
+        // Query at 2026-08-17 14:50 UTC, ahead of the predicted departure.
+        let TrainResult::Trains { trains, .. } = train_query(&index, "2159", 1_786_978_200) else {
+            panic!("expected trains");
+        };
+        let train = trains.iter().find(|t| t.trip_id == "t").unwrap();
+        assert_eq!(train.overall_delay_secs, Some(720));
+        assert_eq!(train.remaining_stops.len(), 1);
+        assert_eq!(train.remaining_stops[0].delay_secs, Some(720));
     }
 
     // R3.5: an unknown/inactive number is reported as not running, not an error.

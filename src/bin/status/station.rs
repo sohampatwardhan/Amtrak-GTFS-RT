@@ -9,6 +9,9 @@
 
 use super::format::{route_display_name, station_tz};
 use super::index::FeedIndex;
+use chrono::{DateTime, LocalResult, TimeZone};
+use chrono_tz::Tz;
+use gtfs_realtime::trip_update::{StopTimeEvent, StopTimeUpdate};
 use gtfs_realtime::TripUpdate;
 use gtfs_structures::Gtfs;
 
@@ -29,6 +32,8 @@ pub struct DepartureRow {
     pub is_realtime: bool,
     /// Whether this stop is canceled for the train.
     pub canceled: bool,
+    /// Delay in seconds at this stop (positive = late), when derivable — see [`stop_delay_secs`].
+    pub delay_secs: Option<i64>,
     /// Friendly route name (e.g. `Acela`).
     pub route_name: String,
     /// Amtrak train number.
@@ -96,6 +101,7 @@ pub fn station_query(index: &FeedIndex, identifier: &str, now_unix: i64) -> Stat
                 kind,
                 is_realtime: true,
                 canceled: stu.schedule_relationship == Some(1),
+                delay_secs: stop_delay_secs(index.gtfs, trip_id, stu, &station_tz),
                 route_name,
                 train_number,
                 headsign,
@@ -142,6 +148,109 @@ pub(super) fn scheduled_stop_id(
         .iter()
         .find(|time| time.stop_sequence == sequence)
         .map(|time| time.stop.id.clone())
+}
+
+/// Delay in seconds for one stop-time update — positive when the train is late at that stop.
+///
+/// Derivation, in order:
+/// 1. The event's own GTFS-Realtime `delay`, when the feed carries one.
+/// 2. Predicted `time` minus the trip's scheduled time from the static GTFS.
+///
+/// Path 2 is the one that normally fires for Amtrak: its feed publishes predicted times but no
+/// `delay` values, so without it no delay can ever be shown. The event a delay describes is the
+/// first of departure, then arrival, that carries a delay or a time — the same event the
+/// displayed time comes from — and the scheduled side uses that event's kind (a departure
+/// prediction is compared with the scheduled departure).
+///
+/// GTFS scheduled times are seconds into the service day, so the scheduled instant is rebuilt
+/// from the prediction's calendar date in the stop's timezone and then shifted by whole days
+/// to the day nearest the prediction. The nearest-day shift is what keeps a past-midnight
+/// schedule entry (`25:10:00`) or a prediction minutes before midnight from producing a
+/// spurious ~24 h delay; it also bounds a derived delay to ±12 h.
+pub(super) fn stop_delay_secs(
+    gtfs: &Gtfs,
+    trip_id: &str,
+    stu: &StopTimeUpdate,
+    tz_name: &str,
+) -> Option<i64> {
+    let (event, is_departure) = delay_event(stu)?;
+    if let Some(delay) = event.delay {
+        return Some(i64::from(delay));
+    }
+    let predicted = event.time?;
+    let scheduled = scheduled_stop_time(gtfs, trip_id, stu)?;
+    let scheduled_secs = if is_departure {
+        scheduled.departure_time.or(scheduled.arrival_time)
+    } else {
+        scheduled.arrival_time.or(scheduled.departure_time)
+    }?;
+    let scheduled_unix = align_scheduled(predicted, scheduled_secs, tz_name)?;
+    Some(predicted - scheduled_unix)
+}
+
+/// The stop-time event a delay describes: the first of departure, then arrival, that carries a
+/// delay or a predicted time. An update whose events carry neither has no describable delay.
+fn delay_event(stu: &StopTimeUpdate) -> Option<(&StopTimeEvent, bool)> {
+    let bearing = |event: &StopTimeEvent| event.delay.is_some() || event.time.is_some();
+    if let Some(departure) = &stu.departure {
+        if bearing(departure) {
+            return Some((departure, true));
+        }
+    }
+    if let Some(arrival) = &stu.arrival {
+        if bearing(arrival) {
+            return Some((arrival, false));
+        }
+    }
+    None
+}
+
+/// The trip's static stop time a stop-time update refers to: matched by `stop_sequence` when
+/// the update carries one, else by the resolved stop id (or that stop's station code, for feeds
+/// whose stop times key on codes rather than ids).
+fn scheduled_stop_time<'a>(
+    gtfs: &'a Gtfs,
+    trip_id: &str,
+    stu: &StopTimeUpdate,
+) -> Option<&'a gtfs_structures::StopTime> {
+    let trip = gtfs.trips.get(trip_id)?;
+    if let Some(sequence) = stu.stop_sequence {
+        if let Some(stop_time) = trip
+            .stop_times
+            .iter()
+            .find(|time| time.stop_sequence == sequence)
+        {
+            return Some(stop_time);
+        }
+    }
+    let stop_id = scheduled_stop_id(gtfs, trip_id, stu)?;
+    trip.stop_times
+        .iter()
+        .find(|time| time.stop.id == stop_id)
+        .or_else(|| {
+            trip.stop_times
+                .iter()
+                .find(|time| time.stop.code.as_deref() == Some(stop_id.as_str()))
+        })
+}
+
+/// Rebuilds the Unix instant of a GTFS scheduled time (`secs` into the service day, possibly
+/// past 24:00) on the service day nearest `predicted_unix`, in the stop's timezone.
+fn align_scheduled(predicted_unix: i64, scheduled_secs: u32, tz_name: &str) -> Option<i64> {
+    let tz: Tz = tz_name.parse().ok()?;
+    let date = DateTime::from_timestamp(predicted_unix, 0)?
+        .with_timezone(&tz)
+        .date_naive();
+    let midnight = match tz.from_local_datetime(&date.and_hms_opt(0, 0, 0)?) {
+        LocalResult::Single(instant) => instant.timestamp(),
+        // A zone whose midnight repeats (fall-back at 00:00) starts its service day at the
+        // earlier reading.
+        LocalResult::Ambiguous(earlier, _) => earlier.timestamp(),
+        LocalResult::None => return None,
+    };
+    let candidate = midnight + i64::from(scheduled_secs);
+    // Shift by whole days so the scheduled instant is the one nearest the prediction.
+    Some(candidate + (predicted_unix - candidate + 43_200).div_euclid(86_400) * 86_400)
 }
 
 /// Track shown for a stop time: the `platform_code` of its assigned platform stop in the static
@@ -360,6 +469,31 @@ mod tests {
             ..Default::default()
         };
         assert!(track_from_update(&data.static_gtfs, &unknown).is_none());
+    }
+
+    // Delay derivation: the feed carries a predicted time but no `delay`, so the row's delay is
+    // derived against the static schedule — 11:00 EDT scheduled, 11:12 EDT predicted.
+    #[test]
+    fn board_row_delay_is_derived_from_the_schedule() {
+        let data = GenerationData {
+            generation_id: "gD".into(),
+            generated_at_unix: 777,
+            static_gtfs: build_gtfs(),
+            trip_updates: FeedMessage {
+                // 2026-08-17 15:12 UTC = 11:12 EDT; t_dep is scheduled out of NYP at 11:00.
+                entity: vec![update("t_dep", None, Some(1_786_979_520), false)],
+                ..Default::default()
+            },
+            vehicle_positions: FeedMessage::default(),
+            alerts: FeedMessage::default(),
+        };
+        let index = FeedIndex::build(&data);
+        // Query at 2026-08-17 14:50 UTC, before the predicted departure.
+        let StationResult::Board { rows, .. } = station_query(&index, "nyp", 1_786_978_200) else {
+            panic!("expected a board");
+        };
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].delay_secs, Some(720));
     }
 
     // R2.5: an unresolvable identifier is distinct from an empty board.

@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`amtrak-status` delay deltas.** Train and station output now annotate each predicted time
+  with how it compares to the static schedule — `(on time)`, `(12 min late)`, `(3 min early)` —
+  and the train-level `delay:` line uses the same label. The delay prefers the feed's own
+  GTFS-Realtime `delay` when present and otherwise derives it as predicted time minus scheduled
+  time, with the scheduled instant rebuilt in the stop's timezone and aligned to the service
+  day nearest the prediction. Amtrak's feed publishes predicted times without `delay` values,
+  so the derivation is what normally produces the number; previously the `delay:` line could
+  only appear when a feed supplied `delay` explicitly, and per-stop times carried no delay
+  information at all.
+
 ## [0.5.0] - 2026-09-28
 
 ### Added
