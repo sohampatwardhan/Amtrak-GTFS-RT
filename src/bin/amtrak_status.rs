@@ -14,7 +14,7 @@
 
 mod status;
 
-use status::format::local_time;
+use status::format::{delay_label, local_time};
 use status::index::FeedIndex;
 use status::source::{AmtrakDirectSource, FeedSource, LocalServiceSource, SourceError};
 use status::station::{station_query, DepartureRow, StationResult, StopKind};
@@ -160,8 +160,12 @@ fn render_departure_row(row: &DepartureRow) -> String {
         .as_ref()
         .map(|track| format!(" track {track}"))
         .unwrap_or_default();
+    let delay = row
+        .delay_secs
+        .map(|delay| format!(" ({})", delay_label(delay)))
+        .unwrap_or_default();
     let mut out = format!(
-        "  {when}{fallback}  {kind:<8} {:<20} {:<6} → {}{track}\n",
+        "  {when}{fallback}  {kind:<8} {:<20} {:<6} → {}{track}{delay}\n",
         row.route_name, row.train_number, row.headsign
     );
     for alert in &row.alerts {
@@ -203,7 +207,7 @@ fn render_train_status(train: &TrainStatus) -> String {
         out.push_str(&format!("  position: {lat:.4}, {lon:.4}\n"));
     }
     if let Some(delay) = train.overall_delay_secs {
-        out.push_str(&format!("  delay: {} min\n", delay / 60));
+        out.push_str(&format!("  delay: {}\n", delay_label(delay)));
     }
     match &train.shape {
         Some(points) => out.push_str(&format!("  route geometry: {} points\n", points.len())),
@@ -225,8 +229,12 @@ fn render_train_status(train: &TrainStatus) -> String {
             .as_ref()
             .map(|track| format!(" track {track}"))
             .unwrap_or_default();
+        let delay = stop
+            .delay_secs
+            .map(|delay| format!(" ({})", delay_label(delay)))
+            .unwrap_or_default();
         out.push_str(&format!(
-            "    {when}  {} ({}){track}{canceled}\n",
+            "    {when}  {} ({}){track}{canceled}{delay}\n",
             stop.stop_name, stop.stop_code
         ));
     }
@@ -300,6 +308,7 @@ mod tests {
             kind,
             is_realtime: true,
             canceled,
+            delay_secs: None,
             route_name: "Acela".into(),
             train_number: "2159".into(),
             headsign: "Washington".into(),
@@ -364,6 +373,42 @@ mod tests {
             20,
         );
         assert!(out.contains("unresolved") && out.contains("ZZZ"));
+    }
+
+    // Delay labels: the train-level line and the per-stop annotation use the same wording.
+    #[test]
+    fn train_status_renders_delay_labels() {
+        use crate::status::train::StopStatus;
+        let status = TrainStatus {
+            train_number: "1164".into(),
+            trip_id: "t".into(),
+            route_name: "Northeast Regional".into(),
+            headsign: "Boston".into(),
+            origin: "Newport News".into(),
+            destination: "Boston".into(),
+            position: None,
+            overall_delay_secs: Some(720),
+            remaining_stops: vec![StopStatus {
+                stop_code: "PJC".into(),
+                stop_name: "Princeton Junction".into(),
+                arrival_unix: None,
+                departure_unix: Some(1_786_979_520), // 11:12 EDT
+                delay_secs: Some(720),
+                canceled: false,
+                tz: "America/New_York".into(),
+                track: None,
+            }],
+            shape: None,
+            shape_unavailable: true,
+            alerts: vec![],
+        };
+        let out = render_train_result(TrainResult::Trains {
+            generation_id: "g".into(),
+            generated_at_unix: 1_786_978_200,
+            trains: vec![status],
+        });
+        assert!(out.contains("delay: 12 min late"));
+        assert!(out.contains("11:12 EDT  Princeton Junction (PJC) (12 min late)"));
     }
 
     // R3.5: a not-running train renders a distinct message.
