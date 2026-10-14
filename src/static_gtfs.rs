@@ -80,6 +80,142 @@ impl StaticStandardsValidator for MobilityDataStaticValidator {
     }
 }
 
+/// Skips the Java validator when the same ZIP bytes already have a recorded decision.
+///
+/// Accept and standards-reject (a report that contains `ERROR` notices) are cached by
+/// SHA-256. Tool failures, timeouts, and malformed reports are not cached, so a broken
+/// runtime is retried. The cache lives in the service output directory and is not served.
+pub struct CachedStaticValidator<V> {
+    inner: V,
+    cache_dir: PathBuf,
+    enabled: bool,
+}
+
+impl<V> CachedStaticValidator<V> {
+    /// `enabled == false` always calls `inner` and writes nothing.
+    pub fn new(inner: V, cache_dir: PathBuf, enabled: bool) -> Self {
+        Self {
+            inner,
+            cache_dir,
+            enabled,
+        }
+    }
+}
+
+#[async_trait]
+impl<V> StaticStandardsValidator for CachedStaticValidator<V>
+where
+    V: StaticStandardsValidator,
+{
+    async fn validate(&self, zip: Arc<[u8]>) -> Result<(), StaticValidationError> {
+        if !self.enabled {
+            return self.inner.validate(zip).await;
+        }
+        let digest = sha256_hex(&zip);
+        if let Some(accepted) = read_cached_decision(&self.cache_dir, &digest) {
+            tracing::info!(
+                outcome = "cache_hit",
+                stage = "static",
+                accepted,
+                "static validation"
+            );
+            return if accepted {
+                Ok(())
+            } else {
+                Err(StaticValidationError(
+                    "validator reported cached ERROR notice(s)".into(),
+                ))
+            };
+        }
+        match self.inner.validate(zip).await {
+            Ok(()) => {
+                let _ = write_cached_decision(&self.cache_dir, &digest, true);
+                Ok(())
+            }
+            Err(error) if cacheable_feed_rejection(&error) => {
+                let _ = write_cached_decision(&self.cache_dir, &digest, false);
+                Err(error)
+            }
+            Err(error) => Err(error),
+        }
+    }
+}
+
+fn sha256_hex(bytes: &[u8]) -> String {
+    use sha2::{Digest, Sha256};
+    let mut hasher = Sha256::new();
+    hasher.update(bytes);
+    format!("{:x}", hasher.finalize())
+}
+
+fn cacheable_feed_rejection(error: &StaticValidationError) -> bool {
+    error.0.starts_with("validator reported ") && error.0.contains("ERROR")
+}
+
+fn cached_decision_path(cache_dir: &Path, digest: &str) -> Option<PathBuf> {
+    if digest.len() == 64 && digest.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        Some(cache_dir.join(digest))
+    } else {
+        None
+    }
+}
+
+fn read_cached_decision(cache_dir: &Path, digest: &str) -> Option<bool> {
+    let path = cached_decision_path(cache_dir, digest)?;
+    let text = std::fs::read_to_string(path).ok()?;
+    match text.trim() {
+        "accept" => Some(true),
+        "reject" => Some(false),
+        _ => None,
+    }
+}
+
+fn write_cached_decision(cache_dir: &Path, digest: &str, accepted: bool) -> std::io::Result<()> {
+    let Some(path) = cached_decision_path(cache_dir, digest) else {
+        return Ok(());
+    };
+    std::fs::create_dir_all(cache_dir)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(cache_dir, std::fs::Permissions::from_mode(0o700))?;
+    }
+    let temporary = cache_dir.join(format!(".{digest}.tmp"));
+    std::fs::write(&temporary, if accepted { "accept\n" } else { "reject\n" })?;
+    std::fs::rename(&temporary, &path)?;
+    prune_validation_cache(cache_dir);
+    Ok(())
+}
+
+fn prune_validation_cache(cache_dir: &Path) {
+    const MAX_ENTRIES: usize = 16;
+    let Ok(entries) = std::fs::read_dir(cache_dir) else {
+        return;
+    };
+    let mut files = Vec::new();
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        let Some(name) = name.to_str() else {
+            continue;
+        };
+        if name.len() != 64 || !name.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+            continue;
+        }
+        let Ok(metadata) = entry.metadata() else {
+            continue;
+        };
+        files.push((metadata.modified().ok(), entry.path()));
+    }
+    if files.len() <= MAX_ENTRIES {
+        return;
+    }
+    let excess = files.len().saturating_sub(MAX_ENTRIES);
+    files.sort_by(|left, right| left.0.cmp(&right.0));
+    for (_, path) in files.into_iter().take(excess) {
+        let _ = std::fs::remove_file(path);
+    }
+}
+
 /// Fetches a static ZIP once, validates, then retains and parses those bytes.
 ///
 /// With `platforms`, the upstream ZIP is augmented with platform stops first, and the augmented
@@ -430,6 +566,7 @@ async fn validate_with_mobility_data(
             .map_err(|error| StaticValidationError(format!("validator input failed: {error}")))?;
         let mut command = Command::new("java");
         command
+            .arg("-Djava.awt.headless=true")
             .arg("-jar")
             .arg(jar)
             .arg("-i")
@@ -967,5 +1104,69 @@ mod tests {
         let broken = archive.finish().unwrap().into_inner();
         assert!(augment_static(&broken, &colliding).is_err());
         server.abort();
+    }
+
+    #[tokio::test]
+    async fn validator_cache_skips_repeat_calls_and_retries_tool_failures() {
+        let dir = std::env::temp_dir().join(format!(
+            "amtrak-validator-cache-{}-{}",
+            std::process::id(),
+            VALIDATOR_TEMP_COUNTER.fetch_add(1, Ordering::Relaxed)
+        ));
+        let zip = Arc::<[u8]>::from(fixture_zip(Some("CACHED")));
+        let calls = Arc::new(AtomicUsize::new(0));
+        let result = Arc::new(Mutex::new(Ok::<(), StaticValidationError>(())));
+        struct Counting {
+            calls: Arc<AtomicUsize>,
+            result: Arc<Mutex<Result<(), StaticValidationError>>>,
+        }
+        #[async_trait]
+        impl StaticStandardsValidator for Counting {
+            async fn validate(&self, _zip: Arc<[u8]>) -> Result<(), StaticValidationError> {
+                self.calls.fetch_add(1, Ordering::Relaxed);
+                self.result.lock().unwrap().clone()
+            }
+        }
+
+        let cached = CachedStaticValidator::new(
+            Counting {
+                calls: calls.clone(),
+                result: result.clone(),
+            },
+            dir.clone(),
+            true,
+        );
+        cached.validate(zip.clone()).await.unwrap();
+        cached.validate(zip.clone()).await.unwrap();
+        assert_eq!(calls.load(Ordering::Relaxed), 1);
+
+        let other = Arc::<[u8]>::from(fixture_zip(Some("OTHER")));
+        *result.lock().unwrap() = Err(StaticValidationError(
+            "validator reported 2 ERROR notice(s)".into(),
+        ));
+        assert!(cached.validate(other.clone()).await.is_err());
+        assert!(cached.validate(other.clone()).await.is_err());
+        assert_eq!(calls.load(Ordering::Relaxed), 2);
+
+        let flaky = Arc::<[u8]>::from(fixture_zip(Some("FLAKY")));
+        *result.lock().unwrap() = Err(StaticValidationError("validator timed out".into()));
+        assert!(cached.validate(flaky.clone()).await.is_err());
+        assert!(cached.validate(flaky).await.is_err());
+        assert_eq!(calls.load(Ordering::Relaxed), 4);
+
+        let reopened = CachedStaticValidator::new(
+            Counting {
+                calls: calls.clone(),
+                result: Arc::new(Mutex::new(Err(StaticValidationError(
+                    "validator should not run".into(),
+                )))),
+            },
+            dir.clone(),
+            true,
+        );
+        reopened.validate(zip).await.unwrap();
+        assert!(reopened.validate(other).await.is_err());
+        assert_eq!(calls.load(Ordering::Relaxed), 4);
+        std::fs::remove_dir_all(dir).unwrap();
     }
 }

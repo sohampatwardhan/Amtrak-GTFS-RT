@@ -17,7 +17,10 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import re
+import signal
+import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from urllib.parse import urljoin
@@ -70,6 +73,33 @@ def extract_detail_paths(html: str) -> list[str]:
     return found
 
 
+def detail_paths_due(paths: list[str], fresh: set[str]) -> list[str]:
+    """Detail paths that still need a browser render. ``fresh`` paths are served from cache."""
+    return [path for path in paths if path not in fresh]
+
+
+@dataclass
+class RenderStability:
+    """Tracks whether rendered HTML has stopped growing and the gate selector is present.
+
+    Amtrak pages keep timer-driven requests alive for about 20 seconds after the advisory
+    markup is on the page. Sampling the HTML size and stopping at the first stable window
+    avoids waiting those timers out.
+    """
+
+    last_size: int | None = None
+    stable_for: float = 0.0
+
+    def observe(self, size: int, gate_present: bool, elapsed: float, required: float) -> bool:
+        """Return whether this sample completes a stable window of ``required`` seconds."""
+        if gate_present and size > 0 and size == self.last_size:
+            self.stable_for += elapsed
+            return self.stable_for >= required
+        self.last_size = size if gate_present and size > 0 else None
+        self.stable_for = 0.0
+        return False
+
+
 def should_block(resource_type: str) -> bool:
     """Return whether a subresource of this type should be aborted during the fetch.
 
@@ -79,25 +109,102 @@ def should_block(resource_type: str) -> bool:
     return resource_type in _BLOCKED_RESOURCE_TYPES
 
 
-async def _default_launcher(cfg: Config) -> FetchedAdvisories | None:
-    """Launch Chromium once, load the notices page, then each linked detail page.
+async def _render_until_stable(page, url: str, selector: str, cfg: Config) -> str | None:
+    """Load ``url`` and return its HTML once the size is stable and ``selector`` is present.
+
+    Navigation waits only until the response is committed. Later timer-driven requests do not
+    extend the wait. ``None`` means the gate never became stable before the navigation timeout.
+    """
+    try:
+        await page.goto(url, wait_until="commit", timeout=cfg.nav_timeout_secs * 1000)
+    except Exception:  # noqa: BLE001 — a navigation failure is one missed page
+        return None
+    stability = RenderStability()
+    deadline = time.monotonic() + cfg.nav_timeout_secs
+    poll = cfg.render_poll_ms / 1000
+    required = cfg.render_stable_ms / 1000
+    html = ""
+    while time.monotonic() < deadline:
+        try:
+            html = await page.content()
+            gate = await page.query_selector(selector) is not None
+        except Exception:  # noqa: BLE001 — the page can be closing or mid-navigation
+            gate = False
+            html = ""
+        if stability.observe(len(html), gate, poll, required):
+            return html
+        await asyncio.sleep(poll)
+    return None
+
+
+def _driver_pid(playwright) -> int | None:
+    """Best-effort pid of the Playwright driver so a hung renderer can be killed."""
+    try:
+        return playwright._impl_obj._connection._transport._proc.pid  # noqa: SLF001
+    except Exception:  # noqa: BLE001 — private layout differs across Playwright releases
+        return None
+
+
+def _kill_process_tree(pid: int) -> None:
+    """SIGKILL ``pid`` and its children. Used when ``browser.close()`` waits on page timers."""
+    children: list[int] = []
+    try:
+        raw = open(f"/proc/{pid}/task/{pid}/children", encoding="ascii").read().split()
+        children = [int(child) for child in raw]
+    except (OSError, ValueError):
+        children = []
+    for child in children:
+        _kill_process_tree(child)
+    try:
+        os.kill(pid, signal.SIGKILL)
+    except OSError:
+        pass
+
+
+async def _terminate_browser(browser, playwright, cfg: Config) -> None:
+    """Close the browser, then kill the driver tree if shutdown exceeds the budget."""
+    try:
+        await asyncio.wait_for(browser.close(), cfg.browser_close_secs)
+    except Exception:  # noqa: BLE001 — close can hang while pages keep timers armed
+        logger.warning("browser close exceeded %ss; killing renderer", cfg.browser_close_secs)
+        pid = _driver_pid(playwright)
+        if pid is not None:
+            _kill_process_tree(pid)
+    try:
+        stop = getattr(playwright, "stop", None)
+        if stop is not None:
+            await asyncio.wait_for(stop(), cfg.browser_close_secs)
+    except Exception:  # noqa: BLE001 — the driver may already be dead
+        pid = _driver_pid(playwright)
+        if pid is not None:
+            _kill_process_tree(pid)
+
+
+async def _default_launcher(
+    cfg: Config, store: SnapshotStore | None = None
+) -> FetchedAdvisories | None:
+    """Launch Chromium once, render the notices list, then any stale detail pages.
 
     Uses ``chromium-headless-shell`` (headless, no channel) by default, or full Chromium under Xvfb
     when ``cfg.browser_mode == "xvfb-headful"``. Playwright is imported lazily so the module (and
-    its tests) load without a browser installed. The browser is always closed in ``finally``.
-    Detail pages share that session so the Akamai cookie earned for the list still applies. A
-    detail that times out or lacks the body markup is skipped; the list is still returned.
+    its tests) load without a browser installed. Each page is snapshotted when its HTML size is
+    stable and the renderer is then closed, so timer-driven requests cannot hold the browser.
+    Detail pages already stored within ``detail_ttl_secs`` are not rendered again. A detail that
+    fails is skipped; the list is still returned. The browser is always released in ``finally``.
     """
     from playwright.async_api import async_playwright  # lazy: only needed for a real fetch
 
-    async with async_playwright() as p:
+    manager = async_playwright()
+    playwright = await manager.start()
+    try:
         if cfg.browser_mode == "xvfb-headful":
-            browser = await p.chromium.launch(headless=False, channel="chromium", args=_LAUNCH_ARGS)
+            browser = await playwright.chromium.launch(
+                headless=False, channel="chromium", args=_LAUNCH_ARGS
+            )
         else:
-            browser = await p.chromium.launch(headless=True, args=_LAUNCH_ARGS)
-        # Everything after a successful launch is inside try/finally so browser.close() always runs,
-        # even if new_context() itself fails — otherwise a failed context would leak a Chromium
-        # process, defeating the launch-per-poll memory guarantee.
+            browser = await playwright.chromium.launch(headless=True, args=_LAUNCH_ARGS)
+        # Everything after a successful launch is inside try/finally so the renderer is always
+        # released, even if new_context() itself fails.
         try:
             if cfg.browser_mode == "xvfb-headful":
                 context = await browser.new_context(
@@ -115,31 +222,41 @@ async def _default_launcher(cfg: Config) -> FetchedAdvisories | None:
 
                 await context.route("**/*", _route)
             page = await context.new_page()
-            await page.goto(
-                cfg.source_url, wait_until="domcontentloaded", timeout=cfg.nav_timeout_secs * 1000
-            )
-            try:
-                await page.wait_for_selector(cfg.gate_selector, timeout=cfg.nav_timeout_secs * 1000)
-            except Exception:  # noqa: BLE001 — a missing gate selector is a blocked cycle
+            list_html = await _render_until_stable(page, cfg.source_url, cfg.gate_selector, cfg)
+            await page.close()
+            if list_html is None:
                 return None
-            list_html = await page.content()
+            now = time.time()
+            fresh = {
+                path
+                for path in extract_detail_paths(list_html)
+                if store is not None and store.detail_is_fresh(path, cfg.detail_ttl_secs, now)
+            }
             details: dict[str, str] = {}
-            for path in extract_detail_paths(list_html):
+            for path in detail_paths_due(extract_detail_paths(list_html), fresh):
+                detail_page = await context.new_page()
                 try:
-                    await page.goto(
-                        urljoin(cfg.source_url, path),
-                        wait_until="domcontentloaded",
-                        timeout=cfg.nav_timeout_secs * 1000,
+                    html = await _render_until_stable(
+                        detail_page, urljoin(cfg.source_url, path), _DETAIL_SELECTOR, cfg
                     )
-                    await page.wait_for_selector(
-                        _DETAIL_SELECTOR, timeout=cfg.nav_timeout_secs * 1000
-                    )
-                    details[path] = await page.content()
-                except Exception:  # noqa: BLE001 — one detail miss must not drop the list
+                finally:
+                    await detail_page.close()
+                if html is None:
                     logger.warning("advisory detail page not obtained: %s", path)
+                else:
+                    details[path] = html
+            if fresh:
+                logger.info("advisory details served from cache: %s", len(fresh))
             return FetchedAdvisories(list_html, details)
         finally:
-            await browser.close()  # release all browser memory every cycle
+            await _terminate_browser(browser, playwright, cfg)
+    finally:
+        try:
+            await asyncio.wait_for(manager.__aexit__(None, None, None), cfg.browser_close_secs)
+        except Exception:  # noqa: BLE001 — driver shutdown is best-effort after the renderer dies
+            pid = _driver_pid(playwright)
+            if pid is not None:
+                _kill_process_tree(pid)
 
 
 async def poll_once(cfg: Config, *, launcher: Launcher = _default_launcher) -> FetchedAdvisories | None:
@@ -161,10 +278,15 @@ async def run_forever(
     loop or overwrites the last good snapshot. Between cycles it sleeps ``poll_interval_secs``
     (Requirement 6.1). ``launcher`` and ``sleep`` are injectable so the loop is testable offline.
     """
+    async def launch(cfg: Config) -> FetchedAdvisories | None:
+        if launcher is _default_launcher:
+            return await _default_launcher(cfg, store)
+        return await launcher(cfg)
+
     count = 0
     while iterations is None or count < iterations:
         try:
-            fetched = await poll_once(cfg, launcher=launcher)
+            fetched = await poll_once(cfg, launcher=launch)
             if fetched is not None:
                 changed = store.update(fetched.list_html)
                 stored_details = 0

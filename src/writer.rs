@@ -1,9 +1,11 @@
+use crate::config::DEFAULT_GENERATION_BUDGET_BYTES;
 use crate::orchestrator::{
     ArtifactUrls, EntityCounts, FeedSetManifest, GenerationId, ValidatedGeneration,
 };
 use gtfs_realtime::FeedMessage;
 use prost::Message;
-use std::collections::HashMap;
+use sha2::{Digest, Sha256};
+use std::collections::{HashMap, HashSet};
 use std::fs::{self, File, OpenOptions};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
@@ -11,8 +13,12 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 
 const GENERATIONS_DIR: &str = "generations";
+const BLOBS_DIR: &str = "blobs";
 const CURRENT_MARKER: &str = "current";
 const MANIFEST_FILE: &str = "manifest.txt";
+const STATIC_FILE: &str = "static.zip";
+/// Spare blocks kept free so the next publish can create its directory.
+const PUBLISH_FREE_MARGIN: u64 = 1024 * 1024;
 static GENERATION_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 /// One complete immutable generation loaded into memory for lock-free response copies.
@@ -67,22 +73,39 @@ impl From<std::io::Error> for PublishError {
 /// `open` ignores temporary and incomplete directories, repairs an invalid marker
 /// to the newest complete generation, and finishes recovery before callers can
 /// construct the HTTP server. Open `Arc` readers remain valid after later commits.
-/// This increment conservatively retains every finalized predecessor, which is
-/// stronger than the ten-minute minimum and avoids an incorrect retention clock;
-/// bounded cleanup can later use a durable supersession timestamp. The configured
-/// output directory is a trust boundary: it must be service-owned, must not be a
-/// symlink, and on Unix must not be writable by group or other users.
+/// Finalized generations stay addressable while they fit in the byte budget.
+/// The generation referenced by the current feed set is never deleted, even when
+/// it alone exceeds the budget. Identical static ZIP bytes are stored once under
+/// `blobs/` and hard-linked into each generation, so `/v1/generations/{id}/static.zip`
+/// still names that generation's bytes. The configured output directory is a trust
+/// boundary: it must be service-owned, must not be a symlink, and on Unix must not
+/// be writable by group or other users.
 #[derive(Clone)]
 pub struct GenerationStore {
     output_dir: Arc<PathBuf>,
     current: Arc<RwLock<Option<Arc<PublishedGeneration>>>>,
     generations: Arc<RwLock<HashMap<GenerationId, Arc<PublishedGeneration>>>>,
     publish_lock: Arc<Mutex<()>>,
+    /// `0` keeps every finalized generation. Any other value is the unique-byte cap.
+    budget_bytes: u64,
+    static_intern: Arc<Mutex<HashMap<String, Arc<[u8]>>>>,
 }
 
 impl GenerationStore {
-    /// Opens a store and recovers its durable last-good generation, if any.
+    /// Opens a store with the default byte budget and recovers its last-good generation.
     pub async fn open(output_dir: &Path) -> Result<Self, StoreError> {
+        Self::open_with_budget(output_dir, DEFAULT_GENERATION_BUDGET_BYTES).await
+    }
+
+    /// Opens a store and recovers its durable last-good generation, if any.
+    ///
+    /// `budget_bytes == 0` disables the byte cap. A non-zero budget deletes the
+    /// oldest generations that are not the current feed set until unique stored
+    /// bytes fit, then drops static blobs that no generation links anymore.
+    pub async fn open_with_budget(
+        output_dir: &Path,
+        budget_bytes: u64,
+    ) -> Result<Self, StoreError> {
         let output_existed = output_dir.exists();
         fs::create_dir_all(output_dir)?;
         if !output_existed {
@@ -107,14 +130,17 @@ impl GenerationStore {
         )
         .map_err(StoreError)?;
 
+        let static_intern = Arc::new(Mutex::new(HashMap::new()));
         let mut recovered = HashMap::new();
         let mut ordered = Vec::new();
         for name in directory_names(&generations_handle, &generations_dir).map_err(StoreError)? {
             let Some(order) = generation_order(&name) else {
                 continue;
             };
-            if let Ok(generation) = load_generation_at(&generations_handle, &generations_dir, &name)
+            if let Ok(mut generation) =
+                load_generation_at(&generations_handle, &generations_dir, &name)
             {
+                generation.static_zip = intern_static(&static_intern, generation.static_zip);
                 let generation = Arc::new(generation);
                 ordered.push((order, generation.id.clone()));
                 recovered.insert(generation.id.clone(), generation);
@@ -141,12 +167,19 @@ impl GenerationStore {
             }
         }
 
-        Ok(Self {
+        let store = Self {
             output_dir: Arc::new(canonical_output),
             current: Arc::new(RwLock::new(selected)),
             generations: Arc::new(RwLock::new(recovered)),
             publish_lock: Arc::new(Mutex::new(())),
-        })
+            budget_bytes,
+            static_intern,
+        };
+        store
+            .dedupe_static_files()
+            .and_then(|_| store.enforce_retention(0))
+            .map_err(StoreError)?;
+        Ok(store)
     }
 
     /// Returns one immutable snapshot of the current generation.
@@ -173,6 +206,134 @@ impl GenerationStore {
             .write()
             .map_err(|_| PublishError("current generation lock poisoned".into()))? =
             Some(generation);
+        Ok(())
+    }
+
+    /// Hard-links each generation's static ZIP at a content-addressed blob.
+    ///
+    /// Callers already hold the publish lock, or `open` has not returned the store.
+    /// A failed link leaves the existing per-generation copy in place.
+    fn dedupe_static_files(&self) -> Result<(), String> {
+        let generations = self
+            .generations
+            .read()
+            .map_err(|_| "generation map lock poisoned".to_string())?;
+        for generation in generations.values() {
+            let directory = self.output_dir.join(GENERATIONS_DIR).join(&generation.id.0);
+            install_static_zip(
+                self.output_dir.as_path(),
+                &directory,
+                &generation.static_zip,
+            )
+            .map_err(|error| error.to_string())?;
+        }
+        Ok(())
+    }
+
+    /// Deletes oldest non-current generations until unique bytes plus `incoming` fit.
+    ///
+    /// The current feed-set generation is never removed. `budget_bytes == 0` skips
+    /// the cap. Stale publish temps and unreferenced static blobs are removed either way.
+    fn enforce_retention(&self, incoming: u64) -> Result<(), String> {
+        let generations_dir = self.output_dir.join(GENERATIONS_DIR);
+        remove_stale_temps(&generations_dir)?;
+        remove_stale_temps(&self.output_dir.join(BLOBS_DIR))?;
+        let protected = self.protected_ids();
+        let (total, candidates) = scan_retention(&self.output_dir)?;
+        if self.budget_bytes > 0 {
+            let doomed = plan_deletions(
+                candidates,
+                &protected,
+                total.saturating_add(incoming),
+                self.budget_bytes,
+            );
+            for id in doomed {
+                self.delete_generation(&id)?;
+            }
+        }
+        gc_unreferenced_blobs(&self.output_dir.join(BLOBS_DIR))?;
+        Ok(())
+    }
+
+    /// Deletes oldest non-current generations when the filesystem cannot hold `incoming`.
+    fn ensure_publish_space(&self, incoming: u64) -> Result<(), String> {
+        let need = incoming.saturating_add(PUBLISH_FREE_MARGIN);
+        for _ in 0..10_000 {
+            let Some(free) = filesystem_free_bytes(self.output_dir.as_path()) else {
+                return Ok(());
+            };
+            if free >= need {
+                return Ok(());
+            }
+            if !self.delete_oldest_unprotected()? {
+                tracing::warn!(
+                    stage = "publish",
+                    free_bytes = free,
+                    incoming_bytes = incoming,
+                    "retention could not free enough space for the next generation"
+                );
+                return Ok(());
+            }
+        }
+        Ok(())
+    }
+
+    fn protected_ids(&self) -> HashSet<String> {
+        let mut ids = HashSet::new();
+        if let Some(current) = self.current_sync() {
+            ids.insert(current.id.0.clone());
+        }
+        ids
+    }
+
+    fn delete_oldest_unprotected(&self) -> Result<bool, String> {
+        let protected = self.protected_ids();
+        let (_, mut candidates) = scan_retention(&self.output_dir)?;
+        candidates.retain(|candidate| !protected.contains(&candidate.id));
+        candidates.sort_by(|left, right| {
+            left.order
+                .cmp(&right.order)
+                .then_with(|| left.id.cmp(&right.id))
+        });
+        let Some(oldest) = candidates.first() else {
+            return Ok(false);
+        };
+        self.delete_generation(&oldest.id)?;
+        Ok(true)
+    }
+
+    fn delete_generation(&self, id: &str) -> Result<(), String> {
+        if self.protected_ids().contains(id) {
+            return Ok(());
+        }
+        let generation_id = GenerationId(id.to_string());
+        let removed = self
+            .generations
+            .write()
+            .map_err(|_| "generation map lock poisoned".to_string())?
+            .remove(&generation_id);
+        let directory = self.output_dir.join(GENERATIONS_DIR).join(id);
+        if directory.exists() {
+            fs::remove_dir_all(&directory).map_err(|error| error.to_string())?;
+        }
+        if let Some(generation) = removed {
+            unintern_static(
+                &self.static_intern,
+                &self.generations,
+                &generation.static_zip,
+            );
+            tracing::info!(
+                stage = "retention",
+                generation_id = %generation.id.0,
+                "removed generation outside the byte budget"
+            );
+        } else {
+            tracing::info!(
+                stage = "retention",
+                generation_id = %id,
+                "removed unreadable generation directory"
+            );
+        }
         Ok(())
     }
 }
@@ -224,6 +385,11 @@ fn publish_inner(
         .lock()
         .map_err(|_| PublishError("publisher lock poisoned".into()))?;
     let generations_dir = output_dir.join(GENERATIONS_DIR);
+    let incoming = estimate_incoming_bytes(output_dir, &candidate);
+    store
+        .enforce_retention(incoming)
+        .and_then(|_| store.ensure_publish_space(incoming))
+        .map_err(PublishError)?;
     let id = next_generation_id(candidate.generated_at_unix, &generations_dir)?;
     let temporary_dir = generations_dir.join(format!(".{}.tmp", id.0));
     let final_dir = generations_dir.join(&id.0);
@@ -232,10 +398,7 @@ fn publish_inner(
 
     let urls = artifact_urls(&id);
     let manifest = candidate.manifest(id.clone(), urls);
-    write_synced(
-        &temporary_dir.join("static.zip"),
-        &candidate.static_snapshot.zip,
-    )?;
+    install_static_zip(output_dir, &temporary_dir, &candidate.static_snapshot.zip)?;
     fail_at(failure, FailurePoint::StaticArtifact)?;
     write_synced(
         &temporary_dir.join("trip-updates.pb"),
@@ -274,9 +437,401 @@ fn publish_inner(
     sync_directory(output_dir)?;
     fail_at(failure, FailurePoint::MarkerDirectory)?;
 
-    let generation = Arc::new(load_generation(&final_dir, &id.0).map_err(PublishError)?);
+    let mut loaded = load_generation(&final_dir, &id.0).map_err(PublishError)?;
+    if loaded.static_zip.as_ref() == candidate.static_snapshot.zip.as_ref() {
+        loaded.static_zip = candidate.static_snapshot.zip.clone();
+    }
+    loaded.static_zip = intern_static(&store.static_intern, loaded.static_zip);
+    let generation = Arc::new(loaded);
     store.commit(generation.clone())?;
+    store.enforce_retention(0).map_err(PublishError)?;
     Ok(generation)
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct SharedStatic {
+    dev: u64,
+    ino: u64,
+    len: u64,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct RetentionCandidate {
+    id: String,
+    order: (u128, u64),
+    /// Bytes this directory stops occupying as soon as it is removed.
+    ///
+    /// A static ZIP still linked by the content-addressed blob and at least one
+    /// other generation is excluded here and tracked in `shared_static`.
+    marginal_bytes: u64,
+    shared_static: Option<SharedStatic>,
+}
+
+/// Oldest unprotected generations to remove so `total_unique_bytes` fits in `budget_bytes`.
+///
+/// A zero budget means unlimited. Protected ids, including the current feed set, are
+/// never returned. Shared static bytes stay in the total until every generation that
+/// links them — protected or not — has been removed. Link counts are updated inside
+/// this pass, so freeing the last copy of a ZIP can keep a younger generation.
+fn plan_deletions(
+    mut candidates: Vec<RetentionCandidate>,
+    protected: &HashSet<String>,
+    total_unique_bytes: u64,
+    budget_bytes: u64,
+) -> Vec<String> {
+    if budget_bytes == 0 {
+        return Vec::new();
+    }
+    candidates.sort_by(|left, right| {
+        left.order
+            .cmp(&right.order)
+            .then_with(|| left.id.cmp(&right.id))
+    });
+    let mut links: HashMap<(u64, u64), u32> = HashMap::new();
+    for candidate in &candidates {
+        if let Some(shared) = candidate.shared_static {
+            *links.entry((shared.dev, shared.ino)).or_insert(0) += 1;
+        }
+    }
+    let mut total = total_unique_bytes;
+    let mut doomed = Vec::new();
+    for candidate in candidates {
+        if total <= budget_bytes {
+            break;
+        }
+        if protected.contains(&candidate.id) {
+            continue;
+        }
+        let mut freed = candidate.marginal_bytes;
+        if let Some(shared) = candidate.shared_static {
+            let remaining = links.get(&(shared.dev, shared.ino)).copied().unwrap_or(0);
+            if remaining <= 1 {
+                freed = freed.saturating_add(shared.len);
+            }
+        }
+        if freed == 0 {
+            continue;
+        }
+        total = total.saturating_sub(freed);
+        if let Some(shared) = candidate.shared_static {
+            if let Some(remaining) = links.get_mut(&(shared.dev, shared.ino)) {
+                *remaining = remaining.saturating_sub(1);
+            }
+        }
+        doomed.push(candidate.id);
+    }
+    doomed
+}
+
+fn sha256_hex(bytes: &[u8]) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(bytes);
+    format!("{:x}", hasher.finalize())
+}
+
+fn intern_static(map: &Mutex<HashMap<String, Arc<[u8]>>>, zip: Arc<[u8]>) -> Arc<[u8]> {
+    let digest = sha256_hex(&zip);
+    let mut guard = map.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    if let Some(existing) = guard.get(&digest) {
+        return existing.clone();
+    }
+    guard.insert(digest, zip.clone());
+    zip
+}
+
+fn unintern_static(
+    map: &Mutex<HashMap<String, Arc<[u8]>>>,
+    generations: &RwLock<HashMap<GenerationId, Arc<PublishedGeneration>>>,
+    zip: &Arc<[u8]>,
+) {
+    let still_used = generations
+        .read()
+        .map(|guard| {
+            guard
+                .values()
+                .any(|generation| Arc::ptr_eq(&generation.static_zip, zip))
+        })
+        .unwrap_or(true);
+    if still_used {
+        return;
+    }
+    let mut guard = map.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    guard.retain(|_, existing| !Arc::ptr_eq(existing, zip));
+}
+
+fn estimate_incoming_bytes(output_dir: &Path, candidate: &ValidatedGeneration) -> u64 {
+    let zip = candidate.static_snapshot.zip.as_ref();
+    let static_bytes = if blob_ready(&blob_path(output_dir, zip), zip) {
+        0
+    } else {
+        zip.len() as u64
+    };
+    static_bytes
+        .saturating_add(candidate.trip_updates.len() as u64)
+        .saturating_add(candidate.vehicle_positions.len() as u64)
+        .saturating_add(candidate.alerts.len() as u64)
+        .saturating_add(4096)
+}
+
+fn blob_path(output_dir: &Path, zip: &[u8]) -> PathBuf {
+    output_dir.join(BLOBS_DIR).join(sha256_hex(zip))
+}
+
+/// A blob is reusable when its content-addressed file exists at the ZIP's length.
+///
+/// The file name is the SHA-256, so a length match avoids rereading the static feed
+/// on every realtime publish. A mismatch is rewritten before the hard link.
+fn blob_ready(path: &Path, zip: &[u8]) -> bool {
+    fs::metadata(path)
+        .map(|metadata| metadata.is_file() && metadata.len() == zip.len() as u64)
+        .unwrap_or(false)
+}
+
+fn install_static_zip(output_dir: &Path, directory: &Path, zip: &[u8]) -> std::io::Result<()> {
+    if try_share_static(output_dir, directory, zip).is_ok() {
+        return Ok(());
+    }
+    let dest = directory.join(STATIC_FILE);
+    if dest.exists() {
+        return Ok(());
+    }
+    write_synced(&dest, zip)
+}
+
+fn try_share_static(output_dir: &Path, directory: &Path, zip: &[u8]) -> std::io::Result<()> {
+    let blobs = output_dir.join(BLOBS_DIR);
+    fs::create_dir_all(&blobs)?;
+    make_directory_private(&blobs)?;
+    let blob = blob_path(output_dir, zip);
+    if !blob_ready(&blob, zip) {
+        let temporary = blobs.join(format!(".{}.tmp", sha256_hex(zip)));
+        let _ = fs::remove_file(&temporary);
+        write_synced(&temporary, zip)?;
+        fs::rename(&temporary, &blob)?;
+        sync_directory(&blobs)?;
+    }
+    let dest = directory.join(STATIC_FILE);
+    if same_file(&dest, &blob) {
+        return Ok(());
+    }
+    let temporary = directory.join(".static.zip.relink");
+    let _ = fs::remove_file(&temporary);
+    fs::hard_link(&blob, &temporary)?;
+    fs::rename(&temporary, &dest)?;
+    sync_directory(directory)?;
+    Ok(())
+}
+
+fn same_file(left: &Path, right: &Path) -> bool {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        let Ok(left) = fs::metadata(left) else {
+            return false;
+        };
+        let Ok(right) = fs::metadata(right) else {
+            return false;
+        };
+        return left.dev() == right.dev() && left.ino() == right.ino();
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = (left, right);
+        false
+    }
+}
+
+fn remove_stale_temps(directory: &Path) -> Result<(), String> {
+    if !directory.exists() {
+        return Ok(());
+    }
+    for entry in fs::read_dir(directory).map_err(|error| error.to_string())? {
+        let entry = entry.map_err(|error| error.to_string())?;
+        let name = entry.file_name();
+        let Some(name) = name.to_str() else {
+            continue;
+        };
+        if !(name.starts_with('.') && name.ends_with(".tmp")) {
+            continue;
+        }
+        let path = entry.path();
+        let file_type = entry.file_type().map_err(|error| error.to_string())?;
+        if file_type.is_dir() && !file_type.is_symlink() {
+            fs::remove_dir_all(&path).map_err(|error| error.to_string())?;
+        } else if !file_type.is_symlink() {
+            fs::remove_file(&path).map_err(|error| error.to_string())?;
+        }
+    }
+    Ok(())
+}
+
+fn scan_retention(output_dir: &Path) -> Result<(u64, Vec<RetentionCandidate>), String> {
+    let generations_dir = output_dir.join(GENERATIONS_DIR);
+    let mut files = Vec::new();
+    let mut candidates = Vec::new();
+    if generations_dir.exists() {
+        for entry in fs::read_dir(&generations_dir).map_err(|error| error.to_string())? {
+            let entry = entry.map_err(|error| error.to_string())?;
+            let name = entry.file_name();
+            let Some(name) = name.to_str() else {
+                continue;
+            };
+            let Some(order) = generation_order(name) else {
+                continue;
+            };
+            let file_type = entry.file_type().map_err(|error| error.to_string())?;
+            if file_type.is_symlink() || !file_type.is_dir() {
+                continue;
+            }
+            let directory = entry.path();
+            let mut marginal = 0u64;
+            let mut shared_static = None;
+            for artifact in [
+                STATIC_FILE,
+                "trip-updates.pb",
+                "vehicle-positions.pb",
+                "alerts.pb",
+                MANIFEST_FILE,
+            ] {
+                let path = directory.join(artifact);
+                if artifact == STATIC_FILE {
+                    shared_static = shared_static_of(&path);
+                }
+                marginal = marginal.saturating_add(marginal_file_bytes(&path));
+                if path.is_file() {
+                    files.push(path);
+                }
+            }
+            candidates.push(RetentionCandidate {
+                id: name.to_string(),
+                order,
+                marginal_bytes: marginal,
+                shared_static,
+            });
+        }
+    }
+    let blobs = output_dir.join(BLOBS_DIR);
+    if blobs.exists() {
+        for entry in fs::read_dir(&blobs).map_err(|error| error.to_string())? {
+            let entry = entry.map_err(|error| error.to_string())?;
+            let name = entry.file_name();
+            let Some(name) = name.to_str() else {
+                continue;
+            };
+            if name.len() == 64 && name.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+                files.push(entry.path());
+            }
+        }
+    }
+    Ok((unique_file_bytes(&files), candidates))
+}
+
+/// Static ZIP identity when the file shares its inode with the blob and another generation.
+///
+/// A link count of two is the blob plus this generation alone, so those bytes already
+/// sit in [`marginal_file_bytes`] and are freed as soon as this directory goes away.
+fn shared_static_of(path: &Path) -> Option<SharedStatic> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        let metadata = fs::symlink_metadata(path).ok()?;
+        if !metadata.is_file() || metadata.nlink() <= 2 {
+            return None;
+        }
+        return Some(SharedStatic {
+            dev: metadata.dev(),
+            ino: metadata.ino(),
+            len: metadata.len(),
+        });
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = path;
+        None
+    }
+}
+
+fn marginal_file_bytes(path: &Path) -> u64 {
+    let Ok(metadata) = fs::symlink_metadata(path) else {
+        return 0;
+    };
+    if !metadata.is_file() {
+        return 0;
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        let name = path
+            .file_name()
+            .and_then(|value| value.to_str())
+            .unwrap_or("");
+        if metadata.nlink() <= 1 || (name == STATIC_FILE && metadata.nlink() <= 2) {
+            metadata.len()
+        } else {
+            0
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        metadata.len()
+    }
+}
+
+fn unique_file_bytes(paths: &[PathBuf]) -> u64 {
+    let mut seen = HashSet::new();
+    let mut total = 0u64;
+    for path in paths {
+        let Ok(metadata) = fs::symlink_metadata(path) else {
+            continue;
+        };
+        if !metadata.is_file() {
+            continue;
+        }
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::MetadataExt;
+            if !seen.insert((metadata.dev(), metadata.ino())) {
+                continue;
+            }
+        }
+        total = total.saturating_add(metadata.len());
+    }
+    total
+}
+
+fn gc_unreferenced_blobs(blobs: &Path) -> Result<(), String> {
+    if !blobs.exists() {
+        return Ok(());
+    }
+    for entry in fs::read_dir(blobs).map_err(|error| error.to_string())? {
+        let entry = entry.map_err(|error| error.to_string())?;
+        let metadata = match fs::symlink_metadata(entry.path()) {
+            Ok(metadata) if metadata.is_file() => metadata,
+            _ => continue,
+        };
+        #[cfg(unix)]
+        let unreferenced = {
+            use std::os::unix::fs::MetadataExt;
+            metadata.nlink() <= 1
+        };
+        #[cfg(not(unix))]
+        let unreferenced = false;
+        if unreferenced {
+            fs::remove_file(entry.path()).map_err(|error| error.to_string())?;
+        }
+    }
+    Ok(())
+}
+
+#[cfg(unix)]
+fn filesystem_free_bytes(path: &Path) -> Option<u64> {
+    let stat = rustix::fs::statvfs(path).ok()?;
+    Some(u64::from(stat.f_bavail).saturating_mul(u64::from(stat.f_frsize)))
+}
+
+#[cfg(not(unix))]
+fn filesystem_free_bytes(_path: &Path) -> Option<u64> {
+    None
 }
 
 fn fail_at(actual: Option<FailurePoint>, expected: FailurePoint) -> Result<(), PublishError> {
@@ -985,6 +1540,189 @@ mod tests {
             .unwrap()
             .file_type()
             .is_symlink());
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn plan_deletions_keeps_the_current_feed_set_and_drops_oldest_first() {
+        let items = vec![
+            RetentionCandidate {
+                id: "10-0".into(),
+                order: (10, 0),
+                marginal_bytes: 50,
+                shared_static: None,
+            },
+            RetentionCandidate {
+                id: "20-0".into(),
+                order: (20, 0),
+                marginal_bytes: 40,
+                shared_static: None,
+            },
+            RetentionCandidate {
+                id: "30-0".into(),
+                order: (30, 0),
+                marginal_bytes: 30,
+                shared_static: None,
+            },
+        ];
+        let mut protected = HashSet::new();
+        protected.insert("30-0".to_string());
+        assert_eq!(
+            plan_deletions(items.clone(), &protected, 120, 0),
+            Vec::<String>::new(),
+            "a zero budget is unlimited"
+        );
+        assert_eq!(
+            plan_deletions(items.clone(), &protected, 120, 70),
+            vec!["10-0".to_string()],
+            "deleting the oldest 50-byte generation lands exactly on the budget"
+        );
+        assert_eq!(
+            plan_deletions(items.clone(), &protected, 120, 69),
+            vec!["10-0".to_string(), "20-0".to_string()]
+        );
+        assert_eq!(
+            plan_deletions(items.clone(), &protected, 120, 80),
+            vec!["10-0".to_string()]
+        );
+        // The protected generation is the oldest and larger than the budget.
+        // Younger unprotected generations are still the ones removed.
+        let mut protected_oldest = HashSet::new();
+        protected_oldest.insert("10-0".to_string());
+        assert_eq!(
+            plan_deletions(items, &protected_oldest, 120, 50),
+            vec!["20-0".to_string(), "30-0".to_string()]
+        );
+    }
+
+    #[test]
+    fn plan_deletions_releases_a_shared_zip_when_its_last_linker_goes() {
+        let shared = SharedStatic {
+            dev: 1,
+            ino: 7,
+            len: 19,
+        };
+        let items = vec![
+            RetentionCandidate {
+                id: "10-0".into(),
+                order: (10, 0),
+                marginal_bytes: 1,
+                shared_static: Some(shared),
+            },
+            RetentionCandidate {
+                id: "20-0".into(),
+                order: (20, 0),
+                marginal_bytes: 1,
+                shared_static: Some(shared),
+            },
+            RetentionCandidate {
+                id: "25-0".into(),
+                order: (25, 0),
+                marginal_bytes: 5,
+                shared_static: None,
+            },
+            RetentionCandidate {
+                id: "30-0".into(),
+                order: (30, 0),
+                marginal_bytes: 1,
+                shared_static: Some(SharedStatic {
+                    dev: 1,
+                    ino: 8,
+                    len: 19,
+                }),
+            },
+        ];
+        let mut protected = HashSet::new();
+        protected.insert("30-0".to_string());
+        // Unique bytes: shared zip 19 + current zip 19 + private 1+1+5+1 = 46.
+        // Deleting 10-0 frees only its private byte (the zip still has a linker).
+        // Deleting 20-0 frees its private byte and the shared zip. 46-1-1-19 = 25,
+        // which meets the budget, so the younger private generation stays.
+        assert_eq!(
+            plan_deletions(items.clone(), &protected, 46, 25),
+            vec!["10-0".to_string(), "20-0".to_string()]
+        );
+        let mut protected_shares = HashSet::new();
+        protected_shares.insert("20-0".to_string());
+        assert_eq!(
+            plan_deletions(items, &protected_shares, 46, 25),
+            vec!["10-0".to_string(), "25-0".to_string(), "30-0".to_string()],
+            "a protected linker keeps the shared zip in the total"
+        );
+    }
+
+    #[tokio::test]
+    async fn byte_budget_never_deletes_the_current_feed_set() {
+        let dir = test_dir("budget");
+        let store = GenerationStore::open_with_budget(&dir, 1).await.unwrap();
+        let first = GenerationPublisher::publish(&dir, &store, candidate(10, 1))
+            .await
+            .unwrap();
+        assert_eq!(store.current().await.unwrap().id, first.id);
+        assert!(dir.join(GENERATIONS_DIR).join(&first.id.0).exists());
+        let second = GenerationPublisher::publish(&dir, &store, candidate(11, 2))
+            .await
+            .unwrap();
+        assert_eq!(store.current().await.unwrap().id, second.id);
+        assert!(store.get(&first.id).await.is_none());
+        assert!(store.get(&second.id).await.is_some());
+        assert!(!dir.join(GENERATIONS_DIR).join(&first.id.0).exists());
+        assert_eq!(
+            store.current().await.unwrap().manifest.urls.static_zip,
+            format!("/v1/generations/{}/static.zip", second.id.0)
+        );
+        assert_eq!(store.current().await.unwrap().static_zip.as_ref()[1], 2);
+
+        let reopened = GenerationStore::open_with_budget(&dir, 1).await.unwrap();
+        assert_eq!(reopened.current().await.unwrap().id, second.id);
+        assert!(reopened.get(&first.id).await.is_none());
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn unchanged_static_zip_is_stored_once_and_relinked_after_a_copy() {
+        use std::os::unix::fs::MetadataExt;
+
+        let dir = test_dir("dedup");
+        let store = GenerationStore::open_with_budget(&dir, 0).await.unwrap();
+        let first = GenerationPublisher::publish(&dir, &store, candidate(1, 7))
+            .await
+            .unwrap();
+        let second = GenerationPublisher::publish(&dir, &store, candidate(2, 7))
+            .await
+            .unwrap();
+        let path = |id: &GenerationId| dir.join(GENERATIONS_DIR).join(&id.0).join(STATIC_FILE);
+        let first_meta = fs::metadata(path(&first.id)).unwrap();
+        let second_meta = fs::metadata(path(&second.id)).unwrap();
+        assert_eq!(first_meta.ino(), second_meta.ino());
+        assert!(Arc::ptr_eq(
+            &store.get(&first.id).await.unwrap().static_zip,
+            &store.get(&second.id).await.unwrap().static_zip
+        ));
+        let blob_count = fs::read_dir(dir.join(BLOBS_DIR)).unwrap().count();
+        assert_eq!(blob_count, 1);
+        let changed = GenerationPublisher::publish(&dir, &store, candidate(3, 8))
+            .await
+            .unwrap();
+        assert_ne!(
+            fs::metadata(path(&changed.id)).unwrap().ino(),
+            first_meta.ino()
+        );
+        assert_eq!(fs::read_dir(dir.join(BLOBS_DIR)).unwrap().count(), 2);
+
+        let bytes = fs::read(path(&first.id)).unwrap();
+        fs::remove_file(path(&first.id)).unwrap();
+        fs::write(path(&first.id), &bytes).unwrap();
+        assert_ne!(
+            fs::metadata(path(&first.id)).unwrap().ino(),
+            fs::metadata(path(&second.id)).unwrap().ino()
+        );
+        let _ = GenerationStore::open_with_budget(&dir, 0).await.unwrap();
+        assert_eq!(
+            fs::metadata(path(&first.id)).unwrap().ino(),
+            fs::metadata(path(&second.id)).unwrap().ino()
+        );
         fs::remove_dir_all(dir).unwrap();
     }
 }

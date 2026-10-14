@@ -9,7 +9,15 @@ import asyncio
 import pytest
 
 from fetcher.config import Config
-from fetcher.poller import FetchedAdvisories, extract_detail_paths, poll_once, run_forever, should_block
+from fetcher.poller import (
+    FetchedAdvisories,
+    RenderStability,
+    detail_paths_due,
+    extract_detail_paths,
+    poll_once,
+    run_forever,
+    should_block,
+)
 from fetcher.store import SnapshotStore
 
 CFG = Config.from_env({"POLL_INTERVAL_SECS": "1", "SNAPSHOT_DIR": "/unused"})
@@ -39,6 +47,20 @@ def test_poll_once_returns_none_when_blocked():
         return None
 
     assert asyncio.run(poll_once(CFG, launcher=fake)) is None
+
+
+def test_render_stability_waits_for_an_unchanged_gated_size():
+    stability = RenderStability()
+    assert stability.observe(100, False, 0.2, 0.4) is False
+    assert stability.observe(100, True, 0.2, 0.4) is False
+    assert stability.observe(120, True, 0.2, 0.4) is False  # growth resets the window
+    assert stability.observe(120, True, 0.2, 0.4) is False
+    assert stability.observe(120, True, 0.2, 0.4) is True
+
+
+def test_detail_paths_due_skips_fresh_pages():
+    paths = ["/alert/a.html", "/alert/b.html"]
+    assert detail_paths_due(paths, {"/alert/a.html"}) == ["/alert/b.html"]
 
 
 def test_extract_detail_paths_keeps_only_safe_alert_links():

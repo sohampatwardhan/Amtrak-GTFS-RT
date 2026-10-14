@@ -15,8 +15,8 @@ use crate::sources::tracks::{AssignmentStore, WithTracks};
 use crate::sources::{RtBatch, RtSource, SourceError};
 use crate::static_augment::PlatformTable;
 use crate::static_gtfs::{
-    bootstrap_static, recover_static, MobilityDataStaticValidator, StaticSnapshotState,
-    StaticStandardsValidator,
+    bootstrap_static, recover_static, CachedStaticValidator, MobilityDataStaticValidator,
+    StaticSnapshotState, StaticStandardsValidator,
 };
 use crate::writer::GenerationStore;
 use async_trait::async_trait;
@@ -240,9 +240,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     // Validation and durable recovery finish before any task or listener exists.
     let config = Config::from_env()?.validate()?;
-    let store = GenerationStore::open(&config.output_dir).await?;
-    let validator: Arc<dyn StaticStandardsValidator> = Arc::new(MobilityDataStaticValidator::new(
-        config.gtfs_validator_jar.clone(),
+    let store =
+        GenerationStore::open_with_budget(&config.output_dir, config.generation_budget_bytes)
+            .await?;
+    let validator: Arc<dyn StaticStandardsValidator> = Arc::new(CachedStaticValidator::new(
+        MobilityDataStaticValidator::new(config.gtfs_validator_jar.clone()),
+        config.output_dir.join("validator-cache"),
+        config.validator_cache,
     ));
     // With tracks on, every static snapshot is augmented with the configured platform stops, so
     // the same table must reach both the bootstrap below and the periodic refresh task.
