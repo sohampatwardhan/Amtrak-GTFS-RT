@@ -104,6 +104,15 @@ class SnapshotStore:
         os.replace(tmp, target)
         return True
 
+    def detail_is_fresh(self, path: str, ttl_secs: float, now: float | None = None) -> bool:
+        """Return whether a stored detail is younger than ``ttl_secs`` and can be reused."""
+        snapshot = self.read_detail(path)
+        if snapshot is None:
+            return False
+        _, modified = snapshot
+        current = time.time() if now is None else now
+        return current - modified < ttl_secs
+
     def read_detail(self, path: str) -> tuple[bytes, float] | None:
         """Return ``(html_bytes, mtime)`` for a stored detail path, or ``None`` if absent/unsafe."""
         name = safe_detail_name(path)

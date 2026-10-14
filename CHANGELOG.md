@@ -9,6 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Byte-capped generation retention.** `AMTRAK_GENERATION_BUDGET_BYTES` (default 256 MiB, `0` to
+  disable) deletes the oldest immutable generations once unique on-disk bytes exceed the cap.
+  The generation referenced by the current feed set is never deleted. Unchanged static GTFS is
+  stored once under `blobs/<sha256>` and hard-linked from each `generations/<id>/static.zip`, so
+  served URLs stay `/v1/generations/{id}/static.zip`.
+- **Static validator cache.** `AMTRAK_VALIDATOR_CACHE` (default on) skips the Java GTFS validator
+  when a ZIP's SHA-256 already has an accept or standards-reject result. Tool failures and
+  timeouts are not cached.
+- **Advisory render limits.** The fetcher re-renders the notices list on its existing 15-minute
+  poll, stops each page once the HTML size is stable instead of waiting on page timers, and
+  reuses detail pages for `DETAIL_TTL_SECS` (default 24 hours).
 - **`amtrak-status` delay deltas.** Train and station output now annotate each predicted time
   with how it compares to the static schedule — `(on time)`, `(12 min late)`, `(3 min early)` —
   and the train-level `delay:` line uses the same label. The delay prefers the feed's own
@@ -18,6 +29,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   so the derivation is what normally produces the number; previously the `delay:` line could
   only appear when a feed supplied `delay` explicitly, and per-stop times carried no delay
   information at all.
+
+### Changed
+
+- The container Java runtime's `jlink` set now includes `java.sql` (Gson loads `java.sql.Time`
+  while parsing GTFS dates; without it the CLI does not produce a report) and strips debug
+  symbols. `java.desktop` remains because notice introspection loads `java.beans`. The validator
+  process is started with `-Djava.awt.headless=true`.
+- The advisory-fetcher image installs Playwright's Debian 12 Chromium libraries and
+  `chromium-headless-shell` directly, instead of `playwright install --with-deps`, which also
+  pulled xvfb and the large font packs. Compose sizes `/dev/shm` at 64 MiB because the browser
+  is launched with `--disable-dev-shm-usage`.
 
 ## [0.5.0] - 2026-09-28
 

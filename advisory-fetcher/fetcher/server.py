@@ -24,6 +24,7 @@ def route(
     max_stale_secs: int,
     path: str,
     now: float,
+    detail_max_stale_secs: int | None = None,
 ) -> tuple[int, str, bytes]:
     """Decide the response for a GET, as ``(status, content_type, body)``.
 
@@ -32,7 +33,8 @@ def route(
     * ``serve_path`` → ``200 text/html`` with the snapshot while ``now - last_success`` is within
       ``max_stale_secs``; ``503`` when no snapshot exists yet or it is stale (freshness as status,
       R2.3/R3.1).
-    * ``/alert/<slug>.html`` → the matching detail snapshot on the same freshness rule; ``404`` when
+    * ``/alert/<slug>.html`` → the matching detail snapshot while it is within
+      ``detail_max_stale_secs`` (the list limit when that argument is omitted); ``404`` when
       that detail was never stored (the service then keeps a title-only description).
     * ``/healthz`` → ``200`` liveness.
     * anything else → ``404``.
@@ -53,13 +55,19 @@ def route(
         if snapshot is None:
             return 404, "text/plain", b"detail not snapshotted"
         data, last_success = snapshot
-        if now - last_success > max_stale_secs:
+        detail_limit = max_stale_secs if detail_max_stale_secs is None else detail_max_stale_secs
+        if now - last_success > detail_limit:
             return 503, "text/plain", b"snapshot stale"
         return 200, "text/html", data
     return 404, "text/plain", b"not found"
 
 
-def make_handler(store: SnapshotStore, serve_path: str, max_stale_secs: int):
+def make_handler(
+    store: SnapshotStore,
+    serve_path: str,
+    max_stale_secs: int,
+    detail_max_stale_secs: int | None = None,
+):
     """Build a `BaseHTTPRequestHandler` subclass bound to this store and configuration."""
 
     class SnapshotHandler(BaseHTTPRequestHandler):
@@ -67,7 +75,12 @@ def make_handler(store: SnapshotStore, serve_path: str, max_stale_secs: int):
 
         def do_GET(self) -> None:  # noqa: N802 — http.server's required method name
             status, content_type, body = route(
-                store, serve_path, max_stale_secs, self.path, time.time()
+                store,
+                serve_path,
+                max_stale_secs,
+                self.path,
+                time.time(),
+                detail_max_stale_secs,
             )
             self.send_response(status)
             self.send_header("Content-Type", content_type)
@@ -81,6 +94,15 @@ def make_handler(store: SnapshotStore, serve_path: str, max_stale_secs: int):
     return SnapshotHandler
 
 
-def make_server(store: SnapshotStore, serve_path: str, max_stale_secs: int, port: int) -> ThreadingHTTPServer:
+def make_server(
+    store: SnapshotStore,
+    serve_path: str,
+    max_stale_secs: int,
+    port: int,
+    detail_max_stale_secs: int | None = None,
+) -> ThreadingHTTPServer:
     """Create a threaded HTTP server serving the snapshot on ``port`` (bound, not yet serving)."""
-    return ThreadingHTTPServer(("0.0.0.0", port), make_handler(store, serve_path, max_stale_secs))
+    return ThreadingHTTPServer(
+        ("0.0.0.0", port),
+        make_handler(store, serve_path, max_stale_secs, detail_max_stale_secs),
+    )

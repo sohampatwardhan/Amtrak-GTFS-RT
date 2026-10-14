@@ -10,6 +10,10 @@ use std::time::{Duration, Instant};
 use sha2::{Digest, Sha256};
 
 const DEFAULT_STATIC_URL: &str = "https://content.amtrak.com/content/gtfs/GTFS.zip";
+/// Unique on-disk bytes retained for immutable generations. 256 MiB holds the shared
+/// static ZIP once plus roughly an hour of realtime artifacts on a 45-second poll,
+/// and stays under a 512 MiB tmpfs that previously filled at publish time.
+pub const DEFAULT_GENERATION_BUDGET_BYTES: u64 = 256 * 1024 * 1024;
 const DEFAULT_VALIDATOR_JAR: &str = "./tools/gtfs-validator-v8.0.1-cli.jar";
 const REQUIRED_VALIDATOR_VERSION: &str = "8.0.1";
 const OFFICIAL_VALIDATOR_SHA256: &str =
@@ -253,6 +257,37 @@ fn positive_secs<F: Fn(&str) -> Option<String>>(
     Ok(Duration::from_secs(secs))
 }
 
+fn parse_flag<F: Fn(&str) -> Option<String>>(
+    get: &F,
+    field: &'static str,
+    default: bool,
+) -> Result<bool, ConfigError> {
+    match get(field) {
+        None => Ok(default),
+        Some(value) if value.trim().is_empty() => Ok(default),
+        Some(value)
+            if value == "1"
+                || value.eq_ignore_ascii_case("true")
+                || value.eq_ignore_ascii_case("on")
+                || value.eq_ignore_ascii_case("yes") =>
+        {
+            Ok(true)
+        }
+        Some(value)
+            if value == "0"
+                || value.eq_ignore_ascii_case("false")
+                || value.eq_ignore_ascii_case("off")
+                || value.eq_ignore_ascii_case("no") =>
+        {
+            Ok(false)
+        }
+        Some(value) => Err(ConfigError::new(
+            field,
+            format!("must be true or false, got {value:?}"),
+        )),
+    }
+}
+
 fn flag_enabled(value: Option<String>) -> bool {
     value
         .map(|value| {
@@ -340,6 +375,11 @@ pub struct Config {
     pub allowed_peer_ips: BTreeSet<IpAddr>,
     pub freshness_limit: Duration,
     pub gtfs_validator_jar: PathBuf,
+    /// `0` retains every generation. Any other value is the unique-byte cap.
+    pub generation_budget_bytes: u64,
+    /// When set, a static ZIP whose SHA-256 already passed the validator is not
+    /// sent through the Java CLI again.
+    pub validator_cache: bool,
 }
 
 /// Configuration proven safe enough to construct the service.
@@ -358,6 +398,8 @@ pub struct ValidatedConfig {
     pub freshness_limit: Duration,
     pub gtfs_validator_jar: PathBuf,
     pub access_policy: AccessPolicy,
+    pub generation_budget_bytes: u64,
+    pub validator_cache: bool,
 }
 
 /// Exact transport-peer policy for protected HTTP routes.
@@ -469,6 +511,12 @@ impl Config {
         let gtfs_validator_jar = get("AMTRAK_GTFS_VALIDATOR_JAR")
             .unwrap_or_else(|| DEFAULT_VALIDATOR_JAR.to_string())
             .into();
+        let generation_budget_bytes = parse_u64(
+            &get,
+            "AMTRAK_GENERATION_BUDGET_BYTES",
+            DEFAULT_GENERATION_BUDGET_BYTES,
+        )?;
+        let validator_cache = parse_flag(&get, "AMTRAK_VALIDATOR_CACHE", true)?;
         Ok(Config {
             static_url,
             output_dir,
@@ -479,6 +527,8 @@ impl Config {
             allowed_peer_ips,
             freshness_limit: Duration::from_secs(300),
             gtfs_validator_jar,
+            generation_budget_bytes,
+            validator_cache,
         })
     }
 
@@ -543,6 +593,8 @@ impl Config {
             access_policy: AccessPolicy {
                 allowed_peer_ips: self.allowed_peer_ips,
             },
+            generation_budget_bytes: self.generation_budget_bytes,
+            validator_cache: self.validator_cache,
         })
     }
 }
@@ -740,6 +792,8 @@ fn env_field(key: &str) -> &'static str {
     match key {
         "AMTRAK_POLL_SECS" => "AMTRAK_POLL_SECS",
         "AMTRAK_STATIC_REFRESH_SECS" => "AMTRAK_STATIC_REFRESH_SECS",
+        "AMTRAK_GENERATION_BUDGET_BYTES" => "AMTRAK_GENERATION_BUDGET_BYTES",
+        "AMTRAK_VALIDATOR_CACHE" => "AMTRAK_VALIDATOR_CACHE",
         _ => "configuration",
     }
 }
@@ -894,6 +948,28 @@ mod tests {
             config.gtfs_validator_jar,
             PathBuf::from(DEFAULT_VALIDATOR_JAR)
         );
+        assert_eq!(
+            config.generation_budget_bytes,
+            DEFAULT_GENERATION_BUDGET_BYTES
+        );
+        assert!(config.validator_cache);
+    }
+
+    #[test]
+    fn generation_budget_and_validator_cache_are_configurable() {
+        let unlimited = Config::from_map(map(&[
+            ("AMTRAK_GENERATION_BUDGET_BYTES", "0"),
+            ("AMTRAK_VALIDATOR_CACHE", "off"),
+        ]))
+        .unwrap();
+        assert_eq!(unlimited.generation_budget_bytes, 0);
+        assert!(!unlimited.validator_cache);
+
+        let error =
+            Config::from_map(map(&[("AMTRAK_GENERATION_BUDGET_BYTES", "lots")])).unwrap_err();
+        assert_eq!(error.field(), "AMTRAK_GENERATION_BUDGET_BYTES");
+        let error = Config::from_map(map(&[("AMTRAK_VALIDATOR_CACHE", "maybe")])).unwrap_err();
+        assert_eq!(error.field(), "AMTRAK_VALIDATOR_CACHE");
     }
 
     #[test]

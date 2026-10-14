@@ -12,10 +12,13 @@ scratch/musl, no-vulnerabilities posture.
 
 ## How it works
 
-- **Poll loop** (`fetcher/poller.py`): every `POLL_INTERVAL_SECS`, launch one browser, load the
-  notices page, wait for the `na-service-alert__*` markup, then open each linked `/alert/...`
-  detail page in that same session (so the Akamai cookie still applies). A detail that fails is
-  skipped; the list is still stored. The browser closes at the end of the cycle. Image/font/media/CSS
+- **Poll loop** (`fetcher/poller.py`): every `POLL_INTERVAL_SECS` (default 15 minutes), launch one
+  browser and render the notices page until the HTML size is stable and the `na-service-alert__*`
+  markup is present, then close that page. Detail pages already snapshotted within
+  `DETAIL_TTL_SECS` (default 24 hours) are left cached; the others are rendered in the same session
+  (so the Akamai cookie still applies) with the same stable-size stop. A detail that fails is
+  skipped; the list is still stored. The browser is closed at the end of the cycle, and killed if
+  `browser.close()` is still waiting on page timers after `BROWSER_CLOSE_SECS`. Image/font/media/CSS
   requests are blocked during the fetch (script/XHR allowed so Akamai's sensor still runs).
 - **Snapshot store** (`fetcher/store.py`): the latest list HTML is written atomically; unchanged
   content isn't rewritten. Detail pages are stored under `details/` and only for safe
@@ -39,6 +42,11 @@ scratch/musl, no-vulnerabilities posture.
 | `GATE_SELECTOR` | `[class*='na-service-alert']` | Selector proving the markup rendered |
 | `BROWSER_MODE` | `headless-shell` | `headless-shell` (efficient) or `xvfb-headful` (fallback) |
 | `BLOCK_SUBRESOURCES` | `true` | Skip image/font/media/CSS during the fetch |
+| `DETAIL_TTL_SECS` | `86400` | Do not re-render a detail page younger than this |
+| `DETAIL_MAX_STALE_SECS` | `86400` | Serve a stored detail as fresh for this long. Must be ≥ `DETAIL_TTL_SECS` |
+| `RENDER_STABLE_MS` | `400` | HTML size must stay unchanged this long, with the gate selector present, before the renderer stops |
+| `RENDER_POLL_MS` | `200` | How often to sample page HTML while waiting for a stable size |
+| `BROWSER_CLOSE_SECS` | `2` | Graceful browser shutdown budget; the renderer is killed after this |
 
 ## Run
 

@@ -101,15 +101,20 @@ FROM amazoncorretto:17-alpine-jdk@sha256:e1138bf0cca62e04692de650ffe8923f35c39fc
 
 USER 0
 
-# Generate a Java 17 runtime containing only the four modules used by the validator, then copy its
-# musl/zlib closure and minimal identity/configuration files. BusyBox, apk, libssl, and libcrypto
-# are intentionally excluded from the final image.
+# Generate a Java 17 runtime containing only the modules the validator CLI actually loads, then
+# copy its musl/zlib closure and minimal identity/configuration files. BusyBox, apk, libssl, and
+# libcrypto are intentionally excluded from the final image.
+#
+# java.sql is required: Gson initializes java.sql.Time while parsing GTFS dates, and without that
+# class the CLI's worker pool never writes report.json (measured on the official 8.0.1 jar).
+# java.desktop stays because notice introspection loads java.beans. Debug symbols are stripped.
 RUN set -eu; \
     /usr/lib/jvm/java-17-amazon-corretto/bin/jlink \
       --module-path /usr/lib/jvm/java-17-amazon-corretto/jmods \
-      --add-modules java.base,java.desktop,java.logging,java.xml \
+      --add-modules java.base,java.desktop,java.logging,java.sql,java.xml \
       --no-man-pages \
       --no-header-files \
+      --strip-debug \
       --compress=2 \
       --output /runtime/opt/java; \
     mkdir -p \

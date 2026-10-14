@@ -44,6 +44,13 @@ class Config:
         browser_mode: `headless-shell` (efficient default) or `xvfb-headful` (fallback).
         block_subresources: when true, abort image/font/media/CSS requests during the fetch for
             efficiency, keeping script/xhr so Akamai's sensor JS still runs (R8).
+        detail_ttl_secs: skip re-rendering a detail page whose snapshot is younger than this.
+        detail_max_stale_secs: how long a stored detail is served as fresh. Must be at least
+            ``detail_ttl_secs`` so a cached page is not returned as 503 before it is due again.
+        render_stable_ms: HTML size must stay unchanged this long, with the gate selector
+            present, before the renderer is stopped.
+        render_poll_ms: how often to sample ``page.content()`` while waiting for a stable size.
+        browser_close_secs: graceful browser shutdown budget; the renderer is killed after this.
     """
 
     source_url: str = DEFAULT_SOURCE_URL
@@ -56,6 +63,11 @@ class Config:
     gate_selector: str = DEFAULT_GATE_SELECTOR
     browser_mode: str = "headless-shell"
     block_subresources: bool = True
+    detail_ttl_secs: int = 86400
+    detail_max_stale_secs: int = 86400
+    render_stable_ms: int = 400
+    render_poll_ms: int = 200
+    browser_close_secs: int = 2
 
     @staticmethod
     def from_env(env: Mapping[str, str]) -> "Config":
@@ -65,6 +77,13 @@ class Config:
         anything else raises :class:`ConfigError` naming the key, so a misconfiguration fails fast
         at startup rather than surfacing as a confusing runtime error later.
         """
+        detail_ttl_secs = _pos_int(env, "DETAIL_TTL_SECS", 86400)
+        detail_max_stale_secs = _pos_int(env, "DETAIL_MAX_STALE_SECS", 86400)
+        if detail_max_stale_secs < detail_ttl_secs:
+            raise ConfigError(
+                "DETAIL_MAX_STALE_SECS must be greater than or equal to DETAIL_TTL_SECS "
+                f"({detail_max_stale_secs} < {detail_ttl_secs})"
+            )
         return Config(
             source_url=env.get("AMTRAK_SOURCE_URL", DEFAULT_SOURCE_URL),
             poll_interval_secs=_pos_int(env, "POLL_INTERVAL_SECS", 900),
@@ -76,6 +95,11 @@ class Config:
             gate_selector=env.get("GATE_SELECTOR", DEFAULT_GATE_SELECTOR),
             browser_mode=_browser_mode(env),
             block_subresources=_bool(env, "BLOCK_SUBRESOURCES", True),
+            detail_ttl_secs=detail_ttl_secs,
+            detail_max_stale_secs=detail_max_stale_secs,
+            render_stable_ms=_pos_int(env, "RENDER_STABLE_MS", 400),
+            render_poll_ms=_pos_int(env, "RENDER_POLL_MS", 200),
+            browser_close_secs=_pos_int(env, "BROWSER_CLOSE_SECS", 2),
         )
 
 

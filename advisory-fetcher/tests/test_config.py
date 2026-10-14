@@ -14,6 +14,11 @@ def test_defaults_when_env_empty():
     assert cfg.listen_port == 8080
     assert cfg.browser_mode == "headless-shell"
     assert cfg.block_subresources is True
+    assert cfg.detail_ttl_secs == 86400
+    assert cfg.detail_max_stale_secs == 86400
+    assert cfg.render_stable_ms == 400
+    assert cfg.render_poll_ms == 200
+    assert cfg.browser_close_secs == 2
 
 
 def test_overrides_applied():
@@ -53,6 +58,11 @@ def test_unknown_browser_mode_rejected():
     with pytest.raises(ConfigError, match="BROWSER_MODE"):
         Config.from_env({"BROWSER_MODE": "webkit"})
     assert "headless-shell" in BROWSER_MODES
+
+
+def test_detail_stale_window_must_cover_the_cache_ttl():
+    with pytest.raises(ConfigError, match="DETAIL_MAX_STALE_SECS"):
+        Config.from_env({"DETAIL_TTL_SECS": "86400", "DETAIL_MAX_STALE_SECS": "3600"})
 
 
 def test_bad_boolean_rejected():

@@ -204,7 +204,35 @@ healthy process that is merely waiting for its first good generation.
 Generations live only in the mounted volume, so **retain the named volume across upgrades**.
 `GenerationStore` recovers the last complete, valid generation on startup and rejects partial
 state, so recreating the container over the same volume — even before any successful upstream
-refresh — recovers the previous last-good feed set byte-for-byte:
+refresh — recovers the previous last-good feed set byte-for-byte.
+
+Each realtime poll publishes a new immutable generation. The static ZIP rarely changes, so it is
+stored once under `blobs/<sha256>` and hard-linked into `generations/<id>/static.zip`. Served
+URLs stay `/v1/generations/{id}/static.zip`; only the inode is shared. After every publish, and
+again on startup, the store deletes the oldest generations that are **not** the current feed set
+until unique bytes are within `AMTRAK_GENERATION_BUDGET_BYTES` (default 256 MiB; `0` disables the
+cap). The current generation is never deleted, even when it alone is larger than the budget. If
+the filesystem still cannot hold the next publish, older non-current generations are removed
+until there is room or only the current feed set remains.
+
+```mermaid
+flowchart TD
+  poll["Realtime poll"] --> publish["Write generations/id"]
+  publish --> blob{"Static SHA-256 already in blobs/?"}
+  blob -->|yes| link["Hard-link generations/id/static.zip"]
+  blob -->|no| store["Write blobs/sha256, then hard-link"]
+  link --> marker["Replace current marker"]
+  store --> marker
+  marker --> cap{"Unique bytes over budget?"}
+  cap -->|yes| drop["Delete oldest generation that is not the current feed set"]
+  drop --> cap
+  cap -->|no| serve["GET /v1/generations/id/static.zip"]
+```
+
+A volume should be larger than the budget by about one static ZIP, because a publish briefly
+keeps the previous generation beside the new one. On a 512 MiB tmpfs, the old unbounded layout
+(about 19 MiB copied into every generation) filled the disk by the 27th publish and the next
+publish failed. Dedup plus the 256 MiB cap keeps that from happening.
 
 ```bash
 docker rm -f <container>                       # keep the volume
@@ -281,6 +309,8 @@ identifier parsing, and manifest-first discovery.
 | `AMTRAK_BIND_ADDR` | `127.0.0.1:8080` | HTTP bind address; non-loopback requires an allowlist |
 | `AMTRAK_ALLOWED_PEER_IPS` | empty | Comma-separated exact peer IPs; empty admits loopback only |
 | `AMTRAK_GTFS_VALIDATOR_JAR` | `./tools/gtfs-validator-v8.0.1-cli.jar` | Readable, approved MobilityData validator 8.0.1 CLI JAR (official host artifact or repository-hardened container build) |
+| `AMTRAK_GENERATION_BUDGET_BYTES` | `268435456` (256 MiB) | Unique on-disk bytes kept for generations. The current feed set is never deleted. `0` disables the cap |
+| `AMTRAK_VALIDATOR_CACHE` | on | Skip the Java GTFS validator when the static ZIP's SHA-256 already has an accept or standards-reject result. `off` validates every fetch |
 | `AMTRAK_ADVISORIES` | off | Set to `on`, `true`, or `1` to merge Service Alerts & Notices into `alerts.pb`. Default off; fail-open |
 | `AMTRAK_ADVISORIES_URL` | `https://www.amtrak.com/service-alerts-and-notices` | HTML snapshot URL. Point this at the advisory-fetcher sidecar; plain HTTP to `www.amtrak.com` is Akamai-blocked |
 | `AMTRAK_ADVISORIES_TTL_SECS` | `900` | Minimum seconds between advisory page fetches |
@@ -309,9 +339,29 @@ date, paragraphs, and PSN). A missing detail page keeps that alert's title and e
 A list fetch or parse failure adds no advisory entities and still publishes trip updates and
 vehicle positions.
 
+The fetcher re-renders the notices list on `POLL_INTERVAL_SECS` (default 15 minutes). It samples
+the page HTML until the size is stable and the advisory markup is present, then closes the
+renderer instead of waiting out the page's ~20 second timers. Detail pages already stored within
+`DETAIL_TTL_SECS` (default 24 hours) are not rendered again; the HTTP server keeps serving them
+for `DETAIL_MAX_STALE_SECS` (default 24 hours, and it must be at least the TTL). The list snapshot
+still uses `MAX_STALE_SECS`.
+
+```mermaid
+flowchart TD
+  tick["Every POLL_INTERVAL_SECS"] --> list["Render notices list until HTML size is stable"]
+  list --> kill["Close the page and kill the renderer if it lingers"]
+  kill --> due{"Detail younger than DETAIL_TTL_SECS?"}
+  due -->|yes| cache["Keep the cached detail page"]
+  due -->|no| detail["Render that detail until its size is stable, then close it"]
+  cache --> http["HTTP snapshot"]
+  detail --> http
+  http --> service["Rust service GETs the list and /alert pages"]
+```
+
 From the repository root, one Compose file builds both images and runs them with advisories on.
-The service container is the scratch `runtime` image. The fetcher is the other image, with
-`/dev/shm` sized for Chromium, and is not published to the host:
+The service container is the scratch `runtime` image. The fetcher is the other image. Chromium
+is started with `--disable-dev-shm-usage`, so Compose gives it a 64 MiB `/dev/shm` instead of
+1 GiB. The fetcher is not published to the host:
 
 ```bash
 docker compose up -d --build

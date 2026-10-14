@@ -31,7 +31,9 @@ def build_components(env: Mapping[str, str]) -> tuple[Config, SnapshotStore, Thr
     """
     cfg = Config.from_env(env)
     store = SnapshotStore(cfg.snapshot_dir)
-    server = make_server(store, cfg.serve_path, cfg.max_stale_secs, cfg.listen_port)
+    server = make_server(
+        store, cfg.serve_path, cfg.max_stale_secs, cfg.listen_port, cfg.detail_max_stale_secs
+    )
     return cfg, store, server
 
 

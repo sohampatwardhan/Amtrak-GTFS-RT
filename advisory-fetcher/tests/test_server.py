@@ -40,6 +40,23 @@ def test_503_when_stale(tmp_path):
     assert status == 503
 
 
+def test_detail_freshness_outlives_the_list_window(tmp_path):
+    store = SnapshotStore(tmp_path)
+    path = "/alert/ok.html"
+    store.update("<html>list</html>")
+    store.update_detail(path, "<p>body</p>")
+    _, list_time = store.read()
+    now = list_time + 7200
+    list_status, _, _ = route(store, SERVE_PATH, MAX_STALE, SERVE_PATH, now=now, detail_max_stale_secs=86400)
+    assert list_status == 503
+    detail_status, _, body = route(
+        store, SERVE_PATH, MAX_STALE, path, now=now, detail_max_stale_secs=86400
+    )
+    assert detail_status == 200 and b"body" in body
+    assert store.detail_is_fresh(path, 86400, now) is True
+    assert store.detail_is_fresh(path, 3600, now) is False
+
+
 def test_404_for_unknown_path(tmp_path):
     store = SnapshotStore(tmp_path)
     status, _, _ = route(store, SERVE_PATH, MAX_STALE, "/nope", now=1000.0)
