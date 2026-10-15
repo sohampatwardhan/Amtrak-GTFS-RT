@@ -14,6 +14,12 @@ const DEFAULT_STATIC_URL: &str = "https://content.amtrak.com/content/gtfs/GTFS.z
 /// static ZIP once plus roughly an hour of realtime artifacts on a 45-second poll,
 /// and stays under a 512 MiB tmpfs that previously filled at publish time.
 pub const DEFAULT_GENERATION_BUDGET_BYTES: u64 = 256 * 1024 * 1024;
+/// Seconds a superseded generation stays addressable, so a reader that fetched the previous
+/// manifest can still download the artifact URLs it names.
+pub const DEFAULT_GENERATION_RETAIN_SECS: u64 = 600;
+/// Most generations kept on disk and in memory, current included. Backstop for the time window:
+/// at the default 45-second poll, ten minutes is about 14 generations.
+pub const DEFAULT_GENERATION_MAX: usize = 20;
 const DEFAULT_VALIDATOR_JAR: &str = "./tools/gtfs-validator-v8.0.1-cli.jar";
 const REQUIRED_VALIDATOR_VERSION: &str = "8.0.1";
 const OFFICIAL_VALIDATOR_SHA256: &str =
@@ -24,6 +30,30 @@ const MINIMUM_JAVA_MAJOR: u32 = 17;
 const PROBE_TIMEOUT: Duration = Duration::from_secs(10);
 const DEFAULT_ADVISORIES_URL: &str = "https://www.amtrak.com/service-alerts-and-notices";
 const DEFAULT_ADVISORIES_TTL_SECS: u64 = 900;
+
+/// How many finalized generations the store keeps once a newer one is current.
+///
+/// A superseded generation is deleted once it has been superseded for `retain_superseded`, or
+/// as soon as more than `max_generations` exist, whichever comes first. The byte budget applies
+/// on top of both. The current feed set is never deleted by any of the three limits.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct GenerationRetention {
+    /// `0` disables the unique-byte cap.
+    pub budget_bytes: u64,
+    pub retain_superseded: Duration,
+    /// At least `1`; the current generation always counts toward it.
+    pub max_generations: usize,
+}
+
+impl Default for GenerationRetention {
+    fn default() -> Self {
+        Self {
+            budget_bytes: DEFAULT_GENERATION_BUDGET_BYTES,
+            retain_superseded: Duration::from_secs(DEFAULT_GENERATION_RETAIN_SECS),
+            max_generations: DEFAULT_GENERATION_MAX,
+        }
+    }
+}
 
 /// Configuration for the best-effort Service Alerts & Notices advisory scraper.
 ///
@@ -377,6 +407,10 @@ pub struct Config {
     pub gtfs_validator_jar: PathBuf,
     /// `0` retains every generation. Any other value is the unique-byte cap.
     pub generation_budget_bytes: u64,
+    /// Seconds a superseded generation stays addressable.
+    pub generation_retain_secs: u64,
+    /// Most generations kept, current included. Must be at least `1`.
+    pub generation_max: u64,
     /// When set, a static ZIP whose SHA-256 already passed the validator is not
     /// sent through the Java CLI again.
     pub validator_cache: bool,
@@ -398,7 +432,7 @@ pub struct ValidatedConfig {
     pub freshness_limit: Duration,
     pub gtfs_validator_jar: PathBuf,
     pub access_policy: AccessPolicy,
-    pub generation_budget_bytes: u64,
+    pub generation_retention: GenerationRetention,
     pub validator_cache: bool,
 }
 
@@ -516,6 +550,13 @@ impl Config {
             "AMTRAK_GENERATION_BUDGET_BYTES",
             DEFAULT_GENERATION_BUDGET_BYTES,
         )?;
+        let generation_retain_secs = parse_u64(
+            &get,
+            "AMTRAK_GENERATION_RETAIN_SECS",
+            DEFAULT_GENERATION_RETAIN_SECS,
+        )?;
+        let generation_max =
+            parse_u64(&get, "AMTRAK_GENERATION_MAX", DEFAULT_GENERATION_MAX as u64)?;
         let validator_cache = parse_flag(&get, "AMTRAK_VALIDATOR_CACHE", true)?;
         Ok(Config {
             static_url,
@@ -528,6 +569,8 @@ impl Config {
             freshness_limit: Duration::from_secs(300),
             gtfs_validator_jar,
             generation_budget_bytes,
+            generation_retain_secs,
+            generation_max,
             validator_cache,
         })
     }
@@ -579,6 +622,10 @@ impl Config {
                 "is required when AMTRAK_BIND_ADDR is not loopback",
             ));
         }
+        let max_generations = usize::try_from(self.generation_max)
+            .ok()
+            .filter(|max| *max >= 1)
+            .ok_or_else(|| ConfigError::new("AMTRAK_GENERATION_MAX", "must be at least 1"))?;
         probe(&self.gtfs_validator_jar)?;
 
         Ok(ValidatedConfig {
@@ -593,7 +640,11 @@ impl Config {
             access_policy: AccessPolicy {
                 allowed_peer_ips: self.allowed_peer_ips,
             },
-            generation_budget_bytes: self.generation_budget_bytes,
+            generation_retention: GenerationRetention {
+                budget_bytes: self.generation_budget_bytes,
+                retain_superseded: Duration::from_secs(self.generation_retain_secs),
+                max_generations,
+            },
             validator_cache: self.validator_cache,
         })
     }
@@ -793,6 +844,8 @@ fn env_field(key: &str) -> &'static str {
         "AMTRAK_POLL_SECS" => "AMTRAK_POLL_SECS",
         "AMTRAK_STATIC_REFRESH_SECS" => "AMTRAK_STATIC_REFRESH_SECS",
         "AMTRAK_GENERATION_BUDGET_BYTES" => "AMTRAK_GENERATION_BUDGET_BYTES",
+        "AMTRAK_GENERATION_RETAIN_SECS" => "AMTRAK_GENERATION_RETAIN_SECS",
+        "AMTRAK_GENERATION_MAX" => "AMTRAK_GENERATION_MAX",
         "AMTRAK_VALIDATOR_CACHE" => "AMTRAK_VALIDATOR_CACHE",
         _ => "configuration",
     }
@@ -970,6 +1023,49 @@ mod tests {
         assert_eq!(error.field(), "AMTRAK_GENERATION_BUDGET_BYTES");
         let error = Config::from_map(map(&[("AMTRAK_VALIDATOR_CACHE", "maybe")])).unwrap_err();
         assert_eq!(error.field(), "AMTRAK_VALIDATOR_CACHE");
+    }
+
+    #[test]
+    fn generation_retention_defaults_overrides_and_rejects_a_zero_cap() {
+        let defaults = Config::from_map(map(&[]))
+            .unwrap()
+            .validate_with_probe(|_| Ok(()))
+            .unwrap();
+        assert_eq!(
+            defaults.generation_retention,
+            GenerationRetention::default()
+        );
+        assert_eq!(
+            defaults.generation_retention.retain_superseded,
+            Duration::from_secs(600)
+        );
+        assert_eq!(defaults.generation_retention.max_generations, 20);
+
+        let tuned = Config::from_map(map(&[
+            ("AMTRAK_GENERATION_RETAIN_SECS", "120"),
+            ("AMTRAK_GENERATION_MAX", "5"),
+            ("AMTRAK_GENERATION_BUDGET_BYTES", "0"),
+        ]))
+        .unwrap()
+        .validate_with_probe(|_| Ok(()))
+        .unwrap();
+        assert_eq!(
+            tuned.generation_retention,
+            GenerationRetention {
+                budget_bytes: 0,
+                retain_superseded: Duration::from_secs(120),
+                max_generations: 5,
+            }
+        );
+
+        let error = Config::from_map(map(&[("AMTRAK_GENERATION_MAX", "0")]))
+            .unwrap()
+            .validate_with_probe(|_| Ok(()))
+            .unwrap_err();
+        assert_eq!(error.field(), "AMTRAK_GENERATION_MAX");
+        let error =
+            Config::from_map(map(&[("AMTRAK_GENERATION_RETAIN_SECS", "soon")])).unwrap_err();
+        assert_eq!(error.field(), "AMTRAK_GENERATION_RETAIN_SECS");
     }
 
     #[test]

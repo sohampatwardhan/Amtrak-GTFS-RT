@@ -101,6 +101,11 @@ FROM amazoncorretto:17-alpine-jdk@sha256:e1138bf0cca62e04692de650ffe8923f35c39fc
 
 USER 0
 
+# `jlink --strip-debug` strips native symbols with objcopy, which the Alpine JDK image lacks.
+# binutils stays in this disposable stage; nothing from it reaches the final image.
+RUN --mount=type=cache,target=/var/cache/apk,sharing=locked \
+    apk add binutils
+
 # Generate a Java 17 runtime containing only the modules the validator CLI actually loads, then
 # copy its musl/zlib closure and minimal identity/configuration files. BusyBox, apk, libssl, and
 # libcrypto are intentionally excluded from the final image.
