@@ -1,4 +1,4 @@
-use crate::config::DEFAULT_GENERATION_BUDGET_BYTES;
+use crate::config::GenerationRetention;
 use crate::orchestrator::{
     ArtifactUrls, EntityCounts, FeedSetManifest, GenerationId, ValidatedGeneration,
 };
@@ -11,6 +11,7 @@ use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
+use std::time::SystemTime;
 
 const GENERATIONS_DIR: &str = "generations";
 const BLOBS_DIR: &str = "blobs";
@@ -73,9 +74,13 @@ impl From<std::io::Error> for PublishError {
 /// `open` ignores temporary and incomplete directories, repairs an invalid marker
 /// to the newest complete generation, and finishes recovery before callers can
 /// construct the HTTP server. Open `Arc` readers remain valid after later commits.
-/// Finalized generations stay addressable while they fit in the byte budget.
-/// The generation referenced by the current feed set is never deleted, even when
-/// it alone exceeds the budget. Identical static ZIP bytes are stored once under
+/// A superseded generation stays addressable for the retention window, so a reader
+/// holding the previous manifest can still fetch its artifact URLs, and is then
+/// deleted. The count cap and the byte budget can delete it sooner. The generation
+/// referenced by the current feed set is never deleted, even when it alone exceeds
+/// the budget. Only generations that survive retention are held in memory, and
+/// `open` prunes before it loads, so startup memory does not grow with the number
+/// of directories left on the volume. Identical static ZIP bytes are stored once under
 /// `blobs/` and hard-linked into each generation, so `/v1/generations/{id}/static.zip`
 /// still names that generation's bytes. The configured output directory is a trust
 /// boundary: it must be service-owned, must not be a symlink, and on Unix must not
@@ -86,25 +91,36 @@ pub struct GenerationStore {
     current: Arc<RwLock<Option<Arc<PublishedGeneration>>>>,
     generations: Arc<RwLock<HashMap<GenerationId, Arc<PublishedGeneration>>>>,
     publish_lock: Arc<Mutex<()>>,
-    /// `0` keeps every finalized generation. Any other value is the unique-byte cap.
-    budget_bytes: u64,
+    retention: GenerationRetention,
     static_intern: Arc<Mutex<HashMap<String, Arc<[u8]>>>>,
 }
 
 impl GenerationStore {
-    /// Opens a store with the default byte budget and recovers its last-good generation.
+    /// Opens a store with the default retention and recovers its last-good generation.
+    #[cfg(test)]
     pub async fn open(output_dir: &Path) -> Result<Self, StoreError> {
-        Self::open_with_budget(output_dir, DEFAULT_GENERATION_BUDGET_BYTES).await
+        Self::open_with_retention(output_dir, GenerationRetention::default()).await
+    }
+
+    #[cfg(test)]
+    async fn open_with_budget(output_dir: &Path, budget_bytes: u64) -> Result<Self, StoreError> {
+        let retention = GenerationRetention {
+            budget_bytes,
+            ..GenerationRetention::default()
+        };
+        Self::open_with_retention(output_dir, retention).await
     }
 
     /// Opens a store and recovers its durable last-good generation, if any.
     ///
-    /// `budget_bytes == 0` disables the byte cap. A non-zero budget deletes the
-    /// oldest generations that are not the current feed set until unique stored
-    /// bytes fit, then drops static blobs that no generation links anymore.
-    pub async fn open_with_budget(
+    /// Only the current generation is read before retention runs. Superseded
+    /// generations outside the window or the count cap are deleted from disk
+    /// without being read, then the survivors are loaded. A non-zero byte budget
+    /// then deletes the oldest generations that are not the current feed set until
+    /// unique stored bytes fit, and static blobs that no generation links are dropped.
+    pub async fn open_with_retention(
         output_dir: &Path,
-        budget_bytes: u64,
+        retention: GenerationRetention,
     ) -> Result<Self, StoreError> {
         let output_existed = output_dir.exists();
         fs::create_dir_all(output_dir)?;
@@ -131,35 +147,27 @@ impl GenerationStore {
         .map_err(StoreError)?;
 
         let static_intern = Arc::new(Mutex::new(HashMap::new()));
-        let mut recovered = HashMap::new();
-        let mut ordered = Vec::new();
-        for name in directory_names(&generations_handle, &generations_dir).map_err(StoreError)? {
-            let Some(order) = generation_order(&name) else {
-                continue;
-            };
-            if let Ok(mut generation) =
-                load_generation_at(&generations_handle, &generations_dir, &name)
-            {
-                generation.static_zip = intern_static(&static_intern, generation.static_zip);
-                let generation = Arc::new(generation);
-                ordered.push((order, generation.id.clone()));
-                recovered.insert(generation.id.clone(), generation);
-            }
-        }
-        ordered.sort_by_key(|entry| std::cmp::Reverse(entry.0));
+        let mut names: Vec<((u128, u64), String)> =
+            directory_names(&generations_handle, &generations_dir)
+                .map_err(StoreError)?
+                .into_iter()
+                .filter_map(|name| generation_order(&name).map(|order| (order, name)))
+                .collect();
+        names.sort_by(|left, right| right.cmp(left));
 
+        // Only the marker's generation, or failing that the newest complete one, is
+        // read here. Everything else waits until retention has pruned the volume.
         let marker_id = read_regular_at(&output_handle, &canonical_output, CURRENT_MARKER)
             .ok()
             .and_then(|value| String::from_utf8(value).ok())
             .and_then(|value| parse_generation_id(value.trim()));
+        let load =
+            |name: &str| load_interned(&generations_handle, &generations_dir, name, &static_intern);
         let selected = marker_id
             .as_ref()
-            .and_then(|id| recovered.get(id).cloned())
-            .or_else(|| {
-                ordered
-                    .first()
-                    .and_then(|(_, id)| recovered.get(id).cloned())
-            });
+            .filter(|id| names.iter().any(|(_, name)| *name == id.0))
+            .and_then(|id| load(&id.0))
+            .or_else(|| names.iter().find_map(|(_, name)| load(name)));
 
         if marker_id.as_ref() != selected.as_ref().map(|generation| &generation.id) {
             if let Some(generation) = selected.as_ref() {
@@ -167,14 +175,38 @@ impl GenerationStore {
             }
         }
 
+        let mut recovered = HashMap::new();
+        if let Some(generation) = selected.as_ref() {
+            recovered.insert(generation.id.clone(), generation.clone());
+        }
         let store = Self {
             output_dir: Arc::new(canonical_output),
             current: Arc::new(RwLock::new(selected)),
             generations: Arc::new(RwLock::new(recovered)),
             publish_lock: Arc::new(Mutex::new(())),
-            budget_bytes,
+            retention,
             static_intern,
         };
+        store.prune_superseded().map_err(StoreError)?;
+        let survivors =
+            directory_names(&generations_handle, &generations_dir).map_err(StoreError)?;
+        for name in survivors {
+            if generation_order(&name).is_none() || store.protected_ids().contains(&name) {
+                continue;
+            }
+            if let Some(generation) = load_interned(
+                &generations_handle,
+                &generations_dir,
+                &name,
+                &store.static_intern,
+            ) {
+                store
+                    .generations
+                    .write()
+                    .map_err(|_| StoreError("generation map lock poisoned".into()))?
+                    .insert(generation.id.clone(), generation);
+            }
+        }
         store
             .dedupe_static_files()
             .and_then(|_| store.enforce_retention(0))
@@ -230,28 +262,46 @@ impl GenerationStore {
         Ok(())
     }
 
-    /// Deletes oldest non-current generations until unique bytes plus `incoming` fit.
+    /// Applies the retention window and count cap, then deletes oldest non-current
+    /// generations until unique bytes plus `incoming` fit.
     ///
     /// The current feed-set generation is never removed. `budget_bytes == 0` skips
-    /// the cap. Stale publish temps and unreferenced static blobs are removed either way.
+    /// the byte cap. Stale publish temps and unreferenced static blobs are removed either way.
     fn enforce_retention(&self, incoming: u64) -> Result<(), String> {
         let generations_dir = self.output_dir.join(GENERATIONS_DIR);
         remove_stale_temps(&generations_dir)?;
         remove_stale_temps(&self.output_dir.join(BLOBS_DIR))?;
+        self.prune_superseded()?;
         let protected = self.protected_ids();
         let (total, candidates) = scan_retention(&self.output_dir)?;
-        if self.budget_bytes > 0 {
+        if self.retention.budget_bytes > 0 {
             let doomed = plan_deletions(
                 candidates,
                 &protected,
                 total.saturating_add(incoming),
-                self.budget_bytes,
+                self.retention.budget_bytes,
             );
             for id in doomed {
-                self.delete_generation(&id)?;
+                self.delete_generation(&id, "outside the byte budget")?;
             }
         }
         gc_unreferenced_blobs(&self.output_dir.join(BLOBS_DIR))?;
+        Ok(())
+    }
+
+    /// Deletes non-current generations superseded for longer than the retention window,
+    /// and the oldest beyond the count cap.
+    ///
+    /// Supersession time is read from disk, so a restart after downtime prunes
+    /// everything that went stale while the service was stopped.
+    fn prune_superseded(&self) -> Result<(), String> {
+        let protected = self.protected_ids();
+        let (_, candidates) = scan_retention(&self.output_dir)?;
+        let doomed =
+            plan_superseded_deletions(candidates, &protected, SystemTime::now(), &self.retention);
+        for (id, reason) in doomed {
+            self.delete_generation(&id, reason)?;
+        }
         Ok(())
     }
 
@@ -298,11 +348,11 @@ impl GenerationStore {
         let Some(oldest) = candidates.first() else {
             return Ok(false);
         };
-        self.delete_generation(&oldest.id)?;
+        self.delete_generation(&oldest.id, "to free filesystem space")?;
         Ok(true)
     }
 
-    fn delete_generation(&self, id: &str) -> Result<(), String> {
+    fn delete_generation(&self, id: &str, reason: &'static str) -> Result<(), String> {
         if self.protected_ids().contains(id) {
             return Ok(());
         }
@@ -325,13 +375,15 @@ impl GenerationStore {
             tracing::info!(
                 stage = "retention",
                 generation_id = %generation.id.0,
-                "removed generation outside the byte budget"
+                reason,
+                "removed generation"
             );
         } else {
             tracing::info!(
                 stage = "retention",
                 generation_id = %id,
-                "removed unreadable generation directory"
+                reason,
+                "removed generation directory that was not loaded"
             );
         }
         Ok(())
@@ -465,6 +517,57 @@ struct RetentionCandidate {
     /// other generation is excluded here and tracked in `shared_static`.
     marginal_bytes: u64,
     shared_static: Option<SharedStatic>,
+    /// When the generation was finalized: its manifest's mtime, else the directory's.
+    written_at: Option<SystemTime>,
+}
+
+/// Generations to delete because they have been superseded too long or exceed the count cap.
+///
+/// A generation is superseded when the next newer directory was written, which is that
+/// directory's [`RetentionCandidate::written_at`]. The time comes from disk, so it holds across
+/// restarts. Walking newest first, a generation is removed once `max_generations` are already
+/// kept, or once it has been superseded for at least `retain_superseded`. Protected ids are never
+/// returned and always count toward the cap. A missing time falls back to the next newer known
+/// one, and a time in the future reads as just superseded, so both err toward keeping.
+fn plan_superseded_deletions(
+    mut candidates: Vec<RetentionCandidate>,
+    protected: &HashSet<String>,
+    now: SystemTime,
+    retention: &GenerationRetention,
+) -> Vec<(String, &'static str)> {
+    candidates.sort_by(|left, right| {
+        right
+            .order
+            .cmp(&left.order)
+            .then_with(|| right.id.cmp(&left.id))
+    });
+    let mut kept = candidates
+        .iter()
+        .filter(|candidate| protected.contains(&candidate.id))
+        .count();
+    let mut successor_written: Option<SystemTime> = None;
+    let mut doomed = Vec::new();
+    for candidate in candidates {
+        let superseded_at = successor_written;
+        if candidate.written_at.is_some() {
+            successor_written = candidate.written_at;
+        }
+        if protected.contains(&candidate.id) {
+            continue;
+        }
+        let expired = superseded_at.is_some_and(|at| {
+            now.duration_since(at)
+                .is_ok_and(|age| age >= retention.retain_superseded)
+        });
+        if kept >= retention.max_generations {
+            doomed.push((candidate.id, "beyond the generation count cap"));
+        } else if expired {
+            doomed.push((candidate.id, "superseded past the retention window"));
+        } else {
+            kept += 1;
+        }
+    }
+    doomed
 }
 
 /// Oldest unprotected generations to remove so `total_unique_bytes` fits in `budget_bytes`.
@@ -702,11 +805,17 @@ fn scan_retention(output_dir: &Path) -> Result<(u64, Vec<RetentionCandidate>), S
                     files.push(path);
                 }
             }
+            let written_at = fs::symlink_metadata(directory.join(MANIFEST_FILE))
+                .ok()
+                .filter(|metadata| metadata.is_file())
+                .or_else(|| fs::symlink_metadata(&directory).ok())
+                .and_then(|metadata| metadata.modified().ok());
             candidates.push(RetentionCandidate {
                 id: name.to_string(),
                 order,
                 marginal_bytes: marginal,
                 shared_static,
+                written_at,
             });
         }
     }
@@ -1189,6 +1298,20 @@ fn load_generation(directory: &Path, expected_id: &str) -> Result<PublishedGener
     load_generation_from_handle(&directory_handle, directory, expected_id)
 }
 
+/// Loads one generation and shares its static ZIP with any identical one already in memory.
+fn load_interned(
+    parent: &File,
+    parent_path: &Path,
+    name: &str,
+    intern: &Mutex<HashMap<String, Arc<[u8]>>>,
+) -> Option<Arc<PublishedGeneration>> {
+    #[cfg(test)]
+    tests::LOADS.with(|loads| loads.set(loads.get() + 1));
+    let mut generation = load_generation_at(parent, parent_path, name).ok()?;
+    generation.static_zip = intern_static(intern, generation.static_zip);
+    Some(Arc::new(generation))
+}
+
 fn load_generation_at(
     parent: &File,
     parent_path: &Path,
@@ -1551,18 +1674,21 @@ mod tests {
                 order: (10, 0),
                 marginal_bytes: 50,
                 shared_static: None,
+                written_at: None,
             },
             RetentionCandidate {
                 id: "20-0".into(),
                 order: (20, 0),
                 marginal_bytes: 40,
                 shared_static: None,
+                written_at: None,
             },
             RetentionCandidate {
                 id: "30-0".into(),
                 order: (30, 0),
                 marginal_bytes: 30,
                 shared_static: None,
+                written_at: None,
             },
         ];
         let mut protected = HashSet::new();
@@ -1608,18 +1734,21 @@ mod tests {
                 order: (10, 0),
                 marginal_bytes: 1,
                 shared_static: Some(shared),
+                written_at: None,
             },
             RetentionCandidate {
                 id: "20-0".into(),
                 order: (20, 0),
                 marginal_bytes: 1,
                 shared_static: Some(shared),
+                written_at: None,
             },
             RetentionCandidate {
                 id: "25-0".into(),
                 order: (25, 0),
                 marginal_bytes: 5,
                 shared_static: None,
+                written_at: None,
             },
             RetentionCandidate {
                 id: "30-0".into(),
@@ -1630,6 +1759,7 @@ mod tests {
                     ino: 8,
                     len: 19,
                 }),
+                written_at: None,
             },
         ];
         let mut protected = HashSet::new();
@@ -1723,6 +1853,334 @@ mod tests {
             fs::metadata(path(&first.id)).unwrap().ino(),
             fs::metadata(path(&second.id)).unwrap().ino()
         );
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    thread_local! {
+        /// Generations read from disk by `open` on this test's thread.
+        pub(super) static LOADS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+    }
+
+    fn retention(retain_secs: u64, max_generations: usize) -> GenerationRetention {
+        GenerationRetention {
+            budget_bytes: 0,
+            retain_superseded: std::time::Duration::from_secs(retain_secs),
+            max_generations,
+        }
+    }
+
+    fn generation_dirs(dir: &Path) -> Vec<String> {
+        let mut names: Vec<String> = fs::read_dir(dir.join(GENERATIONS_DIR))
+            .unwrap()
+            .filter_map(|entry| entry.unwrap().file_name().into_string().ok())
+            .filter(|name| generation_order(name).is_some())
+            .collect();
+        names.sort_by_key(|name| generation_order(name));
+        names
+    }
+
+    fn set_written_at(dir: &Path, id: &str, at: SystemTime) {
+        let manifest = dir.join(GENERATIONS_DIR).join(id).join(MANIFEST_FILE);
+        File::options()
+            .write(true)
+            .open(manifest)
+            .unwrap()
+            .set_modified(at)
+            .unwrap();
+    }
+
+    fn ago(seconds: u64) -> SystemTime {
+        SystemTime::now() - std::time::Duration::from_secs(seconds)
+    }
+
+    /// Writes a complete generation the way a pre-dedupe store did: its own static copy,
+    /// no fsync, and no blob link. Much faster than publishing hundreds through the writer.
+    fn fabricate_generation(dir: &Path, index: u64, static_zip: &[u8], written_at: SystemTime) {
+        let generations = dir.join(GENERATIONS_DIR);
+        fs::create_dir_all(&generations).unwrap();
+        let mut generation = candidate(1_000 + index, 1);
+        generation.static_snapshot = Arc::new(StaticSnapshot {
+            version: "STATIC-V1".into(),
+            parsed: Arc::new(Gtfs::default()),
+            zip: Arc::from(static_zip.to_vec()),
+        });
+        let id = GenerationId(format!(
+            "{}-{index}",
+            (1_000 + u128::from(index)) * 1_000_000_000
+        ));
+        let manifest = generation.manifest(id.clone(), artifact_urls(&id));
+        let directory = generations.join(&id.0);
+        fs::create_dir(&directory).unwrap();
+        make_directory_private(&directory).unwrap();
+        fs::write(directory.join(STATIC_FILE), static_zip).unwrap();
+        fs::write(directory.join("trip-updates.pb"), &generation.trip_updates).unwrap();
+        fs::write(
+            directory.join("vehicle-positions.pb"),
+            &generation.vehicle_positions,
+        )
+        .unwrap();
+        fs::write(directory.join("alerts.pb"), &generation.alerts).unwrap();
+        fs::write(
+            directory.join(MANIFEST_FILE),
+            encode_manifest(
+                &manifest,
+                static_zip,
+                &generation.trip_updates,
+                &generation.vehicle_positions,
+                &generation.alerts,
+            ),
+        )
+        .unwrap();
+        set_written_at(dir, &id.0, written_at);
+        fs::write(dir.join(CURRENT_MARKER), format!("{}\n", id.0)).unwrap();
+    }
+
+    fn timed(id: &str, order: u128, written_at: Option<SystemTime>) -> RetentionCandidate {
+        RetentionCandidate {
+            id: id.into(),
+            order: (order, 0),
+            marginal_bytes: 1,
+            shared_static: None,
+            written_at,
+        }
+    }
+
+    fn ids(doomed: Vec<(String, &'static str)>) -> Vec<String> {
+        doomed.into_iter().map(|(id, _)| id).collect()
+    }
+
+    #[test]
+    fn superseded_generations_expire_by_their_successors_write_time() {
+        let now = SystemTime::now();
+        let at = |seconds: u64| Some(now - std::time::Duration::from_secs(seconds));
+        // 10 was superseded when 20 was written (900 s ago); 20 when 30 was (300 s ago).
+        let items = vec![
+            timed("10-0", 10, at(1_200)),
+            timed("20-0", 20, at(900)),
+            timed("30-0", 30, at(300)),
+            timed("40-0", 40, at(5)),
+        ];
+        let protected: HashSet<String> = ["40-0".to_string()].into();
+        assert_eq!(
+            ids(plan_superseded_deletions(
+                items.clone(),
+                &protected,
+                now,
+                &retention(600, 20)
+            )),
+            vec!["10-0".to_string()],
+            "only 10-0 has been superseded for at least ten minutes"
+        );
+        assert_eq!(
+            ids(plan_superseded_deletions(
+                items.clone(),
+                &protected,
+                now,
+                &retention(0, 20)
+            )),
+            vec!["30-0".to_string(), "20-0".to_string(), "10-0".to_string()],
+            "a zero window keeps only the current generation"
+        );
+        // A clock step backwards leaves successor times in the future: keep, don't delete.
+        let future = vec![
+            timed("10-0", 10, at(1_200)),
+            timed(
+                "20-0",
+                20,
+                Some(now + std::time::Duration::from_secs(3_600)),
+            ),
+            timed("30-0", 30, None),
+        ];
+        let protected: HashSet<String> = ["30-0".to_string()].into();
+        assert!(plan_superseded_deletions(future, &protected, now, &retention(600, 20)).is_empty());
+        // A successor without a readable time falls back to the next newer known time.
+        let missing = vec![
+            timed("10-0", 10, None),
+            timed("20-0", 20, None),
+            timed("30-0", 30, None),
+            timed("40-0", 40, at(1)),
+        ];
+        let protected: HashSet<String> = ["40-0".to_string()].into();
+        assert_eq!(
+            ids(plan_superseded_deletions(
+                missing,
+                &protected,
+                now,
+                &retention(600, 20)
+            )),
+            Vec::<String>::new(),
+            "40-0 was written 1 s ago, and the untimed generations inherit that time"
+        );
+    }
+
+    #[test]
+    fn count_cap_wins_over_the_window_and_counts_the_current_generation() {
+        let now = SystemTime::now();
+        let items: Vec<_> = (1..=6)
+            .map(|index| timed(&format!("{index}0-0"), index * 10, Some(now)))
+            .collect();
+        // The current generation is the oldest, as after a marker repair.
+        let protected: HashSet<String> = ["10-0".to_string()].into();
+        let doomed = plan_superseded_deletions(items, &protected, now, &retention(600, 3));
+        // Kept: current 10-0, then the newest two, 60-0 and 50-0.
+        assert_eq!(
+            ids(doomed.clone()),
+            vec!["40-0".to_string(), "30-0".to_string(), "20-0".to_string()]
+        );
+        assert!(doomed
+            .iter()
+            .all(|(_, reason)| *reason == "beyond the generation count cap"));
+    }
+
+    #[tokio::test]
+    async fn count_cap_bounds_disk_and_memory_while_publishing() {
+        let dir = test_dir("cap");
+        let store = GenerationStore::open_with_retention(&dir, retention(600, 5))
+            .await
+            .unwrap();
+        let mut published = Vec::new();
+        for index in 0..12 {
+            published.push(
+                GenerationPublisher::publish(&dir, &store, candidate(500 + index, 1))
+                    .await
+                    .unwrap(),
+            );
+        }
+        let newest: Vec<String> = published[7..]
+            .iter()
+            .map(|generation| generation.id.0.clone())
+            .collect();
+        assert_eq!(generation_dirs(&dir), newest);
+        assert_eq!(store.generations.read().unwrap().len(), 5);
+        assert!(store.get(&published[6].id).await.is_none());
+        assert!(store.get(&published[7].id).await.is_some());
+        assert_eq!(store.current().await.unwrap().id, published[11].id);
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[tokio::test]
+    async fn window_deletes_after_publish_using_durable_write_times() {
+        let dir = test_dir("window");
+        let store = GenerationStore::open_with_retention(&dir, retention(600, 100))
+            .await
+            .unwrap();
+        let mut published = Vec::new();
+        for index in 0..5 {
+            published.push(
+                GenerationPublisher::publish(&dir, &store, candidate(600 + index, 1))
+                    .await
+                    .unwrap(),
+            );
+        }
+        assert_eq!(generation_dirs(&dir).len(), 5, "all are inside the window");
+        // 1..=3 were written twenty minutes ago, so 0..=2 have been superseded that long.
+        for generation in &published[1..=3] {
+            set_written_at(&dir, &generation.id.0, ago(1_200));
+        }
+        let sixth = GenerationPublisher::publish(&dir, &store, candidate(605, 1))
+            .await
+            .unwrap();
+        let expected: Vec<String> = published[3..]
+            .iter()
+            .chain(std::iter::once(&sixth))
+            .map(|generation| generation.id.0.clone())
+            .collect();
+        assert_eq!(generation_dirs(&dir), expected);
+        for generation in &published[..3] {
+            assert!(store.get(&generation.id).await.is_none());
+        }
+        assert!(store.get(&published[3].id).await.is_some());
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[tokio::test]
+    async fn current_survives_even_when_long_superseded_and_cap_is_one() {
+        let dir = test_dir("protect");
+        let store = GenerationStore::open_with_retention(&dir, retention(0, 1))
+            .await
+            .unwrap();
+        let mut last = None;
+        for index in 0..3 {
+            let generation = GenerationPublisher::publish(&dir, &store, candidate(700 + index, 1))
+                .await
+                .unwrap();
+            assert_eq!(generation_dirs(&dir), vec![generation.id.0.clone()]);
+            last = Some(generation);
+        }
+        assert_eq!(store.current().await.unwrap().id, last.unwrap().id);
+
+        // The marker names the oldest generation, and every successor is an hour old.
+        let dir = test_dir("protect-marker");
+        let store = GenerationStore::open_with_retention(&dir, retention(600, 20))
+            .await
+            .unwrap();
+        let mut published = Vec::new();
+        for index in 0..3 {
+            published.push(
+                GenerationPublisher::publish(&dir, &store, candidate(710 + index, 1))
+                    .await
+                    .unwrap(),
+            );
+        }
+        for generation in &published {
+            set_written_at(&dir, &generation.id.0, ago(3_600));
+        }
+        replace_marker(&dir, &published[0].id).unwrap();
+        let reopened = GenerationStore::open_with_retention(&dir, retention(600, 20))
+            .await
+            .unwrap();
+        assert_eq!(reopened.current().await.unwrap().id, published[0].id);
+        assert!(dir.join(GENERATIONS_DIR).join(&published[0].id.0).exists());
+        // 1 was superseded an hour ago by 2; 2 has no successor, so it stays.
+        assert_eq!(
+            generation_dirs(&dir),
+            vec![published[0].id.0.clone(), published[2].id.0.clone()]
+        );
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[tokio::test]
+    async fn restart_with_hundreds_of_generations_loads_only_survivors() {
+        let dir = test_dir("hundreds");
+        // A pre-dedupe volume: 300 private static copies, all but the last 5 written two
+        // hours ago, as after a long outage.
+        let zip = vec![b'z'; 64 * 1024];
+        for index in 0..300u64 {
+            let written = if index < 295 { ago(7_200) } else { ago(30) };
+            fabricate_generation(&dir, index, &zip, written);
+        }
+        LOADS.with(|loads| loads.set(0));
+        let store = GenerationStore::open_with_retention(&dir, retention(600, 20))
+            .await
+            .unwrap();
+        let loads = LOADS.with(std::cell::Cell::get);
+        // The current one, plus 294..=298 whose successors were written 30 s ago.
+        let survivors = generation_dirs(&dir);
+        assert_eq!(survivors.len(), 6);
+        assert_eq!(store.generations.read().unwrap().len(), 6);
+        assert_eq!(
+            loads, 6,
+            "only the current generation and survivors are read"
+        );
+        assert_eq!(
+            store.current().await.unwrap().id.0,
+            survivors.last().unwrap().clone()
+        );
+        // The private copies were relinked to one blob.
+        assert_eq!(fs::read_dir(dir.join(BLOBS_DIR)).unwrap().count(), 1);
+
+        // Every directory is recent: the count cap alone bounds what is read.
+        let dir = test_dir("hundreds-recent");
+        for index in 0..300u64 {
+            fabricate_generation(&dir, index, &zip, ago(5));
+        }
+        LOADS.with(|loads| loads.set(0));
+        let store = GenerationStore::open_with_retention(&dir, retention(600, 20))
+            .await
+            .unwrap();
+        assert_eq!(LOADS.with(std::cell::Cell::get), 20);
+        assert_eq!(generation_dirs(&dir).len(), 20);
+        assert_eq!(store.generations.read().unwrap().len(), 20);
         fs::remove_dir_all(dir).unwrap();
     }
 }

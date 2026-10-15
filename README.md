@@ -208,10 +208,25 @@ refresh — recovers the previous last-good feed set byte-for-byte.
 
 Each realtime poll publishes a new immutable generation. The static ZIP rarely changes, so it is
 stored once under `blobs/<sha256>` and hard-linked into `generations/<id>/static.zip`. Served
-URLs stay `/v1/generations/{id}/static.zip`; only the inode is shared. After every publish, and
-again on startup, the store deletes the oldest generations that are **not** the current feed set
-until unique bytes are within `AMTRAK_GENERATION_BUDGET_BYTES` (default 256 MiB; `0` disables the
-cap). The current generation is never deleted, even when it alone is larger than the budget. If
+URLs stay `/v1/generations/{id}/static.zip`; only the inode is shared.
+
+After every publish, and again on startup, the store applies three limits to generations that
+are **not** the current feed set:
+
+1. **Retention window.** A generation is deleted once it has been superseded for
+   `AMTRAK_GENERATION_RETAIN_SECS` (default 600). This keeps a reader that fetched the previous
+   manifest able to download the artifact URLs it names. The supersession time is the newer
+   generation's manifest mtime, so the window is measured from disk and survives restarts: after
+   an outage, everything that went stale while the service was down is removed at startup.
+2. **Count cap.** At most `AMTRAK_GENERATION_MAX` generations (default 20, current included) are
+   kept. This is a backstop and wins over the window, so a fast poll cannot grow the store.
+3. **Byte budget.** The oldest are deleted until unique bytes are within
+   `AMTRAK_GENERATION_BUDGET_BYTES` (default 256 MiB; `0` disables this cap).
+
+Every retained generation is held in memory for lock-free responses, so the count cap also bounds
+resident memory. Startup reads only the current generation, prunes the volume by directory
+metadata, and then loads the survivors, so it uses about the same memory however many
+directories an older release left behind. The current generation is never deleted, even when it alone is larger than the budget. If
 the filesystem still cannot hold the next publish, older non-current generations are removed
 until there is room or only the current feed set remains.
 
@@ -223,7 +238,8 @@ flowchart TD
   blob -->|no| store["Write blobs/sha256, then hard-link"]
   link --> marker["Replace current marker"]
   store --> marker
-  marker --> cap{"Unique bytes over budget?"}
+  marker --> age["Delete generations superseded longer than the window, or beyond the count cap"]
+  age --> cap{"Unique bytes over budget?"}
   cap -->|yes| drop["Delete oldest generation that is not the current feed set"]
   drop --> cap
   cap -->|no| serve["GET /v1/generations/id/static.zip"]
@@ -310,6 +326,8 @@ identifier parsing, and manifest-first discovery.
 | `AMTRAK_ALLOWED_PEER_IPS` | empty | Comma-separated exact peer IPs; empty admits loopback only |
 | `AMTRAK_GTFS_VALIDATOR_JAR` | `./tools/gtfs-validator-v8.0.1-cli.jar` | Readable, approved MobilityData validator 8.0.1 CLI JAR (official host artifact or repository-hardened container build) |
 | `AMTRAK_GENERATION_BUDGET_BYTES` | `268435456` (256 MiB) | Unique on-disk bytes kept for generations. The current feed set is never deleted. `0` disables the cap |
+| `AMTRAK_GENERATION_RETAIN_SECS` | `600` | Seconds a superseded generation stays addressable, measured from the newer generation's write time on disk. `0` deletes it as soon as it is superseded |
+| `AMTRAK_GENERATION_MAX` | `20` | Most generations kept on disk and in memory, current included. Must be at least `1`; wins over the retention window |
 | `AMTRAK_VALIDATOR_CACHE` | on | Skip the Java GTFS validator when the static ZIP's SHA-256 already has an accept or standards-reject result. `off` validates every fetch |
 | `AMTRAK_ADVISORIES` | off | Set to `on`, `true`, or `1` to merge Service Alerts & Notices into `alerts.pb`. Default off; fail-open |
 | `AMTRAK_ADVISORIES_URL` | `https://www.amtrak.com/service-alerts-and-notices` | HTML snapshot URL. Point this at the advisory-fetcher sidecar; plain HTTP to `www.amtrak.com` is Akamai-blocked |

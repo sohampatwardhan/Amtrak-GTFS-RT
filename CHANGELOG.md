@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Time- and count-bounded generation retention.** A superseded generation is deleted once it
+  has been superseded for `AMTRAK_GENERATION_RETAIN_SECS` (default 600), measured from the newer
+  generation's manifest mtime so the window holds across restarts. `AMTRAK_GENERATION_MAX`
+  (default 20, current included) caps how many are kept on disk and in memory. The current feed
+  set is never deleted.
 - **Byte-capped generation retention.** `AMTRAK_GENERATION_BUDGET_BYTES` (default 256 MiB, `0` to
   disable) deletes the oldest immutable generations once unique on-disk bytes exceed the cap.
   The generation referenced by the current feed set is never deleted. Unchanged static GTFS is
@@ -40,6 +45,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `chromium-headless-shell` directly, instead of `playwright install --with-deps`, which also
   pulled xvfb and the large font packs. Compose sizes `/dev/shm` at 64 MiB because the browser
   is launched with `--disable-dev-shm-usage`.
+
+### Fixed
+
+- Startup no longer reads every generation on the volume into memory. It loads the current
+  generation, prunes the rest by directory metadata, and then loads only the survivors. A volume
+  with hundreds of generations left by an older release previously pushed the process past
+  5 GB RSS within a minute of starting.
 
 ## [0.5.0] - 2026-09-28
 

@@ -241,7 +241,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // Validation and durable recovery finish before any task or listener exists.
     let config = Config::from_env()?.validate()?;
     let store =
-        GenerationStore::open_with_budget(&config.output_dir, config.generation_budget_bytes)
+        GenerationStore::open_with_retention(&config.output_dir, config.generation_retention)
             .await?;
     let validator: Arc<dyn StaticStandardsValidator> = Arc::new(CachedStaticValidator::new(
         MobilityDataStaticValidator::new(config.gtfs_validator_jar.clone()),
