@@ -109,6 +109,9 @@ impl AdvisoryConfig {
 const DEFAULT_TRACKS_REFRESH_SECS: u64 = 60;
 const DEFAULT_TRACKS_MAX_AGE_SECS: u64 = 300;
 const DEFAULT_TRACKS_REQUEST_TIMEOUT_SECS: u64 = 10;
+/// How long an Amtrak track stays published after the stop's latest time. The status document
+/// often drops `departure.track` once the train has left; this covers that gap.
+const DEFAULT_TRACKS_RETAIN_GRACE_SECS: u64 = 900;
 const DEFAULT_RAILDATA_BASE: &str = "https://raildata.njtransit.com/api/TrainData";
 const DEFAULT_HARTFORD_URL: &str = "https://hartfordline.com/connecting-train-status/";
 const DEFAULT_HARTFORD_STOP: &str = "NHV";
@@ -152,8 +155,14 @@ pub struct TrackConfig {
     /// Amtrak `stop_id` for the Hartford board (New Haven Union). Env `AMTRAK_TRACKS_HARTFORD_STOP`.
     pub hartford_stop_id: String,
     /// Covered stations and their real tracks; each becomes a platform stop in the published
-    /// static feed. Env `AMTRAK_TRACKS_PLATFORMS`.
+    /// static feed. Env `AMTRAK_TRACKS_PLATFORMS`. Tracks Amtrak later reports are added on top.
     pub platforms: crate::static_augment::PlatformTable,
+    /// Sidecar URL serving Amtrak train-status JSON. Empty or unset skips that source.
+    /// Env `AMTRAK_TRACKS_AMTRAK_URL`.
+    pub amtrak_url: Option<String>,
+    /// How long to keep an Amtrak track after the stop's latest time.
+    /// Env `AMTRAK_TRACKS_RETAIN_GRACE_SECS` (default 900).
+    pub retain_grace: Duration,
 }
 
 impl fmt::Debug for TrackConfig {
@@ -172,6 +181,8 @@ impl fmt::Debug for TrackConfig {
             .field("hartford_url", &self.hartford_url)
             .field("hartford_stop_id", &self.hartford_stop_id)
             .field("platforms", &self.platforms)
+            .field("amtrak_url", &self.amtrak_url)
+            .field("retain_grace", &self.retain_grace)
             .finish()
     }
 }
@@ -253,6 +264,16 @@ impl TrackConfig {
             &get("AMTRAK_TRACKS_PLATFORMS").unwrap_or_else(|| DEFAULT_TRACK_PLATFORMS.to_string()),
         )
         .map_err(|reason| ConfigError::new("AMTRAK_TRACKS_PLATFORMS", reason))?;
+        let amtrak_url = match get("AMTRAK_TRACKS_AMTRAK_URL") {
+            Some(value) if value.trim().is_empty() => None,
+            Some(value) => Some(value),
+            None => None,
+        };
+        let retain_grace = positive_secs(
+            &get,
+            "AMTRAK_TRACKS_RETAIN_GRACE_SECS",
+            DEFAULT_TRACKS_RETAIN_GRACE_SECS,
+        )?;
         Ok(TrackConfig {
             enabled,
             refresh_interval,
@@ -266,6 +287,8 @@ impl TrackConfig {
             hartford_url,
             hartford_stop_id,
             platforms,
+            amtrak_url,
+            retain_grace,
         })
     }
 
@@ -912,6 +935,8 @@ mod tests {
         assert!(defaults.platforms.contains("NHV", "14"));
         assert!(!defaults.platforms.contains("NHV", "6"));
         assert!(!defaults.platforms.contains("TRE", "1"));
+        assert!(defaults.amtrak_url.is_none());
+        assert_eq!(defaults.retain_grace, Duration::from_secs(900));
         assert_eq!(
             TrackConfig::from_map(
                 |key| (key == "AMTRAK_TRACKS_PLATFORMS").then(|| "NWK=TBD".into())
@@ -970,6 +995,7 @@ mod tests {
             "AMTRAK_TRACKS_REFRESH_SECS",
             "AMTRAK_TRACKS_MAX_AGE_SECS",
             "AMTRAK_TRACKS_REQUEST_TIMEOUT_SECS",
+            "AMTRAK_TRACKS_RETAIN_GRACE_SECS",
         ] {
             let error =
                 TrackConfig::from_map(|key| (key == field).then(|| "0".into())).unwrap_err();

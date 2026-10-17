@@ -13,7 +13,7 @@ use crate::sources::amtrak::AmtrakSource;
 use crate::sources::tracks::refresher::run_board_refresher;
 use crate::sources::tracks::{AssignmentStore, WithTracks};
 use crate::sources::{RtBatch, RtSource, SourceError};
-use crate::static_augment::PlatformTable;
+use crate::static_augment::{PlatformTable, SharedPlatforms};
 use crate::static_gtfs::{
     bootstrap_static, recover_static, CachedStaticValidator, MobilityDataStaticValidator,
     StaticSnapshotState, StaticStandardsValidator,
@@ -187,7 +187,7 @@ fn container_healthcheck() -> std::io::Result<()> {
 /// was augmented with, and the oldest assignment age that may be stamped.
 struct TrackWiring {
     store: Arc<AssignmentStore>,
-    table: Arc<PlatformTable>,
+    table: SharedPlatforms,
     max_age: Duration,
 }
 
@@ -251,14 +251,27 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // With tracks on, every static snapshot is augmented with the configured platform stops, so
     // the same table must reach both the bootstrap below and the periodic refresh task.
     let track_config = crate::config::TrackConfig::from_env()?;
+    let mut platform_table = track_config.platforms.clone();
+    let observed_platforms = config
+        .output_dir
+        .join("tracks")
+        .join("observed-platforms.txt");
+    if track_config.enabled {
+        if let Ok(saved) = std::fs::read_to_string(&observed_platforms) {
+            if let Err(error) = platform_table.merge_canonical(saved.trim()) {
+                tracing::warn!(%error, "ignoring stored platform observations");
+            }
+        }
+    }
     let platforms = track_config
         .enabled
-        .then(|| Arc::new(track_config.platforms.clone()));
+        .then(|| SharedPlatforms::new(platform_table, Some(observed_platforms)));
+    let bootstrap_table = platforms.as_ref().map(SharedPlatforms::snapshot);
     let snapshots = initial_snapshots(
         &store,
         &config.static_url,
         validator.as_ref(),
-        platforms.as_deref(),
+        bootstrap_table.as_ref(),
     )
     .await?;
 
@@ -277,6 +290,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             assignments.clone(),
             track_config.clone(),
             config.output_dir.join("tracks").join("raildata-token.json"),
+            table.clone(),
         ));
         TrackWiring {
             store: assignments,
@@ -579,6 +593,7 @@ mod tests {
             store.clone(),
             config.clone(),
             token_path,
+            SharedPlatforms::new(config.platforms.clone(), None),
         ));
         tokio::time::sleep(Duration::from_millis(200)).await;
 
@@ -597,7 +612,7 @@ mod tests {
             None,
             Some(TrackWiring {
                 store,
-                table: Arc::new(config.platforms.clone()),
+                table: SharedPlatforms::new(config.platforms.clone(), None),
                 max_age: config.max_age,
             }),
         );

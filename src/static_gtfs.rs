@@ -1,5 +1,5 @@
 use crate::orchestrator::StaticSnapshot;
-use crate::static_augment::{augment_static, PlatformTable};
+use crate::static_augment::{augment_static, PlatformTable, SharedPlatforms};
 use async_trait::async_trait;
 use gtfs_structures::Gtfs;
 use serde_json::Value;
@@ -501,26 +501,38 @@ pub async fn refresh_snapshot_once(
     }
 }
 
+/// How long to wait after a new platform is observed before rebuilding static, so a burst of
+/// first-seen tracks becomes one augmentation.
+const PLATFORM_REFRESH_DEBOUNCE: Duration = Duration::from_secs(30);
+
 /// Periodically stages standards-valid replacements without publishing them.
+///
+/// With `platforms`, a newly observed track also wakes this loop (after a short debounce) so the
+/// platform stop is published before the next daily static poll.
 pub async fn run_snapshot_refresh(
     state: StaticSnapshotState,
     static_url: String,
     interval: Duration,
     validator: Arc<dyn StaticStandardsValidator>,
-    platforms: Option<Arc<PlatformTable>>,
+    platforms: Option<SharedPlatforms>,
 ) {
+    let notify = platforms.as_ref().map(SharedPlatforms::changed);
     let mut ticker = tokio::time::interval(interval);
+    ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
     ticker.tick().await;
     loop {
-        ticker.tick().await;
-        match refresh_snapshot_once(
-            &state,
-            &static_url,
-            validator.as_ref(),
-            platforms.as_deref(),
-        )
-        .await
-        {
+        if let Some(notify) = &notify {
+            tokio::select! {
+                _ = ticker.tick() => {}
+                _ = notify.notified() => {
+                    tokio::time::sleep(PLATFORM_REFRESH_DEBOUNCE).await;
+                }
+            }
+        } else {
+            ticker.tick().await;
+        }
+        let table = platforms.as_ref().map(SharedPlatforms::snapshot);
+        match refresh_snapshot_once(&state, &static_url, validator.as_ref(), table.as_ref()).await {
             StaticRefreshOutcome::Staged(version) => {
                 tracing::info!(
                     outcome = "staged",

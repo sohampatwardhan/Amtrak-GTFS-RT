@@ -18,6 +18,9 @@ use crate::sources::tracks::is_track_label;
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, HashSet};
 use std::io::{Cursor, Read, Write};
+use std::path::PathBuf;
+use std::sync::{Arc, RwLock};
+use tokio::sync::Notify;
 use zip::write::SimpleFileOptions;
 use zip::{CompressionMethod, DateTime, ZipArchive, ZipWriter};
 
@@ -81,6 +84,49 @@ impl PlatformTable {
             .collect()
     }
 
+    /// Adds one platform. Returns whether the table changed.
+    ///
+    /// Stop ids are uppercased. A label that is not a platform token, or a stop id that contains
+    /// `:`, is ignored. Duplicate labels are ignored.
+    pub fn insert_track(&mut self, stop_id: &str, label: &str) -> bool {
+        let stop = stop_id.trim().to_uppercase();
+        let label = label.trim().to_uppercase();
+        if stop.is_empty()
+            || stop.contains(':')
+            || !(2..=5).contains(&stop.len())
+            || !stop
+                .chars()
+                .all(|character| character.is_ascii_alphanumeric())
+            || !is_track_label(&label)
+        {
+            return false;
+        }
+        let tracks = self.stations.entry(stop).or_default();
+        if tracks.iter().any(|track| track == &label) {
+            return false;
+        }
+        tracks.push(label);
+        true
+    }
+
+    /// Merges `STOP=labels;...` into this table. Existing labels stay first.
+    ///
+    /// # Errors
+    ///
+    /// Returns the parse error from [`Self::parse`]. An empty string is a no-op.
+    pub fn merge_canonical(&mut self, raw: &str) -> Result<(), String> {
+        if raw.trim().is_empty() {
+            return Ok(());
+        }
+        let extra = PlatformTable::parse(raw)?;
+        for (stop, tracks) in extra.stations {
+            for track in tracks {
+                self.insert_track(&stop, &track);
+            }
+        }
+        Ok(())
+    }
+
     /// Whether `label` is a configured track of covered stop `stop_id`.
     pub fn contains(&self, stop_id: &str, label: &str) -> bool {
         self.stations
@@ -93,7 +139,8 @@ impl PlatformTable {
         self.stations.keys().map(String::as_str)
     }
 
-    fn canonical(&self) -> String {
+    /// Canonical form (`NHV=1,2;NWK=A,1`), also the on-disk record of observed platforms.
+    pub fn canonical(&self) -> String {
         self.stations
             .iter()
             .map(|(stop, tracks)| format!("{stop}={}", tracks.join(",")))
@@ -122,6 +169,61 @@ fn expand(part: &str) -> Result<Vec<String>, String> {
         return Err(format!("{part:?} is not a platform track label"));
     }
     Ok(vec![upper])
+}
+
+/// Configured platforms plus tracks observed at runtime, shared by the stamper and static refresh.
+///
+/// A newly observed track is appended, written to `path` when one is set, and signaled on
+/// [`Self::changed`] so static refresh can publish the platform stop without waiting for the daily
+/// Amtrak feed poll.
+#[derive(Clone)]
+pub struct SharedPlatforms {
+    inner: Arc<RwLock<PlatformTable>>,
+    changed: Arc<Notify>,
+    path: Option<PathBuf>,
+}
+
+impl SharedPlatforms {
+    /// Shares `table`. `path` is where newly observed platforms are recorded.
+    pub fn new(table: PlatformTable, path: Option<PathBuf>) -> SharedPlatforms {
+        SharedPlatforms {
+            inner: Arc::new(RwLock::new(table)),
+            changed: Arc::new(Notify::new()),
+            path,
+        }
+    }
+
+    /// A copy of the table as it stands.
+    pub fn snapshot(&self) -> PlatformTable {
+        self.inner
+            .read()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone()
+    }
+
+    /// Records one observed platform. Returns whether it was new.
+    pub fn observe(&self, stop_id: &str, label: &str) -> bool {
+        let mut table = self
+            .inner
+            .write()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if !table.insert_track(stop_id, label) {
+            return false;
+        }
+        if let Some(path) = &self.path {
+            if let Some(parent) = path.parent() {
+                let _ = std::fs::create_dir_all(parent);
+            }
+            let _ = std::fs::write(path, table.canonical());
+        }
+        self.changed.notify_one();
+        true
+    }
+
+    /// Wakes [`crate::static_gtfs::run_snapshot_refresh`] after a new platform is observed.
+    pub fn changed(&self) -> Arc<Notify> {
+        self.changed.clone()
+    }
 }
 
 /// Parent station id added for covered stop `stop_id`.
@@ -380,6 +482,23 @@ NYP,NYP,\"Ny Moynihan Train Hall At Penn Station\",https://www.amtrak.com/statio
         for bad in ["NWK", "NWK=", "NWK=TBD", "NWK=5-1", "NWK=0-3", "N:W=1"] {
             assert!(PlatformTable::parse(bad).is_err(), "{bad}");
         }
+    }
+
+    #[test]
+    fn an_observed_track_is_added_once_and_changes_the_digest() {
+        let mut table = PlatformTable::parse("NWK=1").unwrap();
+        let before = table.digest();
+        assert!(!table.insert_track("NWK", "1"));
+        assert!(table.insert_track("pvd", "1"));
+        assert!(table.insert_track("BUF", "MAIN"));
+        assert!(!table.insert_track("PVD", "TBD"));
+        assert!(!table.insert_track("bad:stop", "1"));
+        assert_ne!(table.digest(), before);
+        assert_eq!(table.canonical(), "BUF=MAIN;NWK=1;PVD=1");
+        let augmented = augment_static(&fixture_zip(STOPS.as_bytes()), &table).unwrap();
+        let gtfs = Gtfs::from_reader(Cursor::new(augmented)).unwrap();
+        assert!(gtfs.stops.contains_key("NWK:track:1"));
+        assert!(!gtfs.stops.contains_key("PVD:track:1"));
     }
 
     #[test]

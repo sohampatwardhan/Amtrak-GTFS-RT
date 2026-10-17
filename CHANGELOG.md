@@ -9,6 +9,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Amtrak's own track numbers** (still default-off). Set `AMTRAK_TRACKS_AMTRAK_URL` to the
+  `track-fetcher` sidecar and `AMTRAK_TRACKS=on`. The sidecar reads
+  `GET /dotcom/travel-service/statuses/{train}?service-date={YYYY-MM-DD}` — the document the
+  Amtrak app uses for `departure.track.number`, falling back to `arrival.track.number` — for
+  trains with a stop inside a 30-minute lookahead and a 10-minute lookback. Trains inside about
+  12 minutes are fetched every minute; the rest of that window rotates under a 90-second cooldown
+  with at most 24 fetches a cycle, using one resident headless browser. A track stays published
+  until the stop's latest time plus `AMTRAK_TRACKS_RETAIN_GRACE_SECS` (default 900), including
+  when a later document omits it. Amtrak wins over NJ Transit and the Hartford board. A track
+  that is not already in `AMTRAK_TRACKS_PLATFORMS` is written to `observed-platforms.txt` and
+  becomes a platform stop on the next static refresh. Unset the URL to leave this source off.
+  `docker buildx bake` does not build the sidecar.
 - **Time- and count-bounded generation retention.** A superseded generation is deleted once it
   has been superseded for `AMTRAK_GENERATION_RETAIN_SECS` (default 600), measured from the newer
   generation's manifest mtime so the window holds across restarts. `AMTRAK_GENERATION_MAX`

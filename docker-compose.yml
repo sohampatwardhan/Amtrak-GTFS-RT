@@ -2,9 +2,10 @@
 #
 # Chromium stays in the advisory-fetcher image. The service build is the root
 # Dockerfile `runtime` stage (scratch). Advisories are on in this stack and
-# fail open if the fetcher is down. Track assignments stay off (`AMTRAK_TRACKS`
-# default); enabling them needs RailData credentials from the environment and
-# changes the published static feed; see the README.
+# fail open if the fetcher is down. Track assignments stay off unless
+# `AMTRAK_TRACKS=on` is set in the environment. The track sidecar is the
+# Compose profile `tracks` and is not started by `docker compose up`.
+# Enabling tracks changes the published static feed; see the README.
 #
 #   docker compose up -d --build
 #
@@ -37,6 +38,20 @@ services:
       - advisory-snapshots:/snapshot
     networks: [amtrak]
 
+  track-fetcher:
+    profiles: ["tracks"]
+    build:
+      context: ./track-fetcher
+      dockerfile: Dockerfile
+    image: track-fetcher:local
+    restart: unless-stopped
+    shm_size: "64mb"
+    environment:
+      POLL_INTERVAL_SECS: "60"
+      BROWSER_MODE: headless-shell
+      BLOCK_SUBRESOURCES: "true"
+    networks: [amtrak]
+
   amtrak-gtfs-rt:
     build:
       context: .
@@ -48,6 +63,9 @@ services:
     environment:
       AMTRAK_ADVISORIES: "on"
       AMTRAK_ADVISORIES_URL: http://advisory-fetcher:8080/service-alerts-and-notices
+      # Empty unless the operator sets them. Empty leaves track assignments off.
+      AMTRAK_TRACKS: ${AMTRAK_TRACKS:-}
+      AMTRAK_TRACKS_AMTRAK_URL: ${AMTRAK_TRACKS_AMTRAK_URL:-}
       # Published on host loopback port 8090 (8080 is often taken on the host).
       # The container sees that traffic from the bridge gateway of the pinned
       # subnet below, not from 127.0.0.1.
