@@ -230,26 +230,21 @@ fn canonical_stop_id(gtfs: &Gtfs, stop_id: &str) -> Option<String> {
         .map(|stop| stop.id.clone())
 }
 
-/// Words that show up in a track column but are not a platform.
-const REJECTED_TRACK_WORDS: &[&str] = &["TBD", "NA", "NONE", "NULL", "HOLD", "GATE", "OPEN", "BUS"];
+/// Named tracks Amtrak's status documents report at single-platform stations. An explicit list,
+/// so a placeholder word in any board's track column is still rejected.
+const NAMED_TRACKS: &[&str] = &["MAIN"];
 
-/// Platform token: `4`, `14`, `2A`, a single letter, or a short name such as `MAIN`.
+/// Platform token: `4`, `14`, `2A`, a single letter, or a named track such as `MAIN`.
 ///
-/// Placeholder words such as `TBD` are rejected.
+/// Words such as `TBD` are rejected.
 pub fn is_track_label(track: &str) -> bool {
+    if NAMED_TRACKS.contains(&track) {
+        return true;
+    }
     let bytes = track.as_bytes();
     if bytes.is_empty() || bytes.len() > 4 || !bytes.iter().all(|byte| byte.is_ascii_alphanumeric())
     {
         return false;
-    }
-    if REJECTED_TRACK_WORDS
-        .iter()
-        .any(|word| track.eq_ignore_ascii_case(word))
-    {
-        return false;
-    }
-    if bytes.iter().all(|byte| byte.is_ascii_uppercase()) {
-        return true;
     }
     let split_at = track
         .find(|character: char| character.is_ascii_uppercase())
@@ -327,6 +322,8 @@ mod tests {
         assert!(!is_track_label("0"));
         assert!(!is_track_label("TBD"));
         assert!(!is_track_label("NA"));
+        assert!(!is_track_label("GATE"));
+        assert!(!is_track_label("main"));
         assert!(!is_track_label("12AB"));
     }
 

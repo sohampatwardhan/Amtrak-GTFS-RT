@@ -219,9 +219,10 @@ fn prune_validation_cache(cache_dir: &Path) {
 /// Fetches a static ZIP once, validates, then retains and parses those bytes.
 ///
 /// With `platforms`, the upstream ZIP is augmented with platform stops first, and the augmented
-/// bytes are the ones parsed, validated, and returned. If augmentation fails or the validator
-/// rejects the augmented bytes, the upstream bytes are parsed and validated from scratch and
-/// returned instead, so enabling tracks can never block static publication.
+/// bytes are the ones parsed, validated, and returned. Tables are tried in order. If augmentation
+/// fails or the validator rejects the bytes for every table, the upstream bytes are parsed and
+/// validated from scratch and returned instead, so enabling tracks can never block static
+/// publication. An empty slice publishes upstream bytes.
 ///
 /// # Errors
 ///
@@ -231,7 +232,7 @@ fn prune_validation_cache(cache_dir: &Path) {
 pub async fn fetch_static(
     url: &str,
     validator: &dyn StaticStandardsValidator,
-    platforms: Option<&PlatformTable>,
+    platforms: &[PlatformTable],
 ) -> Result<StaticSnapshot, StaticError> {
     fetch_static_at(url, validator, platforms, SystemTime::now()).await
 }
@@ -239,7 +240,7 @@ pub async fn fetch_static(
 async fn fetch_static_at(
     url: &str,
     validator: &dyn StaticStandardsValidator,
-    platforms: Option<&PlatformTable>,
+    platforms: &[PlatformTable],
     now: SystemTime,
 ) -> Result<StaticSnapshot, StaticError> {
     let response = reqwest::get(url)
@@ -251,7 +252,7 @@ async fn fetch_static_at(
         .bytes()
         .await
         .map_err(|_| StaticError("static body failed".into()))?;
-    if let Some(table) = platforms {
+    for table in platforms {
         if let Some(snapshot) = augmented_snapshot(bytes.as_ref(), table, validator, now).await {
             return Ok(snapshot);
         }
@@ -265,7 +266,7 @@ async fn fetch_static_at(
     Ok(snapshot)
 }
 
-/// Augmented, parsed, and validated snapshot, or `None` to publish upstream bytes instead.
+/// Augmented, parsed, and validated snapshot, or `None` to try the next table or upstream bytes.
 async fn augmented_snapshot(
     upstream: &[u8],
     table: &PlatformTable,
@@ -275,24 +276,18 @@ async fn augmented_snapshot(
     let augmented = match augment_static(upstream, table) {
         Ok(bytes) => bytes,
         Err(error) => {
-            tracing::warn!(%error, stage = "static", "platform augmentation failed; publishing upstream");
+            tracing::warn!(%error, stage = "static", "platform augmentation failed");
             return None;
         }
     };
     let zip: Arc<[u8]> = Arc::from(augmented);
     let suffix = format!("+tracks.{}", table.digest());
     let Ok(snapshot) = snapshot_from_bytes(zip.clone(), now, Some(&suffix)) else {
-        tracing::warn!(
-            stage = "static",
-            "augmented static did not parse; publishing upstream"
-        );
+        tracing::warn!(stage = "static", "augmented static did not parse");
         return None;
     };
     if validator.validate(zip).await.is_err() {
-        tracing::warn!(
-            stage = "static",
-            "augmented static rejected by validator; publishing upstream"
-        );
+        tracing::warn!(stage = "static", "augmented static rejected by validator");
         return None;
     }
     Some(snapshot)
@@ -373,7 +368,7 @@ pub async fn stage_static(
     comparison: &StaticSnapshot,
     url: &str,
     validator: &dyn StaticStandardsValidator,
-    platforms: Option<&PlatformTable>,
+    platforms: &[PlatformTable],
 ) -> Result<Option<Arc<StaticSnapshot>>, StaticError> {
     let candidate = Arc::new(fetch_static(url, validator, platforms).await?);
     if candidate.zip.as_ref() == comparison.zip.as_ref() {
@@ -462,7 +457,7 @@ impl StaticSnapshotState {
 pub async fn bootstrap_static(
     static_url: &str,
     validator: &dyn StaticStandardsValidator,
-    platforms: Option<&PlatformTable>,
+    platforms: &[PlatformTable],
 ) -> Result<StaticSnapshotState, StaticError> {
     let snapshot = fetch_static(static_url, validator, platforms).await?;
     Ok(StaticSnapshotState::new(Arc::new(snapshot)))
@@ -484,7 +479,7 @@ pub async fn refresh_snapshot_once(
     state: &StaticSnapshotState,
     static_url: &str,
     validator: &dyn StaticStandardsValidator,
-    platforms: Option<&PlatformTable>,
+    platforms: &[PlatformTable],
 ) -> StaticRefreshOutcome {
     let comparison = match state.pending().await {
         Some(pending) => pending,
@@ -505,10 +500,27 @@ pub async fn refresh_snapshot_once(
 /// first-seen tracks becomes one augmentation.
 const PLATFORM_REFRESH_DEBOUNCE: Duration = Duration::from_secs(30);
 
+/// Least time between two platform-triggered rebuilds. Each one downloads the static feed and
+/// runs the validator, which is heavy on a Raspberry Pi in the first days of observation.
+const PLATFORM_REFRESH_MIN_GAP: Duration = Duration::from_secs(600);
+
+/// How long a platform-triggered rebuild waits: the debounce, or until the minimum gap since the
+/// previous one has passed, whichever is later.
+fn platform_refresh_delay(
+    previous: Option<tokio::time::Instant>,
+    now: tokio::time::Instant,
+) -> Duration {
+    let gap = previous
+        .map(|previous| (previous + PLATFORM_REFRESH_MIN_GAP).saturating_duration_since(now))
+        .unwrap_or_default();
+    gap.max(PLATFORM_REFRESH_DEBOUNCE)
+}
+
 /// Periodically stages standards-valid replacements without publishing them.
 ///
-/// With `platforms`, a newly observed track also wakes this loop (after a short debounce) so the
-/// platform stop is published before the next daily static poll.
+/// With `platforms`, a newly observed track also wakes this loop (after a debounce, and at most
+/// once per [`PLATFORM_REFRESH_MIN_GAP`]) so the platform stop is published before the next daily
+/// static poll. Each staged snapshot also refreshes which stations may be observed.
 pub async fn run_snapshot_refresh(
     state: StaticSnapshotState,
     static_url: String,
@@ -520,20 +532,29 @@ pub async fn run_snapshot_refresh(
     let mut ticker = tokio::time::interval(interval);
     ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
     ticker.tick().await;
+    let mut previous_platform_refresh = None;
     loop {
         if let Some(notify) = &notify {
             tokio::select! {
                 _ = ticker.tick() => {}
                 _ = notify.notified() => {
-                    tokio::time::sleep(PLATFORM_REFRESH_DEBOUNCE).await;
+                    let now = tokio::time::Instant::now();
+                    tokio::time::sleep(platform_refresh_delay(previous_platform_refresh, now)).await;
+                    previous_platform_refresh = Some(tokio::time::Instant::now());
                 }
             }
         } else {
             ticker.tick().await;
         }
-        let table = platforms.as_ref().map(SharedPlatforms::snapshot);
-        match refresh_snapshot_once(&state, &static_url, validator.as_ref(), table.as_ref()).await {
+        let tables = platforms
+            .as_ref()
+            .map(SharedPlatforms::candidates)
+            .unwrap_or_default();
+        match refresh_snapshot_once(&state, &static_url, validator.as_ref(), &tables).await {
             StaticRefreshOutcome::Staged(version) => {
+                if let (Some(platforms), Some(staged)) = (&platforms, state.pending().await) {
+                    platforms.set_known_stations(staged.parsed.stops.keys().map(String::as_str));
+                }
                 tracing::info!(
                     outcome = "staged",
                     stage = "static",
@@ -813,7 +834,7 @@ mod tests {
             &current,
             &format!("http://{address}/static.zip"),
             &validator,
-            None,
+            &[],
         )
         .await
         .unwrap()
@@ -850,7 +871,7 @@ mod tests {
         };
 
         let result =
-            bootstrap_static(&format!("http://{address}/static.zip"), &validator, None).await;
+            bootstrap_static(&format!("http://{address}/static.zip"), &validator, &[]).await;
         server.await.unwrap();
 
         assert!(result.is_err());
@@ -969,7 +990,7 @@ mod tests {
             &state,
             &format!("http://{address}/static.zip"),
             &validator,
-            None,
+            &[],
         )
         .await;
         server.await.unwrap();
@@ -1063,7 +1084,9 @@ mod tests {
             result: Ok(()),
         };
         let table = PlatformTable::parse("NWK=1-2").unwrap();
-        let snapshot = fetch_static(&url, &validator, Some(&table)).await.unwrap();
+        let snapshot = fetch_static(&url, &validator, std::slice::from_ref(&table))
+            .await
+            .unwrap();
         assert_eq!(
             snapshot.version,
             format!("20260927+tracks.{}", table.digest())
@@ -1077,13 +1100,17 @@ mod tests {
         }
 
         let other = PlatformTable::parse("NWK=1-3").unwrap();
-        let changed = fetch_static(&url, &validator, Some(&other)).await.unwrap();
+        let changed = fetch_static(&url, &validator, std::slice::from_ref(&other))
+            .await
+            .unwrap();
         assert_ne!(changed.version, snapshot.version);
-        let same = fetch_static(&url, &validator, Some(&table)).await.unwrap();
+        let same = fetch_static(&url, &validator, std::slice::from_ref(&table))
+            .await
+            .unwrap();
         assert_eq!(same.version, snapshot.version);
         assert_eq!(same.zip.as_ref(), snapshot.zip.as_ref());
 
-        let disabled = fetch_static(&url, &validator, None).await.unwrap();
+        let disabled = fetch_static(&url, &validator, &[]).await.unwrap();
         assert_eq!(disabled.version, "20260927");
         assert_eq!(disabled.zip.as_ref(), upstream.as_slice());
         server.abort();
@@ -1097,7 +1124,9 @@ mod tests {
             seen: Mutex::new(Vec::new()),
         };
         let table = PlatformTable::parse("NWK=1").unwrap();
-        let snapshot = fetch_static(&url, &validator, Some(&table)).await.unwrap();
+        let snapshot = fetch_static(&url, &validator, std::slice::from_ref(&table))
+            .await
+            .unwrap();
         assert_eq!(snapshot.zip.as_ref(), upstream.as_slice());
         assert_eq!(snapshot.version, "20260927");
         assert!(!snapshot.parsed.stops.contains_key("NWK:track:1"));
@@ -1116,6 +1145,56 @@ mod tests {
         let broken = archive.finish().unwrap().into_inner();
         assert!(augment_static(&broken, &colliding).is_err());
         server.abort();
+    }
+
+    /// Rejects archives containing one platform stop, as a bad observed label would.
+    struct RejectPlatform(&'static str);
+
+    #[async_trait]
+    impl StaticStandardsValidator for RejectPlatform {
+        async fn validate(&self, zip: Arc<[u8]>) -> Result<(), StaticValidationError> {
+            let parsed = Gtfs::from_reader(Cursor::new(zip)).unwrap();
+            if parsed.stops.contains_key(self.0) {
+                Err(StaticValidationError("fixture rejects one platform".into()))
+            } else {
+                Ok(())
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn a_rejected_observation_falls_back_to_the_configured_platforms() {
+        let (url, server) = served_zip(augmentable_zip("20260927"));
+        let observed = PlatformTable::parse("NWK=1,9").unwrap();
+        let configured = PlatformTable::parse("NWK=1").unwrap();
+        let validator = RejectPlatform("NWK:track:9");
+        let snapshot = fetch_static(&url, &validator, &[observed, configured.clone()])
+            .await
+            .unwrap();
+        assert_eq!(
+            snapshot.version,
+            format!("20260927+tracks.{}", configured.digest())
+        );
+        assert!(snapshot.parsed.stops.contains_key("NWK:track:1"));
+        assert!(!snapshot.parsed.stops.contains_key("NWK:track:9"));
+        server.abort();
+    }
+
+    #[test]
+    fn platform_rebuilds_wait_for_the_debounce_and_the_minimum_gap() {
+        let previous = tokio::time::Instant::now();
+        assert_eq!(
+            platform_refresh_delay(None, previous),
+            PLATFORM_REFRESH_DEBOUNCE
+        );
+        assert_eq!(
+            platform_refresh_delay(Some(previous), previous + Duration::from_secs(60)),
+            Duration::from_secs(540)
+        );
+        assert_eq!(
+            platform_refresh_delay(Some(previous), previous + Duration::from_secs(3_600)),
+            PLATFORM_REFRESH_DEBOUNCE
+        );
     }
 
     #[tokio::test]

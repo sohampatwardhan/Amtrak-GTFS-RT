@@ -58,24 +58,32 @@ struct StationBoard {
     rows: Vec<Assignment>,
 }
 
-/// Thread-safe store of the latest successful board per source station.
-///
-/// Keys are source-scoped (`njt:NP`, `hartford:NHV`, `amtrak:167:2026-10-17`) so two sources
-/// reporting the same Amtrak stop never overwrite each other's storage. A read merges them with a
-/// fixed precedence: Amtrak's own status, then NJ Transit RailData, then every other board
-/// (the Hartford Line board). The lock is held only for in-memory copies, never across an await,
-/// which is what keeps a generation's read independent of board latency.
-
 /// Rank used when two sources name the same train and stop. Higher replaces lower.
-pub fn source_precedence(source_key: &str) -> u8 {
+///
+/// Amtrak's own status ranks first only while its document is `fresh` (fetched no more than the
+/// store's max age ago). A retained Amtrak row from an older document still publishes until
+/// departure, but below NJ Transit and the Hartford board, so a live board reading of a track
+/// change wins over a value the sidecar can no longer confirm.
+pub fn source_precedence(source_key: &str, fresh: bool) -> u8 {
     if source_key.starts_with("amtrak:") {
-        3
+        if fresh {
+            3
+        } else {
+            0
+        }
     } else if source_key.starts_with("njt:") {
         2
     } else {
         1
     }
 }
+
+/// Thread-safe store of the latest successful board per source station.
+///
+/// Keys are source-scoped (`njt:NP`, `hartford:NHV`, `amtrak:167:2026-10-17`) so two sources
+/// reporting the same Amtrak stop never overwrite each other's storage. A read merges them by
+/// [`source_precedence`]. The lock is held only for in-memory copies, never across an await,
+/// which is what keeps a generation's read independent of board latency.
 #[derive(Default)]
 pub struct AssignmentStore {
     boards: RwLock<HashMap<String, StationBoard>>,
@@ -93,6 +101,10 @@ impl AssignmentStore {
     /// kept until its `retain_until` passes, which is how a track Amtrak showed once stays up
     /// through departure even if a later document omits it. Rows with no `retain_until` are left
     /// for [`Self::replace_station`].
+    ///
+    /// `observed_at` is when the source document was fetched, and it becomes the age reference
+    /// for [`source_precedence`]. A document older than the one already stored is ignored, so a
+    /// re-served snapshot cannot roll a track back.
     pub fn upsert_retained(
         &self,
         source_key: &str,
@@ -110,6 +122,9 @@ impl AssignmentStore {
                     observed_at,
                     rows: Vec::new(),
                 });
+            if observed_at < station.observed_at {
+                return;
+            }
             station.observed_at = observed_at;
             for row in rows {
                 if let Some(existing) = station.rows.iter_mut().find(|existing| {
@@ -173,11 +188,21 @@ impl AssignmentStore {
             .boards
             .read()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        let mut ordered: Vec<_> = boards.iter().collect();
-        ordered.sort_by_key(|(key, _)| (source_precedence(key), key.as_str()));
+        let mut ordered: Vec<_> = boards
+            .iter()
+            .map(|(key, station)| {
+                let age = now.duration_since(station.observed_at).unwrap_or_default();
+                (
+                    source_precedence(key, age <= max_age),
+                    key.as_str(),
+                    age,
+                    station,
+                )
+            })
+            .collect();
+        ordered.sort_by_key(|(rank, key, _, _)| (*rank, *key));
         let mut board = TrackBoard::default();
-        for (_, station) in ordered {
-            let age = now.duration_since(station.observed_at).unwrap_or_default();
+        for (_, _, age, station) in ordered {
             for row in &station.rows {
                 let publish = match row.retain_until {
                     Some(until) => now < until,
@@ -241,41 +266,83 @@ mod tests {
             .is_empty());
     }
 
+    const MAX_AGE: Duration = Duration::from_secs(300);
+
+    fn at(secs: u64) -> SystemTime {
+        SystemTime::UNIX_EPOCH + Duration::from_secs(secs)
+    }
+
     #[test]
-    fn amtrak_replaces_njt_and_stays_until_departure() {
+    fn fresh_amtrak_beats_njt_which_beats_hartford() {
         let store = AssignmentStore::new();
-        let t0 = SystemTime::UNIX_EPOCH + Duration::from_secs(1_000);
-        store.replace_station("njt:NY", vec![row("67", "NYP", "4")], t0);
-        store.replace_station("hartford:NHV", vec![row("141", "NHV", "8")], t0);
-        let kept = row_until("67", "NYP", "9", t0 + Duration::from_secs(1_000));
-        store.upsert_retained("amtrak:67:2099-01-01", vec![kept], t0);
-        let board = store.fresh_board(t0 + Duration::from_secs(400), Duration::from_secs(300));
-        assert_eq!(board.track("67", "NYP"), Some("9"));
-        assert_eq!(board.track("141", "NHV"), None);
-        store.upsert_retained(
-            "amtrak:67:2099-01-01",
-            vec![row_until(
-                "67",
-                "NYP",
-                "10",
-                t0 + Duration::from_secs(1_000),
-            )],
-            t0 + Duration::from_secs(500),
+        store.replace_station("hartford:NHV", vec![row("67", "NYP", "7")], at(1_000));
+        assert_eq!(
+            store.fresh_board(at(1_100), MAX_AGE).track("67", "NYP"),
+            Some("7")
         );
-        let board = store.fresh_board(t0 + Duration::from_secs(500), Duration::from_secs(300));
-        assert_eq!(board.track("67", "NYP"), Some("10"));
+        store.replace_station("njt:NY", vec![row("67", "NYP", "4")], at(1_000));
+        assert_eq!(
+            store.fresh_board(at(1_100), MAX_AGE).track("67", "NYP"),
+            Some("4")
+        );
+        let amtrak = row_until("67", "NYP", "9", at(5_000));
+        store.upsert_retained("amtrak:67:2099-01-01", vec![amtrak], at(1_000));
+        assert_eq!(
+            store.fresh_board(at(1_100), MAX_AGE).track("67", "NYP"),
+            Some("9")
+        );
+    }
+
+    #[test]
+    fn a_stale_amtrak_track_yields_to_a_live_board_but_is_kept_until_departure() {
+        let store = AssignmentStore::new();
+        let amtrak = row_until("67", "NYP", "9", at(5_000));
+        store.upsert_retained("amtrak:67:2099-01-01", vec![amtrak], at(1_000));
+        store.replace_station("njt:NY", vec![row("67", "NYP", "4")], at(1_400));
+        // Amtrak's document is 400 s old, past the 300 s limit; NJ Transit's reading is live.
+        assert_eq!(
+            store.fresh_board(at(1_400), MAX_AGE).track("67", "NYP"),
+            Some("4")
+        );
+        // Once NJ Transit's reading expires too, the retained Amtrak track still publishes.
+        assert_eq!(
+            store.fresh_board(at(1_800), MAX_AGE).track("67", "NYP"),
+            Some("9")
+        );
+        assert_eq!(
+            store.fresh_board(at(5_000), MAX_AGE).track("67", "NYP"),
+            None
+        );
+    }
+
+    #[test]
+    fn amtrak_rows_survive_an_omitting_document_and_ignore_an_older_one() {
+        let store = AssignmentStore::new();
+        let key = "amtrak:67:2099-01-01";
+        store.upsert_retained(key, vec![row_until("67", "NYP", "9", at(2_000))], at(1_000));
+        store.upsert_retained(
+            key,
+            vec![row_until("67", "NYP", "10", at(2_000))],
+            at(1_100),
+        );
+        assert_eq!(
+            store.fresh_board(at(1_100), MAX_AGE).track("67", "NYP"),
+            Some("10")
+        );
         // A later document that omits the stop keeps the track already seen.
-        store.upsert_retained(
-            "amtrak:67:2099-01-01",
-            vec![],
-            t0 + Duration::from_secs(600),
+        store.upsert_retained(key, vec![], at(1_200));
+        assert_eq!(
+            store.fresh_board(at(1_200), MAX_AGE).track("67", "NYP"),
+            Some("10")
         );
-        // An empty upsert removes the key when nothing remains... wait, empty vec plus retain
-        // filter: existing row retain is t0+1000, observed_at is t0+600, row stays.
-        let board = store.fresh_board(t0 + Duration::from_secs(600), Duration::from_secs(300));
-        assert_eq!(board.track("67", "NYP"), Some("10"));
-        let gone = store.fresh_board(t0 + Duration::from_secs(1_000), Duration::from_secs(300));
-        assert_eq!(gone.track("67", "NYP"), None);
+        // A document fetched before the stored one does not roll the track back.
+        store.upsert_retained(key, vec![row_until("67", "NYP", "9", at(2_000))], at(1_050));
+        assert_eq!(
+            store.fresh_board(at(1_200), MAX_AGE).track("67", "NYP"),
+            Some("10")
+        );
+        store.prune(at(2_000), MAX_AGE);
+        assert!(store.fresh_board(at(1_200), MAX_AGE).is_empty());
     }
 
     fn row_until(train: &str, stop: &str, track: &str, until: SystemTime) -> Assignment {

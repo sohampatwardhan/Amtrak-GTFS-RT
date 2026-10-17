@@ -80,6 +80,30 @@ jobs:
         working-directory: track-fetcher
         run: python -m pytest tests -q
 
+  track-fetcher-image:
+    name: Track fetcher image (${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # Native build on each architecture, so the Dockerfile's ldd check runs on arm64 too.
+      - name: Build the track-fetcher image
+        run: docker build --tag track-fetcher:ci track-fetcher
+
+      - name: Import the fetcher and Playwright inside the image
+        run: |
+          docker run --rm --entrypoint python track-fetcher:ci \
+            -c "import playwright.async_api, fetcher.__main__"
+
   repository-controls:
     name: Repository release-control tests
     runs-on: ubuntu-latest
@@ -100,5 +124,6 @@ jobs:
       - name: Validate root compose and bake targets
         run: |
           docker compose -f docker-compose.yml config >/dev/null
+          docker compose -f docker-compose.yml --profile tracks config >/dev/null
           docker compose -f advisory-fetcher/docker-compose.yml config >/dev/null
           docker buildx bake --print >/dev/null

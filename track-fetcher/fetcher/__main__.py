@@ -23,7 +23,13 @@ def build_components(env: Mapping[str, str]) -> tuple[Config, TrackStore, Thread
     cfg = Config.from_env(env)
     store = TrackStore()
     server = make_server(
-        store, cfg.serve_path, cfg.max_stale_secs, cfg.document_ttl_secs, cfg.listen_port
+        store,
+        cfg.serve_path,
+        cfg.max_stale_secs,
+        cfg.document_ttl_secs,
+        cfg.listen_port,
+        host=cfg.listen_host,
+        liveness_secs=cfg.liveness_secs,
     )
     return cfg, store, server
 
@@ -31,7 +37,7 @@ def build_components(env: Mapping[str, str]) -> tuple[Config, TrackStore, Thread
 async def _serve(cfg: Config, store: TrackStore, server: ThreadingHTTPServer) -> None:
     server_thread = threading.Thread(target=server.serve_forever, daemon=True)
     server_thread.start()
-    logger.info("serving train status on :%d%s", cfg.listen_port, cfg.serve_path)
+    logger.info("serving train status on %s:%d%s", cfg.listen_host, cfg.listen_port, cfg.serve_path)
 
     stop = asyncio.Event()
     loop = asyncio.get_running_loop()

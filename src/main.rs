@@ -151,7 +151,7 @@ async fn initial_snapshots(
     store: &GenerationStore,
     static_url: &str,
     validator: &dyn StaticStandardsValidator,
-    platforms: Option<&PlatformTable>,
+    platforms: &[PlatformTable],
 ) -> Result<StaticSnapshotState, Box<dyn std::error::Error + Send + Sync>> {
     if let Some(generation) = store.current().await {
         return Ok(recover_static(
@@ -251,29 +251,28 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // With tracks on, every static snapshot is augmented with the configured platform stops, so
     // the same table must reach both the bootstrap below and the periodic refresh task.
     let track_config = crate::config::TrackConfig::from_env()?;
-    let mut platform_table = track_config.platforms.clone();
     let observed_platforms = config
         .output_dir
         .join("tracks")
         .join("observed-platforms.txt");
-    if track_config.enabled {
-        if let Ok(saved) = std::fs::read_to_string(&observed_platforms) {
-            if let Err(error) = platform_table.merge_canonical(saved.trim()) {
-                tracing::warn!(%error, "ignoring stored platform observations");
-            }
-        }
-    }
     let platforms = track_config
         .enabled
-        .then(|| SharedPlatforms::new(platform_table, Some(observed_platforms)));
-    let bootstrap_table = platforms.as_ref().map(SharedPlatforms::snapshot);
+        .then(|| SharedPlatforms::load(track_config.platforms.clone(), observed_platforms));
+    let bootstrap_tables = platforms
+        .as_ref()
+        .map(SharedPlatforms::candidates)
+        .unwrap_or_default();
     let snapshots = initial_snapshots(
         &store,
         &config.static_url,
         validator.as_ref(),
-        bootstrap_table.as_ref(),
+        &bootstrap_tables,
     )
     .await?;
+    if let Some(platforms) = &platforms {
+        let active = snapshots.active().await;
+        platforms.set_known_stations(active.parsed.stops.keys().map(String::as_str));
+    }
 
     // The Amtrak source (optionally Capital Corridor-filtered) is optionally wrapped with the
     // best-effort advisory scraper and the track board. Both wrappers are fail-open and stay off
@@ -549,7 +548,7 @@ mod tests {
             &reopened,
             "http://127.0.0.1:1/unavailable.zip",
             &RejectIfCalled,
-            None,
+            &[],
         )
         .await
         .unwrap();

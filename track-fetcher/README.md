@@ -20,15 +20,31 @@ The browser stays in this image. The Rust service stays scratch and browser-free
   `TRACK_WINDOW_AFTER_SECS` in the past and `TRACK_WINDOW_BEFORE_SECS` in the future
   (default 10 minutes back and 30 minutes ahead). An estimated time replaces the scheduled time.
   Bus stops are ignored.
-- Trains whose closest stop is inside `TRACK_HOT_WINDOW_SECS` (default 12 minutes) are fetched
-  every cycle. The rest of the window is rotated, and a train fetched within
-  `TRACK_COOLDOWN_SECS` (default 90 seconds) waits. Each cycle fetches at most
-  `MAX_FETCHES_PER_CYCLE` trains (default 24).
+- A train is hot when its next stop is inside `TRACK_HOT_WINDOW_SECS` (default 12 minutes) and
+  one of its upcoming stops in the window has no track in its last document. Hot trains are
+  fetched every cycle, soonest first. Every other due train, including one that has just left a
+  stop, is rotated, and a train attempted within `TRACK_COOLDOWN_SECS` (default 90 seconds)
+  waits; a failed attempt counts. Each cycle fetches at most `MAX_FETCHES_PER_CYCLE` trains
+  (default 24).
+- Arizona stations use `America/Phoenix` (no daylight saving time), although the train feed
+  labels them Mountain.
 - One resident `chromium-headless-shell` performs the status fetches. Image, font, stylesheet,
-  and media requests are blocked. The browser is relaunched if a fetch fails.
-- `/tracks.json` is the latest documents (`200`) or `503` when no poll has finished or the last
-  one is older than `MAX_STALE_SECS`. The service treats `503` as a missed refresh and keeps
-  tracks it already stored until each train's departure.
+  and media requests are blocked, and so is every host outside `amtrak.com` while
+  `BLOCK_THIRD_PARTY` is on. Each fetch aborts after `FETCH_TIMEOUT_SECS`. The browser is
+  recycled every `BROWSER_MAX_AGE_SECS`.
+- A browser failure (crash, launch failure, or a hung fetch) ends that cycle's fetches. The next
+  launch waits 1 minute, doubling up to `RELAUNCH_BACKOFF_MAX_SECS`, and the wait resets after a
+  successful fetch.
+- Each cycle logs `due=`, `picked=`, `stored=`, and `rejected=` with the reason per train (for
+  example `{'http 403': 3}`), so an Akamai block is visible in the logs.
+- `/tracks.json` is the latest documents (`200`), each with `fetchedAt`, the time it was read
+  from Amtrak. It is `503` when no poll has succeeded or the last success is older than
+  `MAX_STALE_SECS`. A poll succeeds only when it had nothing to fetch or stored at least one
+  document, so if Amtrak stops answering the endpoint goes `503` instead of serving old documents
+  as current. The service treats `503` as a missed refresh and keeps tracks it already stored
+  until each train's departure, ranked below a live NJ Transit or Hartford reading.
+- `/healthz` is `503` once no poll has finished within `LIVENESS_SECS`, and the image's
+  `HEALTHCHECK` uses it, so a wedged poll loop is restarted.
 
 On 2026-10-17 the app showed track 1 at Providence for train 167 about ten minutes before
 arrival. That same document had the track on `arrival.track` (`asOf` 16:57 for a 17:06 schedule).
@@ -50,11 +66,29 @@ a track it has seen until the train leaves.
 | `MAX_FETCHES_PER_CYCLE` | `24` | Cap on status requests per cycle |
 | `DOCUMENT_TTL_SECS` | `7200` | How long a fetched document stays in `/tracks.json` |
 | `NAV_TIMEOUT_SECS` | `45` | Browser navigation and maps-feed timeout |
-| `MAX_STALE_SECS` | `300` | Serve `503` once the last completed poll is older than this |
+| `FETCH_TIMEOUT_SECS` | `20` | Abort one status request after this many seconds |
+| `BROWSER_MAX_AGE_SECS` | `21600` | Recycle the resident browser after this long |
+| `RELAUNCH_BACKOFF_MAX_SECS` | `900` | Longest wait before relaunching a failed browser |
+| `MAX_STALE_SECS` | `300` | Serve `503` once the last successful poll is older than this |
+| `LIVENESS_SECS` | `900` | `/healthz` fails once no poll has finished for this long |
+| `LISTEN_HOST` | `0.0.0.0` | Snapshot HTTP address. The healthcheck probes loopback, so keep `0.0.0.0` or `127.0.0.1` |
 | `LISTEN_PORT` | `8081` | Snapshot HTTP port |
 | `SERVE_PATH` | `/tracks.json` | Path the Rust service GETs |
 | `BROWSER_MODE` | `headless-shell` | `headless-shell`, or `xvfb-headful` where full Chromium exists |
 | `BLOCK_SUBRESOURCES` | `true` | Abort image/font/media/CSS during the page load |
+| `BLOCK_THIRD_PARTY` | `true` | Abort every request to a host outside `amtrak.com`. Turn off only if on-device checks show the status call needs a third-party host |
+
+## Isolation
+
+Chromium runs Amtrak's own page scripts without Chromium's sandbox (Playwright's default in a
+container), so the container is the boundary. In the root Compose file the service is read-only
+with tmpfs for `/tmp` and the fetcher's home, drops every capability, sets `no-new-privileges`,
+runs under `init`, and is limited to 768 MB and 256 processes. Do not publish its port: only
+`amtrak-gtfs-rt` needs to reach it, on the internal network.
+
+The sidecar sends up to `MAX_FETCHES_PER_CYCLE` status requests to `www.amtrak.com` each cycle,
+fewer once trains near a stop already show their tracks. Check that this volume suits Amtrak's
+terms of use before running it.
 
 ## Run
 

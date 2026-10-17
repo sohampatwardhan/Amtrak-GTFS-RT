@@ -46,10 +46,23 @@ services:
     image: track-fetcher:local
     restart: unless-stopped
     shm_size: "64mb"
+    # Chromium runs Amtrak's page scripts without its own sandbox, so the container is the
+    # boundary: read-only root, no capabilities, bounded memory and processes, and no published
+    # port (only amtrak-gtfs-rt reaches it on the internal network).
+    read_only: true
+    tmpfs:
+      - /tmp
+      - /home/fetcher
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    init: true
+    mem_limit: 768m
+    pids_limit: 256
     environment:
       POLL_INTERVAL_SECS: "60"
       BROWSER_MODE: headless-shell
       BLOCK_SUBRESOURCES: "true"
+      BLOCK_THIRD_PARTY: "true"
     networks: [amtrak]
 
   amtrak-gtfs-rt:

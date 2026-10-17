@@ -114,37 +114,46 @@ pub async fn refresh_once(
     }
     if let Some(url) = config.amtrak_url.as_deref() {
         match fetch_amtrak(http, url).await {
-            Some(body) => match groups_from_status(&body, config.retain_grace, SystemTime::now()) {
-                Ok(groups) => {
-                    let observed_at = SystemTime::now();
-                    for group in groups {
-                        for row in &group.rows {
-                            platforms.observe(&row.stop_id, &row.track);
+            Ok(body) => {
+                let now = SystemTime::now();
+                match groups_from_status(&body, config.retain_grace, now) {
+                    Ok(groups) => {
+                        for group in groups {
+                            for row in &group.rows {
+                                platforms.observe(&row.stop_id, &row.track);
+                            }
+                            let fetched_at = group.fetched_at.unwrap_or(now);
+                            store.upsert_retained(&group.source_key, group.rows, fetched_at);
                         }
-                        store.upsert_retained(&group.source_key, group.rows, observed_at);
+                        // Written once per refresh, after the table lock is released.
+                        platforms.persist().await;
+                    }
+                    Err(error) => {
+                        tracing::warn!(source = "amtrak", %error, "unusable status snapshot")
                     }
                 }
-                Err(error) => {
-                    tracing::warn!(source = "amtrak", %error, "unusable status snapshot")
-                }
-            },
-            None => tracing::warn!(source = "amtrak", "status fetch failed"),
+            }
+            Err(error) => tracing::warn!(source = "amtrak", %error, "status fetch failed"),
         }
     }
     store.prune(SystemTime::now(), config.max_age);
 }
 
-async fn fetch_amtrak(http: &reqwest::Client, url: &str) -> Option<String> {
-    let response = http.get(url).send().await.ok()?;
-    if !response.status().is_success() {
-        return None;
+/// The sidecar's bundle body. The parser decides whether it is usable.
+async fn fetch_amtrak(http: &reqwest::Client, url: &str) -> Result<String, String> {
+    let response = http
+        .get(url)
+        .send()
+        .await
+        .map_err(|error| format!("request failed: {}", error.without_url()))?;
+    let status = response.status();
+    if !status.is_success() {
+        return Err(format!("sidecar answered {status}"));
     }
-    let body = response.text().await.ok()?;
-    if body.contains("travelService") || body.contains("\"documents\"") {
-        Some(body)
-    } else {
-        None
-    }
+    response
+        .text()
+        .await
+        .map_err(|error| format!("body read failed: {}", error.without_url()))
 }
 
 async fn fetch_hartford(

@@ -3,14 +3,16 @@
 Amtrak's status API often publishes a track only in the last minutes before a train reaches a
 station (Providence showed track 1 about eight minutes before train 167 arrived). Some stations
 publish earlier, and that value is already on the document once the train enters the window, so
-polling trains with a stop near its ETA collects both kinds. Trains whose soonest stop is inside
-the hot window are fetched every cycle. The rest of the window is rotated under a cooldown so a
-busy hour does not fetch every active train every minute.
+polling trains with a stop near its ETA collects both kinds. A train is hot, and fetched every
+cycle, when its next stop is inside the hot window and an upcoming stop still has no track in its
+last document. Every other due train, including one that has just left a stop, is rotated under a
+cooldown so a busy hour does not fetch every active train every minute.
 """
 
 from __future__ import annotations
 
 import json
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
@@ -21,16 +23,27 @@ _ZONES = {
     "M": ZoneInfo("America/Denver"),
     "P": ZoneInfo("America/Los_Angeles"),
 }
+# Arizona does not observe daylight saving time, but the train feed labels its stations "M".
+_PHOENIX = ZoneInfo("America/Phoenix")
+_ARIZONA_STATIONS = frozenset({"BEN", "FLG", "KNG", "MRC", "TUS", "WLO", "WMJ", "YUM"})
 _TIME_FORMATS = ("%m/%d/%Y %H:%M:%S", "%m/%d/%Y %I:%M:%S %p")
 
 
 @dataclass(frozen=True)
 class DueTrain:
-    """One train-day with a stop inside the polling window."""
+    """One train-day with a stop inside the polling window.
+
+    ``soonest_secs`` is the distance to the closest in-window event, past or future.
+    ``next_secs`` is the time until the next future in-window event, or ``None`` when every
+    in-window event is already past. ``upcoming`` holds the codes of the stations those future
+    events belong to.
+    """
 
     train_number: str
     service_date: str
     soonest_secs: float
+    next_secs: float | None = None
+    upcoming: frozenset[str] = frozenset()
 
     @property
     def key(self) -> tuple[str, str]:
@@ -61,20 +74,41 @@ def due_trains(
         if number is None or service_date is None:
             continue
         distances: list[float] = []
+        ahead: list[float] = []
+        upcoming: set[str] = set()
         for station in _stations(properties):
             if station.get("bus") is True:
                 continue
+            code = _station_code(station)
             for moment in _event_times(station):
                 delta = (moment - now).total_seconds()
                 if -after_secs <= delta <= before_secs:
                     distances.append(abs(delta))
+                    if delta >= 0:
+                        ahead.append(delta)
+                        if code is not None:
+                            upcoming.add(code)
         if not distances:
             continue
-        train = DueTrain(number, service_date, min(distances))
+        train = DueTrain(
+            number,
+            service_date,
+            min(distances),
+            min(ahead) if ahead else None,
+            frozenset(upcoming),
+        )
         current = found.get(train.key)
         if current is None or train.soonest_secs < current.soonest_secs:
             found[train.key] = train
     return list(found.values())
+
+
+def is_hot(train: DueTrain, tracked: Mapping[tuple[str, str], frozenset[str]], hot_secs: float) -> bool:
+    """Whether ``train`` reaches a stop within ``hot_secs`` and an upcoming stop lacks a track."""
+    if train.next_secs is None or train.next_secs > hot_secs:
+        return False
+    known = tracked.get(train.key, frozenset())
+    return not train.upcoming or not train.upcoming <= known
 
 
 def choose_fetches(
@@ -85,30 +119,27 @@ def choose_fetches(
     hot_secs: float,
     cooldown_secs: float,
     max_fetches: int,
+    tracked: Mapping[tuple[str, str], frozenset[str]] | None = None,
 ) -> list[DueTrain]:
     """Hot trains first, then cooled-down trains, never more than ``max_fetches``.
 
-    A train is hot when its closest in-window event is within ``hot_secs``. Hot trains are taken
-    soonest-first on every cycle. Other trains are taken oldest-fetch-first, and a train fetched
-    within ``cooldown_secs`` waits.
+    Hot trains (see :func:`is_hot`) are taken next-stop-first on every cycle. Other trains are
+    taken oldest-fetch-first, and a train attempted within ``cooldown_secs`` waits. ``tracked``
+    maps a train-day to the station codes that already show a track in its last document.
     """
     if max_fetches <= 0:
         return []
+    tracked = tracked or {}
     now_ts = now.timestamp()
+    hot_keys = {train.key for train in due if is_hot(train, tracked, hot_secs)}
     hot = sorted(
-        (train for train in due if train.soonest_secs <= hot_secs),
-        key=lambda train: (train.soonest_secs, train.train_number, train.service_date),
+        (train for train in due if train.key in hot_keys),
+        key=lambda train: (train.next_secs, train.train_number, train.service_date),
     )
-    chosen: list[DueTrain] = []
-    seen: set[tuple[str, str]] = set()
-    for train in hot:
-        if len(chosen) >= max_fetches:
-            return chosen
-        chosen.append(train)
-        seen.add(train.key)
+    chosen = hot[:max_fetches]
     ready = []
     for train in due:
-        if train.key in seen or train.soonest_secs <= hot_secs:
+        if train.key in hot_keys:
             continue
         previous = last_fetched.get(train.key)
         if previous is None or now_ts - previous >= cooldown_secs:
@@ -121,10 +152,7 @@ def choose_fetches(
             train.service_date,
         )
     )
-    for train in ready:
-        if len(chosen) >= max_fetches:
-            break
-        chosen.append(train)
+    chosen.extend(ready[: max_fetches - len(chosen)])
     return chosen
 
 
@@ -180,9 +208,20 @@ def _stations(properties: dict):
                 yield parsed
 
 
+def _station_code(station: dict) -> str | None:
+    code = station.get("code")
+    if isinstance(code, str) and code.strip():
+        return code.strip().upper()
+    return None
+
+
 def _event_times(station: dict) -> list[datetime]:
     zone_code = station.get("tz")
-    zone = zone_code if isinstance(zone_code, str) else None
+    if _station_code(station) in _ARIZONA_STATIONS:
+        zone = _PHOENIX
+    else:
+        code = zone_code.strip().upper() if isinstance(zone_code, str) else "E"
+        zone = _ZONES.get(code, _ZONES["E"])
     moments: list[datetime] = []
     for estimated, scheduled in (("estarr", "scharr"), ("estdep", "schdep")):
         raw = station.get(estimated) or station.get(scheduled)
@@ -193,7 +232,7 @@ def _event_times(station: dict) -> list[datetime]:
     return moments
 
 
-def _parse_local(text: str, tz_code: str | None) -> datetime | None:
+def _parse_local(text: str, zone: ZoneInfo) -> datetime | None:
     naive = None
     for fmt in _TIME_FORMATS:
         try:
@@ -203,5 +242,4 @@ def _parse_local(text: str, tz_code: str | None) -> datetime | None:
             continue
     if naive is None:
         return None
-    zone = _ZONES.get((tz_code or "E").strip().upper(), _ZONES["E"])
     return naive.replace(tzinfo=zone)

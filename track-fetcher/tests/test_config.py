@@ -20,6 +20,12 @@ def test_defaults_poll_near_arrival_and_cap_each_cycle():
     assert cfg.browser_mode == "headless-shell"
     assert cfg.block_subresources is True
     assert cfg.max_stale_secs == 300
+    assert cfg.fetch_timeout_secs == 20
+    assert cfg.browser_max_age_secs == 21600
+    assert cfg.relaunch_backoff_max_secs == 900
+    assert cfg.liveness_secs == 900
+    assert cfg.listen_host == "0.0.0.0"
+    assert cfg.block_third_party is True
 
 
 def test_overrides_and_rejections():
@@ -30,8 +36,12 @@ def test_overrides_and_rejections():
             "TRACK_WINDOW_BEFORE_SECS": "1200",
             "BLOCK_SUBRESOURCES": "off",
             "LISTEN_PORT": "0",
+            "LISTEN_HOST": "127.0.0.1",
+            "BLOCK_THIRD_PARTY": "false",
         }
     )
+    assert cfg.listen_host == "127.0.0.1"
+    assert cfg.block_third_party is False
     assert cfg.poll_interval_secs == 30
     assert cfg.max_fetches_per_cycle == 8
     assert cfg.window_before_secs == 1200

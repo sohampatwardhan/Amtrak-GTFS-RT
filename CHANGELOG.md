@@ -13,14 +13,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `track-fetcher` sidecar and `AMTRAK_TRACKS=on`. The sidecar reads
   `GET /dotcom/travel-service/statuses/{train}?service-date={YYYY-MM-DD}` — the document the
   Amtrak app uses for `departure.track.number`, falling back to `arrival.track.number` — for
-  trains with a stop inside a 30-minute lookahead and a 10-minute lookback. Trains inside about
-  12 minutes are fetched every minute; the rest of that window rotates under a 90-second cooldown
-  with at most 24 fetches a cycle, using one resident headless browser. A track stays published
-  until the stop's latest time plus `AMTRAK_TRACKS_RETAIN_GRACE_SECS` (default 900), including
-  when a later document omits it. Amtrak wins over NJ Transit and the Hartford board. A track
-  that is not already in `AMTRAK_TRACKS_PLATFORMS` is written to `observed-platforms.txt` and
-  becomes a platform stop on the next static refresh. Unset the URL to leave this source off.
-  `docker buildx bake` does not build the sidecar.
+  trains with a stop inside a 30-minute lookahead and a 10-minute lookback. A train whose next
+  stop is within about 12 minutes and still has no track is fetched every minute; the rest of
+  that window rotates under a 90-second cooldown with at most 24 fetches a cycle, using one
+  resident headless browser. A track stays published until the stop's latest time plus
+  `AMTRAK_TRACKS_RETAIN_GRACE_SECS` (default 900), including when a later document omits it.
+  Amtrak wins over NJ Transit and the Hartford board while its document is fresh; an older
+  Amtrak track yields to a live board reading. An Amtrak track that is not already in
+  `AMTRAK_TRACKS_PLATFORMS`, at a station in the static feed, is recorded in
+  `observed-platforms.txt` (observed labels only, at most 1000) and becomes a platform stop on a
+  static rebuild at most every 10 minutes; if the validator rejects it, static is rebuilt with
+  the configured platforms alone. The sidecar backs off browser relaunches, times out each
+  request, blocks hosts outside `amtrak.com`, serves `503` when every fetch fails, and fails
+  `/healthz` when its poll loop stalls; in Compose it runs read-only with no capabilities and a
+  768 MB memory limit. Unset the URL to leave this source off. `docker buildx bake` does not build
+  the sidecar; CI builds it on amd64 and arm64.
 - **Time- and count-bounded generation retention.** A superseded generation is deleted once it
   has been superseded for `AMTRAK_GENERATION_RETAIN_SECS` (default 600), measured from the newer
   generation's manifest mtime so the window holds across restarts. `AMTRAK_GENERATION_MAX`

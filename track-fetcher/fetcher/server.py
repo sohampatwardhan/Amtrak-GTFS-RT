@@ -1,20 +1,23 @@
 """HTTP server for the latest train-status snapshot.
 
 ``/tracks.json`` is ``200 application/json`` while the last completed poll is within
-``max_stale_secs``, and ``503`` before the first poll or after the snapshot goes stale. The Rust
-service treats ``503`` as a failed refresh and keeps tracks it already stored. ``/healthz`` is
-liveness and does not look at the snapshot.
+``max_stale_secs``, and ``503`` before the first poll or after the snapshot goes stale. A poll
+counts only when it had nothing to fetch or stored a document, so a sidecar Amtrak is blocking
+goes ``503`` instead of serving old documents as current. The Rust service treats ``503`` as a
+failed refresh and keeps tracks it already stored.
+
+``/healthz`` is liveness: ``503`` when no poll has finished within ``liveness_secs``, so a wedged
+loop is restarted. It does not look at the snapshot.
 """
 
 from __future__ import annotations
 
 import json
 import time
-from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlsplit
 
-from .store import TrackStore
+from .store import TrackStore, iso_utc
 
 HEALTH_PATH = "/healthz"
 SOURCE_TEMPLATE = (
@@ -29,10 +32,13 @@ def route(
     document_ttl_secs: int,
     path: str,
     now: float,
+    liveness_secs: int = 900,
 ) -> tuple[int, str, bytes]:
     """Decide a GET response as ``(status, content_type, body)``."""
     clean = urlsplit(path).path
     if clean == HEALTH_PATH:
+        if now - store.last_cycle() > liveness_secs:
+            return 503, "text/plain", b"poll loop stalled"
         return 200, "text/plain", b"ok"
     if clean != serve_path:
         return 404, "text/plain", b"not found"
@@ -44,16 +50,20 @@ def route(
         return 503, "text/plain", b"snapshot stale"
     payload = {
         "source": SOURCE_TEMPLATE,
-        "fetched_at": datetime.fromtimestamp(last_success, timezone.utc).strftime(
-            "%Y-%m-%dT%H:%M:%SZ"
-        ),
+        "fetched_at": iso_utc(last_success),
         "documents": documents,
     }
     body = json.dumps(payload, separators=(",", ":")).encode("utf-8")
     return 200, "application/json", body
 
 
-def make_handler(store: TrackStore, serve_path: str, max_stale_secs: int, document_ttl_secs: int):
+def make_handler(
+    store: TrackStore,
+    serve_path: str,
+    max_stale_secs: int,
+    document_ttl_secs: int,
+    liveness_secs: int,
+):
     """Build a request handler bound to this store."""
 
     class SnapshotHandler(BaseHTTPRequestHandler):
@@ -65,6 +75,7 @@ def make_handler(store: TrackStore, serve_path: str, max_stale_secs: int, docume
                 document_ttl_secs,
                 self.path,
                 time.time(),
+                liveness_secs,
             )
             self.send_response(status)
             self.send_header("Content-Type", content_type)
@@ -84,9 +95,12 @@ def make_server(
     max_stale_secs: int,
     document_ttl_secs: int,
     port: int,
+    *,
+    host: str = "0.0.0.0",
+    liveness_secs: int = 900,
 ) -> ThreadingHTTPServer:
-    """Create a threaded server on ``port``. It is bound and not yet serving."""
+    """Create a threaded server on ``host:port``. It is bound and not yet serving."""
     return ThreadingHTTPServer(
-        ("0.0.0.0", port),
-        make_handler(store, serve_path, max_stale_secs, document_ttl_secs),
+        (host, port),
+        make_handler(store, serve_path, max_stale_secs, document_ttl_secs, liveness_secs),
     )

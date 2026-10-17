@@ -6,6 +6,10 @@
 //! resets non-browser clients, so the service does not call it itself. A sidecar browser fetches
 //! the trains that are near a stop and serves the JSON here. A track is kept until the stop's
 //! latest predicted time plus the configured grace, including when a later document omits it.
+//!
+//! The sidecar stamps each bundled document with `fetchedAt`, the time it read that document
+//! from Amtrak. That, not the time the service read the bundle, is the document's age, so a
+//! document the sidecar keeps re-serving after Amtrak stops answering does not look new.
 
 use super::store::Assignment;
 use super::{is_track_label, normalize_train_number};
@@ -17,6 +21,8 @@ pub struct StatusGroup {
     /// `amtrak:{train}:{service-date}`.
     pub source_key: String,
     pub rows: Vec<Assignment>,
+    /// The document's `fetchedAt`. `None` for a bare status document, which is as old as the read.
+    pub fetched_at: Option<SystemTime>,
 }
 
 /// Parses a status document or a sidecar bundle (`{"documents":[...]}`).
@@ -42,8 +48,14 @@ pub fn groups_from_status(
         let Some(trains) = document.get("data").and_then(Value::as_array) else {
             return Err("status document has no data".into());
         };
+        let fetched_at = document
+            .get("fetchedAt")
+            .and_then(Value::as_str)
+            .and_then(parse_rfc3339)
+            .map(|fetched_at| fetched_at.min(now));
         for train in trains {
-            if let Some(group) = group_from_train(train, grace, now) {
+            if let Some(mut group) = group_from_train(train, grace, now) {
+                group.fetched_at = fetched_at;
                 groups.push(group);
             }
         }
@@ -91,6 +103,7 @@ fn group_from_train(train: &Value, grace: Duration, now: SystemTime) -> Option<S
     Some(StatusGroup {
         source_key: format!("amtrak:{train_number}:{date}"),
         rows,
+        fetched_at: None,
     })
 }
 
@@ -240,6 +253,19 @@ mod tests {
         assert_eq!(groups[0].source_key, "amtrak:54:2099-01-02");
         assert_eq!(groups[0].rows[0].stop_id, "NYP");
         assert_eq!(groups[0].rows[0].track, "10");
+        assert_eq!(groups[0].fetched_at, None);
+    }
+
+    #[test]
+    fn bundled_documents_carry_their_own_fetch_time() {
+        let body = r#"{"documents":[{"fetchedAt":"2099-01-02T11:50:00Z","data":[{"travelService":{"number":"54","date":"2099-01-02"},"stops":[{"station":{"code":"NYP"},"departure":{"track":{"number":"10"}}}]}]}]}"#;
+        let now = parse_rfc3339("2099-01-02T12:00:00Z").unwrap();
+        let groups = groups_from_status(body, Duration::from_secs(60), now).unwrap();
+        assert_eq!(groups[0].fetched_at, parse_rfc3339("2099-01-02T11:50:00Z"));
+        // A sidecar clock ahead of the service's is clamped to the read time.
+        let early = now - Duration::from_secs(3_600);
+        let groups = groups_from_status(body, Duration::from_secs(60), early).unwrap();
+        assert_eq!(groups[0].fetched_at, Some(early));
     }
 
     #[test]

@@ -37,11 +37,17 @@ class Config:
     max_fetches_per_cycle: int = 24
     document_ttl_secs: int = 7200
     nav_timeout_secs: int = 45
+    fetch_timeout_secs: int = 20
+    browser_max_age_secs: int = 21600
+    relaunch_backoff_max_secs: int = 900
     max_stale_secs: int = 300
+    liveness_secs: int = 900
+    listen_host: str = "0.0.0.0"
     listen_port: int = 8081
     serve_path: str = DEFAULT_SERVE_PATH
     browser_mode: str = "headless-shell"
     block_subresources: bool = True
+    block_third_party: bool = True
 
     @staticmethod
     def from_env(env: Mapping[str, str]) -> "Config":
@@ -57,11 +63,17 @@ class Config:
             max_fetches_per_cycle=_pos_int(env, "MAX_FETCHES_PER_CYCLE", 24),
             document_ttl_secs=_pos_int(env, "DOCUMENT_TTL_SECS", 7200),
             nav_timeout_secs=_pos_int(env, "NAV_TIMEOUT_SECS", 45),
+            fetch_timeout_secs=_pos_int(env, "FETCH_TIMEOUT_SECS", 20),
+            browser_max_age_secs=_pos_int(env, "BROWSER_MAX_AGE_SECS", 21600),
+            relaunch_backoff_max_secs=_pos_int(env, "RELAUNCH_BACKOFF_MAX_SECS", 900),
             max_stale_secs=_pos_int(env, "MAX_STALE_SECS", 300),
+            liveness_secs=_pos_int(env, "LIVENESS_SECS", 900),
+            listen_host=env.get("LISTEN_HOST") or "0.0.0.0",
             listen_port=_port(env, "LISTEN_PORT", 8081),
             serve_path=env.get("SERVE_PATH", DEFAULT_SERVE_PATH),
             browser_mode=_browser_mode(env),
             block_subresources=_bool(env, "BLOCK_SUBRESOURCES", True),
+            block_third_party=_bool(env, "BLOCK_THIRD_PARTY", True),
         )
 
 

@@ -438,16 +438,25 @@ The only new validator notice is a `stop_without_stop_time` warning per platform
 scheduled trip calls at a platform directly.
 
 The default list covers tracks from published track maps: New York Penn 1–21, Newark Penn A and
-1–5, and New Haven Union's platform tracks (1–4, 8, 10, 12, 14). A track Amtrak (or another
-board) later reports that is not in that list is written to
-`{AMTRAK_OUTPUT_DIR}/tracks/observed-platforms.txt` and the static feed is rebuilt, after a 30
-second pause so a burst of new labels is one refresh. The track is stamped only once that
-platform stop is in the published snapshot. The file is loaded on startup, so a restart does not
-change the static version. Labels are platform tokens such as `4`, `2A`, `A`, or a short name
-such as Buffalo's `MAIN`. Placeholder words (`TBD`, `NA`, `NONE`, `NULL`, `HOLD`, `GATE`,
-`OPEN`, `BUS`) are ignored. Add a known list ahead of time with `AMTRAK_TRACKS_PLATFORMS`, for
-example `NYP=1-21;NWK=A,1-5;NHV=1-4,8,10,12,14;EWR=1-4`. A station that is not in the static feed
-at all is skipped.
+1–5, and New Haven Union's platform tracks (1–4, 8, 10, 12, 14). A track Amtrak's own status
+later reports that is not in that list is recorded as an observed platform in
+`{AMTRAK_OUTPUT_DIR}/tracks/observed-platforms.txt` and the static feed is rebuilt. NJ Transit and
+Hartford tracks are not recorded; they must be in the configured list. The rebuild waits 30
+seconds so a burst of new labels is one refresh, and runs at most once every 10 minutes. The
+track is stamped only once that platform stop is in the published snapshot.
+
+The file holds only observed labels, not the configured ones, so removing a track from
+`AMTRAK_TRACKS_PLATFORMS` takes effect, and deleting the file resets observations. It is loaded
+on startup, so a restart does not change the static version. A file that does not parse is
+renamed to `observed-platforms.txt.invalid` and ignored. Only stations in the active static feed
+are observed, and at most 1000 labels are kept. If the static validator rejects the feed with the
+observed platforms, it is rebuilt with the configured platforms alone, so one bad observation
+cannot remove every platform stop.
+
+Labels are platform tokens such as `4`, `14`, `2A`, `A`, or the named track `MAIN` (Buffalo).
+Anything else, such as `TBD`, is ignored. Add a known list ahead of time with
+`AMTRAK_TRACKS_PLATFORMS`, for example `NYP=1-21;NWK=A,1-5;NHV=1-4,8,10,12,14;EWR=1-4`. A
+station that is not in the static feed at all is skipped.
 
 **Trip updates.** A matching stop time gets `assigned_stop_id={stop}:track:{label}` and its
 `stop_sequence`, and its `stop_id` is removed, as the reference prefers. A stop time is stamped only
@@ -461,9 +470,12 @@ absent. Consumers that list every row of `stops.txt` should filter by `location_
 **Sources.** A background task reads the boards every `AMTRAK_TRACKS_REFRESH_SECS`; generation only
 reads its latest results, so a slow or failed board never delays the feed. NJ Transit and Hartford
 readings are published for at most `AMTRAK_TRACKS_MAX_AGE_SECS`, and a failed refresh never
-extends that age. When two sources name the same train and stop, Amtrak's own status wins, then
-NJ Transit, then the Hartford board. Amtrak is what the app shows; the other boards fill the gap
-before Amtrak publishes a number.
+extends that age. When two sources name the same train and stop, Amtrak's own status wins while
+its document is fresh (fetched by the sidecar within `AMTRAK_TRACKS_MAX_AGE_SECS`), then NJ
+Transit, then the Hartford board. Amtrak is what the app shows; the other boards fill the gap
+before Amtrak publishes a number. An Amtrak track from an older document is still published until
+departure, but a live NJ Transit or Hartford reading replaces it, so a blocked sidecar cannot hold
+a track over a board's track change.
 
 - Amtrak's train-status API, for every station where that API publishes a track. The service does
   not call `www.amtrak.com` itself. Set `AMTRAK_TRACKS_AMTRAK_URL` to the
@@ -472,8 +484,9 @@ before Amtrak publishes a number.
   (`arrival.track.number` `1`, `asOf` 16:57, scheduled 17:06). Some stations publish hours earlier,
   and that value is already on the document once the train is near the stop, so the sidecar polls
   trains with a stop inside a 30-minute lookahead and a 10-minute lookback instead of the whole
-  fleet. Trains inside about 12 minutes are fetched every cycle; the rest rotate with a 90-second
-  cooldown and a cap of 24 fetches a cycle. A track Amtrak has shown is kept until the stop's
+  fleet. A train whose next stop is within about 12 minutes and still has no track is fetched
+  every cycle; every other train in the window, including one that has just left a stop, rotates
+  with a 90-second cooldown, and a cycle makes at most 24 fetches. A track Amtrak has shown is kept until the stop's
   latest scheduled or predicted time plus `AMTRAK_TRACKS_RETAIN_GRACE_SECS` (default 15 minutes),
   including when a later document drops the field after departure. An empty URL leaves this source
   off.
@@ -494,7 +507,7 @@ before Amtrak publishes a number.
 flowchart TD
   maps["maps.amtrak.com getTrainsData"] --> dec["Decrypt in the sidecar"]
   dec --> win["Stops from 10 min past to 30 min ahead"]
-  win --> hot["Within 12 min: every cycle"]
+  win --> hot["Next stop within 12 min, no track yet: every cycle"]
   win --> outer["Otherwise: 90s cooldown, 24 fetches max"]
   hot --> browser["One resident headless browser"]
   outer --> browser
@@ -503,16 +516,20 @@ flowchart TD
   snap --> store["Assignment store"]
   njt["NJ Transit RailData"] --> store
   hart["Hartford Line board"] --> store
-  store --> rank["Amtrak, then NJ Transit, then Hartford"]
+  store --> rank["Fresh Amtrak, then NJ Transit, then Hartford, then older Amtrak"]
   rank --> stamp["assigned_stop_id on trip updates"]
-  status --> seen["Track not in the platform list"]
+  status --> seen["Amtrak track not in the platform list"]
   seen --> file["observed-platforms.txt"]
   file --> static["Next static refresh adds the platform stop"]
   static --> stamp
 ```
 
 The sidecar keeps a single `chromium-headless-shell` between polls and blocks image, font,
-stylesheet, and media requests. The maps feed, which has no track field, is decrypted without a
+stylesheet, and media requests, and every host outside `amtrak.com`. A browser failure ends that
+cycle's fetches, and relaunches back off from 1 to 15 minutes. If every fetch in a cycle fails,
+`/tracks.json` goes `503` after five minutes instead of serving old documents as current. In
+Compose the sidecar runs read-only, with no capabilities, a 768 MB memory limit, and no published
+port; see [`track-fetcher/README.md`](track-fetcher/README.md). The maps feed, which has no track field, is decrypted without a
 browser and is only used to decide who is near a stop. The image uses the same headless-shell
 build the advisory sidecar's on-device notes ran on a Raspberry Pi 5 (`linux/arm64`). One browser
 stays resident across the 60-second polls, and each cycle issues at most 24 status requests.
