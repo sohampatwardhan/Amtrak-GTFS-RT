@@ -1,11 +1,17 @@
 # Track-fetcher image (linux/amd64 and linux/arm64, including Raspberry Pi).
 #
 # Same browser shape as advisory-fetcher: slim Debian Python plus Playwright's
-# chromium-headless-shell. One process stays up between polls. The maps train feed is decrypted
-# in Python; only www.amtrak.com status calls go through the browser.
+# chromium-headless-shell, or full Chromium and Xvfb too with BROWSER_BUNDLE=full. One process
+# stays up between polls. The maps train feed is decrypted in Python; only www.amtrak.com status
+# calls go through the browser.
 FROM python:3.12-slim-bookworm
 
 ARG PLAYWRIGHT_VERSION=1.61.0
+# `headless-shell` (default) installs only chromium-headless-shell. `full` also installs full
+# Chromium and Xvfb for BROWSER_MODE=xvfb-headful, the fallback if Amtrak blocks the headless shell.
+# It makes the image larger, so build it only when that mode is needed:
+#   docker build --build-arg BROWSER_BUNDLE=full .
+ARG BROWSER_BUNDLE=headless-shell
 ARG CRYPTOGRAPHY_VERSION=46.0.3
 
 ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright \
@@ -39,12 +45,25 @@ RUN apt-get update \
         libxfixes3 \
         libxkbcommon0 \
         libxrandr2 \
+    && if [ "${BROWSER_BUNDLE}" = "full" ]; then \
+        apt-get install --yes --no-install-recommends xvfb; \
+    elif [ "${BROWSER_BUNDLE}" != "headless-shell" ]; then \
+        echo "BROWSER_BUNDLE must be headless-shell or full" >&2; exit 1; \
+    fi \
     && rm -rf /var/lib/apt/lists/*
 
 RUN pip install --no-cache-dir \
         "playwright==${PLAYWRIGHT_VERSION}" \
         "cryptography==${CRYPTOGRAPHY_VERSION}" \
-    && python -m playwright install --only-shell chromium \
+    && if [ "${BROWSER_BUNDLE}" = "full" ]; then \
+        python -m playwright install chromium \
+        && full="$(find /ms-playwright -type f -name chrome -path '*chrome-linux*' -print -quit)" \
+        && test -n "${full}" \
+        && ! ldd "${full}" | grep 'not found' \
+        && command -v Xvfb; \
+    else \
+        python -m playwright install --only-shell chromium; \
+    fi \
     && shell="$(find /ms-playwright -type f \( -name chrome-headless-shell -o -name headless_shell \) -print -quit)" \
     && test -n "${shell}" \
     && ldd "${shell}" \

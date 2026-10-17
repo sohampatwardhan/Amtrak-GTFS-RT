@@ -73,6 +73,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`BROWSER_MODE=xvfb-headful` works in both browser sidecars.** Neither image had full
+  Chromium or Xvfb, and nothing started an X server, so the documented fallback failed at launch.
+  Build with `--build-arg BROWSER_BUNDLE=full` (or `FETCHER_BROWSER_BUNDLE=full` for Compose and
+  bake) to add both; the fetcher then starts Xvfb itself. The default image is unchanged, and
+  selecting headful mode on it stops at startup with a message naming the build argument. CI
+  builds both bundles of both images on amd64 and arm64.
 - Startup no longer reads every generation on the volume into memory. It loads the current
   generation, prunes the rest by directory metadata, and then loads only the survivors. A volume
   with hundreds of generations left by an older release previously pushed the process past

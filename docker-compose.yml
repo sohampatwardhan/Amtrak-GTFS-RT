@@ -11,6 +11,11 @@
 #
 # Build both images without starting them: `docker buildx bake`
 #
+# Both browser sidecars use chromium-headless-shell. If Amtrak blocks it, rebuild them with full
+# Chromium and Xvfb and run headful (larger images, more memory on a Pi):
+#
+#   FETCHER_BROWSER_BUNDLE=full FETCHER_BROWSER_MODE=xvfb-headful docker compose up -d --build
+#
 # Rust service alone, advisories off (image default; do not set AMTRAK_ADVISORIES):
 #
 #   docker build --tag amtrak-gtfs-rt:local .
@@ -26,13 +31,15 @@ services:
     build:
       context: ./advisory-fetcher
       dockerfile: Dockerfile
+      args:
+        BROWSER_BUNDLE: ${FETCHER_BROWSER_BUNDLE:-headless-shell}
     image: advisory-fetcher:local
     restart: unless-stopped
     # Chromium is launched with --disable-dev-shm-usage, so it does not need a 1 GB /dev/shm.
     shm_size: "64mb"
     environment:
       POLL_INTERVAL_SECS: "900"
-      BROWSER_MODE: headless-shell
+      BROWSER_MODE: ${FETCHER_BROWSER_MODE:-headless-shell}
       BLOCK_SUBRESOURCES: "true"
     volumes:
       - advisory-snapshots:/snapshot
@@ -43,6 +50,8 @@ services:
     build:
       context: ./track-fetcher
       dockerfile: Dockerfile
+      args:
+        BROWSER_BUNDLE: ${FETCHER_BROWSER_BUNDLE:-headless-shell}
     image: track-fetcher:local
     restart: unless-stopped
     shm_size: "64mb"
@@ -60,7 +69,7 @@ services:
     pids_limit: 256
     environment:
       POLL_INTERVAL_SECS: "60"
-      BROWSER_MODE: headless-shell
+      BROWSER_MODE: ${FETCHER_BROWSER_MODE:-headless-shell}
       BLOCK_SUBRESOURCES: "true"
       BLOCK_THIRD_PARTY: "true"
     networks: [amtrak]

@@ -74,9 +74,25 @@ a track it has seen until the train leaves.
 | `LISTEN_HOST` | `0.0.0.0` | Snapshot HTTP address. The healthcheck probes loopback, so keep `0.0.0.0` or `127.0.0.1` |
 | `LISTEN_PORT` | `8081` | Snapshot HTTP port |
 | `SERVE_PATH` | `/tracks.json` | Path the Rust service GETs |
-| `BROWSER_MODE` | `headless-shell` | `headless-shell`, or `xvfb-headful` where full Chromium exists |
+| `BROWSER_MODE` | `headless-shell` | `headless-shell` (efficient), or `xvfb-headful` (fallback: full Chromium under an Xvfb display the fetcher starts itself). `xvfb-headful` needs an image built with `--build-arg BROWSER_BUNDLE=full`; the default image stops at startup and says so |
 | `BLOCK_SUBRESOURCES` | `true` | Abort image/font/media/CSS during the page load |
 | `BLOCK_THIRD_PARTY` | `true` | Abort every request to a host outside `amtrak.com`. Turn off only if on-device checks show the status call needs a third-party host |
+
+## If Amtrak blocks the headless shell
+
+Akamai lets a real browser through because it runs Amtrak's scripts and earns the bot-manager
+cookies; plain HTTP clients are reset. `chromium-headless-shell` is the lightest browser that does
+this, but it is also the easiest to recognize as headless. If the per-cycle log shows `rejected=`
+filling with `http 403`, first set `BLOCK_THIRD_PARTY=false` in case the status call needs a host
+outside `amtrak.com`. If 403s continue, rebuild with full Chromium and Xvfb and run headful:
+
+```bash
+FETCHER_BROWSER_BUNDLE=full FETCHER_BROWSER_MODE=xvfb-headful \
+  docker compose --profile tracks up -d --build
+```
+
+The full image is larger and headful Chromium uses more memory; check it stays under the
+768 MB `mem_limit` on a Pi.
 
 ## Isolation
 

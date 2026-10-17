@@ -80,13 +80,15 @@ jobs:
         working-directory: track-fetcher
         run: python -m pytest tests -q
 
-  track-fetcher-image:
-    name: Track fetcher image (${{ matrix.arch }})
+  fetcher-images:
+    name: ${{ matrix.image }} image (${{ matrix.arch }})
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 30
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
+        image: [advisory-fetcher, track-fetcher]
+        arch: [amd64, arm64]
         include:
           - arch: amd64
             runner: ubuntu-24.04
@@ -95,14 +97,25 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      # Native build on each architecture, so the Dockerfile's ldd check runs on arm64 too.
-      - name: Build the track-fetcher image
-        run: docker build --tag track-fetcher:ci track-fetcher
+      # Native builds on each architecture, so the Dockerfile's ldd checks run on arm64 too. The
+      # full bundle is the xvfb-headful fallback; building it here keeps that mode working.
+      - name: Build the default (headless-shell) image
+        run: docker build --tag fetcher:shell ${{ matrix.image }}
 
-      - name: Import the fetcher and Playwright inside the image
+      - name: Build the full (Chromium and Xvfb) image
+        run: docker build --build-arg BROWSER_BUNDLE=full --tag fetcher:full ${{ matrix.image }}
+
+      - name: Import the fetcher and Playwright inside the images
         run: |
-          docker run --rm --entrypoint python track-fetcher:ci \
-            -c "import playwright.async_api, fetcher.__main__"
+          for tag in shell full; do
+            docker run --rm --entrypoint python "fetcher:${tag}" \
+              -c "import playwright.async_api, fetcher.__main__"
+          done
+
+      - name: Start Xvfb in the full image
+        run: |
+          docker run --rm --entrypoint python fetcher:full -c \
+            "from fetcher.display import start_virtual_display, stop_virtual_display; stop_virtual_display(start_virtual_display('xvfb-headful', {}))"
 
   repository-controls:
     name: Repository release-control tests

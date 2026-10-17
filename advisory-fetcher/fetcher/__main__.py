@@ -17,6 +17,7 @@ from collections.abc import Mapping
 from http.server import ThreadingHTTPServer
 
 from .config import Config
+from .display import DisplayError, start_virtual_display, stop_virtual_display
 from .poller import run_forever
 from .server import make_server
 from .store import SnapshotStore
@@ -61,7 +62,15 @@ def main() -> None:
     """Program entry point: configure logging, build components, and run until terminated."""
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
     cfg, store, server = build_components(os.environ)
-    asyncio.run(_serve(cfg, store, server))
+    try:
+        display = start_virtual_display(cfg.browser_mode)
+    except DisplayError as error:
+        logger.error("%s", error)
+        raise SystemExit(2) from None
+    try:
+        asyncio.run(_serve(cfg, store, server))
+    finally:
+        stop_virtual_display(display)
 
 
 if __name__ == "__main__":
