@@ -342,8 +342,8 @@ identifier parsing, and manifest-first discovery.
 | `AMTRAK_TRACKS_RAILDATA_BASE` | `https://raildata.njtransit.com/api/TrainData` | NJ Transit RailData `TrainData` base URL |
 | `NJT_RAILDATA_USERNAME` | empty | Registered RailData username. Set with the password, or set neither |
 | `NJT_RAILDATA_PASSWORD` | empty | Registered RailData password. Never commit this |
-| `AMTRAK_TRACKS_NJT_STATIONS` | `NY,NP,NA,MP,NB,PJ,TR` | RailData station codes to read. Each code needs a map entry |
-| `AMTRAK_TRACKS_STATION_MAP` | `NY=NYP,NP=NWK,NA=EWR,MP=MET,NB=NBK,PJ=PJC,TR=TRE` | RailData code to Amtrak GTFS `stop_id`. Overrides or extends the default |
+| `AMTRAK_TRACKS_NJT_STATIONS` | `NY,NP,NA,MP,NB,PJ,TR,PH` | RailData station codes to read. Each code needs a map entry |
+| `AMTRAK_TRACKS_STATION_MAP` | `NY=NYP,NP=NWK,NA=EWR,MP=MET,NB=NBK,PJ=PJC,TR=TRE,PH=PHL` | RailData code to Amtrak GTFS `stop_id`. Overrides or extends the default |
 | `AMTRAK_TRACKS_HARTFORD_URL` | `https://hartfordline.com/connecting-train-status/` | New Haven board. Set empty to skip it |
 | `AMTRAK_TRACKS_HARTFORD_STOP` | `NHV` | Amtrak `stop_id` for that board |
 | `AMTRAK_TRACKS_AMTRAK_URL` | empty | Sidecar URL for Amtrak's own status JSON. Empty skips that source. This is not `www.amtrak.com`; that host blocks plain HTTP |
@@ -437,13 +437,14 @@ augmentation fails or is rejected, Amtrak's feed is published unchanged and no t
 The only new validator notice is a `stop_without_stop_time` warning per platform stop, because no
 scheduled trip calls at a platform directly.
 
-The default list covers tracks from published track maps: New York Penn 1–21, Newark Penn A and
-1–5, and New Haven Union's platform tracks (1–4, 8, 10, 12, 14). A track Amtrak's own status
-later reports that is not in that list is recorded as an observed platform in
-`{AMTRAK_OUTPUT_DIR}/tracks/observed-platforms.txt` and the static feed is rebuilt. NJ Transit and
-Hartford tracks are not recorded; they must be in the configured list. The rebuild waits 30
-seconds so a burst of new labels is one refresh, and runs at most once every 10 minutes. The
-track is stamped only once that platform stop is in the published snapshot.
+The seeded list covers tracks from published track maps: New York Penn 1–21, Newark Penn A and
+1–5, and New Haven Union's platform tracks (1–4, 8, 10, 12, 14). A track any source later reports
+that is not in that list — Amtrak's status, RailData at Metropark, New Brunswick, Princeton
+Junction, Trenton, Newark Airport, or 30th Street, or the Hartford board — is recorded as an
+observed platform in `{AMTRAK_OUTPUT_DIR}/tracks/observed-platforms.txt` and the static feed is
+rebuilt. The rebuild waits 30 seconds so a burst of new labels is one refresh, and runs at most
+once every 10 minutes. The track is stamped only once that platform stop is in the published
+snapshot.
 
 The file holds only observed labels, not the configured ones, so removing a track from
 `AMTRAK_TRACKS_PLATFORMS` takes effect, and deleting the file resets observations. It is loaded
@@ -490,18 +491,38 @@ a track over a board's track change.
   latest scheduled or predicted time plus `AMTRAK_TRACKS_RETAIN_GRACE_SECS` (default 15 minutes),
   including when a later document drops the field after departure. An empty URL leaves this source
   off.
-- NJ Transit RailData, for New York Penn, Newark Penn, Newark Airport, Metropark, New Brunswick,
-  Princeton Junction, and Trenton. This needs a
+- NJ Transit RailData, for every station both railroads schedule. One cached token is reused for
+  the whole pass; a token is requested only when the cache is empty or older than 23 hours, and
+  never more than 10 times in 24 hours. The pass stops when credentials are rejected or that budget
+  is spent, so the extra stations do not become extra token calls. This needs a
   registered RailData account from the [NJ Transit developer portal](https://developer.njtransit.com/registration);
   set `NJT_RAILDATA_USERNAME` and `NJT_RAILDATA_PASSWORD` in the environment, never in the repo.
-  NJ Transit allows 10 token requests a day, so the token is cached in
-  `{AMTRAK_OUTPUT_DIR}/tracks/raildata-token.json` (mode `0600`, never served) and reused across
-  restarts, and the service never makes more than 10 token requests in 24 hours. Rejected
-  credentials pause NJ Transit requests for an hour. Without credentials, NJ Transit stations are
-  skipped. Amtrak rows are those whose `TRAIN_ID` starts with `A`; the prefix and leading zeros are
-  stripped before matching GTFS `trip_short_name`.
+  Rejected credentials pause NJ Transit requests for an hour. Without credentials, NJ Transit
+  stations are skipped. Amtrak rows are those whose `TRAIN_ID` starts with `A`; the prefix and
+  leading zeros are stripped before matching GTFS `trip_short_name`. The codes are Appendix V of
+  NJ Transit's Rail Real-time Data API, checked against Amtrak's station codes:
+
+  | RailData | Amtrak | Station |
+  | --- | --- | --- |
+  | `NY` | `NYP` | New York Penn |
+  | `NP` | `NWK` | Newark Penn |
+  | `NA` | `EWR` | Newark Liberty Airport |
+  | `MP` | `MET` | Metropark |
+  | `NB` | `NBK` | New Brunswick |
+  | `PJ` | `PJC` | Princeton Junction |
+  | `TR` | `TRE` | Trenton |
+  | `PH` | `PHL` | Philadelphia 30th Street |
+
+  New York and the six New Jersey stops are Amtrak's scheduled stops in the state (FY25 fact sheet)
+  plus New York Penn. Philadelphia is the Atlantic City Line's terminal, which Amtrak also serves.
+  North Philadelphia (`NF` / `PHN`) is not polled: a few Keystone trains stop, and NJ Transit does
+  not. Wilmington, Baltimore, BWI, New Carrollton, and Washington are stop codes on Amtrak
+  itineraries in the same API, and NJ Transit does not operate them. Westerly is not in that
+  station list. On 2026-10-17 Amtrak's own status had no track for train 167 at Westerly or New
+  Haven, and none for train 1164 at Princeton Junction; New Haven stays on the Hartford board, and
+  Princeton Junction comes from this RailData row.
 - The CTrail Hartford Line connecting-train board, for New Haven Union. Set
-  `AMTRAK_TRACKS_HARTFORD_URL` empty to skip it.
+  `AMTRAK_TRACKS_HARTFORD_URL` empty to skip it. New Haven is not an NJ Transit RailData station.
 
 ```mermaid
 flowchart TD
@@ -514,11 +535,13 @@ flowchart TD
   browser --> status["Status JSON for that train-day"]
   status --> snap["/tracks.json"]
   snap --> store["Assignment store"]
-  njt["NJ Transit RailData"] --> store
-  hart["Hartford Line board"] --> store
+  njt["RailData NY NP NA MP NB PJ TR PH"] --> store
+  hart["Hartford board at New Haven"] --> store
   store --> rank["Fresh Amtrak, then NJ Transit, then Hartford, then older Amtrak"]
   rank --> stamp["assigned_stop_id on trip updates"]
-  status --> seen["Amtrak track not in the platform list"]
+  status --> seen["Track not in the seeded list"]
+  njt --> seen
+  hart --> seen
   seen --> file["observed-platforms.txt"]
   file --> static["Next static refresh adds the platform stop"]
   static --> stamp

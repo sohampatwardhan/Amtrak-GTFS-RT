@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **RailData coverage for every station Amtrak and NJ Transit both serve.** The default poll is
+  New York Penn, Newark Penn, Newark Airport, Metropark, New Brunswick, Princeton Junction,
+  Trenton, and Philadelphia 30th Street (`NY`, `NP`, `NA`, `MP`, `NB`, `PJ`, `TR`, `PH` mapped to
+  `NYP`, `NWK`, `EWR`, `MET`, `NBK`, `PJC`, `TRE`, `PHL`). A track from that board is published
+  even when it is not in the seeded New York, Newark, and New Haven platform lists. All eight
+  stations share one cached token.
 - **Amtrak's own track numbers** (still default-off). Set `AMTRAK_TRACKS_AMTRAK_URL` to the
   `track-fetcher` sidecar and `AMTRAK_TRACKS=on`. The sidecar reads
   `GET /dotcom/travel-service/statuses/{train}?service-date={YYYY-MM-DD}` — the document the

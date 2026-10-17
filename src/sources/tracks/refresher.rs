@@ -84,6 +84,7 @@ pub async fn refresh_once(
                 Ok(body) => match assignments_for_station(&body, station, &config.station_map) {
                     Ok(rows) => {
                         reported.clear();
+                        observe_tracks(platforms, &rows);
                         store.replace_station(&format!("njt:{station}"), rows, SystemTime::now());
                     }
                     Err(_) => {
@@ -104,11 +105,14 @@ pub async fn refresh_once(
     }
     if let Some(url) = config.hartford_url.as_deref() {
         match fetch_hartford(http, url, &config.hartford_stop_id).await {
-            Some(rows) => store.replace_station(
-                &format!("hartford:{}", config.hartford_stop_id),
-                rows,
-                SystemTime::now(),
-            ),
+            Some(rows) => {
+                observe_tracks(platforms, &rows);
+                store.replace_station(
+                    &format!("hartford:{}", config.hartford_stop_id),
+                    rows,
+                    SystemTime::now(),
+                );
+            }
             None => tracing::warn!(source = "hartford", "board fetch failed"),
         }
     }
@@ -119,14 +123,10 @@ pub async fn refresh_once(
                 match groups_from_status(&body, config.retain_grace, now) {
                     Ok(groups) => {
                         for group in groups {
-                            for row in &group.rows {
-                                platforms.observe(&row.stop_id, &row.track);
-                            }
+                            observe_tracks(platforms, &group.rows);
                             let fetched_at = group.fetched_at.unwrap_or(now);
                             store.upsert_retained(&group.source_key, group.rows, fetched_at);
                         }
-                        // Written once per refresh, after the table lock is released.
-                        platforms.persist().await;
                     }
                     Err(error) => {
                         tracing::warn!(source = "amtrak", %error, "unusable status snapshot")
@@ -136,7 +136,16 @@ pub async fn refresh_once(
             Err(error) => tracing::warn!(source = "amtrak", %error, "status fetch failed"),
         }
     }
+    // Written once per refresh, after the table lock is released. Covers RailData and Hartford
+    // as well as Amtrak, and does nothing when no new label was seen.
+    platforms.persist().await;
     store.prune(SystemTime::now(), config.max_age);
+}
+
+fn observe_tracks(platforms: &SharedPlatforms, rows: &[Assignment]) {
+    for row in rows {
+        platforms.observe(&row.stop_id, &row.track);
+    }
 }
 
 /// The sidecar's bundle body. The parser decides whether it is usable.
@@ -185,7 +194,7 @@ async fn fetch_hartford(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use axum::routing::get;
+    use axum::routing::{get, post};
     use axum::Router;
     use std::time::{Duration, Instant};
 
@@ -318,5 +327,55 @@ mod tests {
         assert!(table.contains("PVD", "1"));
         assert!(table.contains("BUF", "MAIN"));
         assert!(!table.contains("KIN", "TBD"));
+    }
+
+    #[tokio::test]
+    async fn a_rail_data_track_outside_the_seeded_list_becomes_a_platform_stop() {
+        let app = Router::new()
+            .route(
+                "/TrainData/getToken",
+                post(|| async { r#"{"Authenticated":"True","UserToken":"tok"}"# }),
+            )
+            .route(
+                "/TrainData/getTrainSchedule19Rec",
+                post(|| async { include_str!("../../../fixtures/tracks/njt_princeton.json") }),
+            );
+        let base = serve(app).await;
+        let store = AssignmentStore::new();
+        let mut config = config(format!("{base}/unused"));
+        config.hartford_url = None;
+        config.njt_stations = vec!["PJ".into()];
+        config.njt_username = Some("user".into());
+        config.njt_password = Some("secret".into());
+        let http = board_client(&config);
+        let token_path = std::env::temp_dir().join(format!(
+            "raildata-pjc-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let mut raildata = RailDataClient::new(
+            http.clone(),
+            &format!("{base}/TrainData"),
+            Some(("user".into(), "secret".into())),
+            token_path,
+        );
+        let platforms = platforms();
+        refresh_once(
+            &store,
+            &config,
+            &mut raildata,
+            &http,
+            &mut HashSet::new(),
+            &platforms,
+        )
+        .await;
+        let fresh = store.fresh_board(SystemTime::now(), Duration::from_secs(300));
+        assert_eq!(fresh.track("1164", "PJC"), Some("2"));
+        assert_eq!(fresh.track("3872", "PJC"), None);
+        assert_eq!(fresh.track("167", "PJC"), None);
+        assert!(platforms.snapshot().contains("PJC", "2"));
     }
 }

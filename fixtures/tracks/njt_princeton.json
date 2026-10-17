@@ -1,0 +1,24 @@
+{
+  "STATION_2CHAR": "PJ",
+  "STATIONNAME": "Princeton Junction",
+  "ITEMS": [
+    {
+      "TRAIN_ID": "3872",
+      "LINE": "Northeast Corrdr",
+      "TRACK": "1",
+      "DESTINATION": "New York"
+    },
+    {
+      "TRAIN_ID": "A1164",
+      "LINE": "Amtrak",
+      "TRACK": "2",
+      "DESTINATION": "Washington"
+    },
+    {
+      "TRAIN_ID": "A167",
+      "LINE": "Amtrak",
+      "TRACK": "TBD",
+      "DESTINATION": "Washington"
+    }
+  ]
+}

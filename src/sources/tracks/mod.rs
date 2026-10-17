@@ -161,7 +161,11 @@ fn stamp_stop(
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         if seen.insert((stop_id.clone(), track.to_string())) {
-            tracing::warn!(stop = %stop_id, track, "board track is not a configured platform; not published");
+            tracing::warn!(
+                stop = %stop_id,
+                track,
+                "board track is not in the published static snapshot yet; not stamped"
+            );
         }
         return;
     }
