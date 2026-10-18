@@ -542,7 +542,8 @@ flowchart TD
   stop -.->|"trip update assigned_stop_id"| t1
 ```
 
-Nothing else in Amtrak's feed changes, and the other files are copied byte-for-byte. The published
+Nothing else in Amtrak's feed changes, and the other files are copied byte-for-byte (after the
+[stop-reference repair](#validation-gate), when one applies). The published
 static version becomes `{feed_version}+tracks.{digest}`, where the digest changes only when the
 platform list changes. The augmented bytes go through the same MobilityData validator gate; if
 augmentation fails or is rejected, Amtrak's feed is published unchanged and no tracks are stamped.
@@ -792,6 +793,7 @@ stateDiagram-v2
 | `src/sources/advisories.rs` | Optional Service Alerts & Notices scraper (`AMTRAK_ADVISORIES`) |
 | `src/sources/tracks/` | Optional platform/track assignments (`AMTRAK_TRACKS`): Amtrak status documents, RailData client, Hartford board, precedence and retention, background refresher, stamper |
 | `src/static_augment.rs` | Platform stops added to the published static feed when tracks are on |
+| `src/static_repair.rs` | Drops stop times that name a stop missing from upstream `stops.txt` |
 | `src/static_gtfs.rs` | Exact-byte static GTFS validation and pending/active lifecycle |
 | `src/orchestrator.rs` | Source selection, coherent generation build/validation, and recoverable polling |
 | `src/serve.rs` | Controlled immutable HTTP delivery and freshness health |
@@ -844,6 +846,14 @@ are fixable here (`E039` `is_deleted` on a FULL_DATASET feed, `E049` unpopulated
 incrementality). Each entry is annotated with its cause; they are debt to burn down, not permanent
 exemptions. Amtrak's static GTFS currently produces **zero** ERROR notices, so the static side is
 gated at zero.
+
+**Repaired stop references.** Before validation, the service drops any `stop_times.txt` row whose
+`stop_id` is missing from `stops.txt` and logs a warning per stop
+(`stop times name a stop missing from stops.txt; dropped`). Without this, one undefined stop makes
+the GTFS parser reject Amtrak's whole schedule (`The id OSM is not known`), and the service keeps
+serving the last accepted one. Amtrak's 20261018 feed is a known case: the Mardi Gras
+Service calls at Ocean Springs (`OSM`) without defining it, so those four calls are dropped and the
+rest of each trip is kept. A feed with no such rows is published unchanged.
 
 > [!NOTE]
 > CI runs this gate nightly, on pushes that touch the pipeline, and on demand — not on pull

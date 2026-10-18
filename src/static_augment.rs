@@ -25,7 +25,7 @@ use zip::write::SimpleFileOptions;
 use zip::{CompressionMethod, DateTime, ZipArchive, ZipWriter};
 
 const STOPS_FILE: &str = "stops.txt";
-const UTF8_BOM: &[u8] = b"\xEF\xBB\xBF";
+pub(crate) const UTF8_BOM: &[u8] = b"\xEF\xBB\xBF";
 
 /// Covered stations and their real platform tracks, in configured order.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
@@ -424,16 +424,33 @@ impl std::error::Error for AugmentError {}
 /// Returns [`AugmentError`] for an unreadable archive or `stops.txt`, a missing `stop_id`
 /// column, or a generated id that collides with an existing stop.
 pub fn augment_static(upstream: &[u8], table: &PlatformTable) -> Result<Vec<u8>, AugmentError> {
+    let stops = read_entry(upstream, STOPS_FILE)?;
+    let rewritten = augment_stops(&stops, table)?;
+    replace_entry(upstream, STOPS_FILE, &rewritten)
+}
+
+/// Contents of archive entry `name`.
+pub(crate) fn read_entry(upstream: &[u8], name: &str) -> Result<Vec<u8>, AugmentError> {
     let mut archive =
         ZipArchive::new(Cursor::new(upstream)).map_err(|error| fail("archive", error))?;
-    let mut stops = Vec::new();
+    let mut contents = Vec::new();
     archive
-        .by_name(STOPS_FILE)
-        .map_err(|error| fail("stops.txt", error))?
-        .read_to_end(&mut stops)
-        .map_err(|error| fail("stops.txt", error))?;
-    let rewritten = augment_stops(&stops, table)?;
+        .by_name(name)
+        .map_err(|error| fail(name, error))?
+        .read_to_end(&mut contents)
+        .map_err(|error| fail(name, error))?;
+    Ok(contents)
+}
 
+/// `upstream` with entry `name` replaced by `contents` at a fixed timestamp, and every other
+/// entry copied without recompression, so the output depends only on the inputs.
+pub(crate) fn replace_entry(
+    upstream: &[u8],
+    name: &str,
+    contents: &[u8],
+) -> Result<Vec<u8>, AugmentError> {
+    let mut archive =
+        ZipArchive::new(Cursor::new(upstream)).map_err(|error| fail("archive", error))?;
     let mut writer = ZipWriter::new(Cursor::new(Vec::new()));
     let options = SimpleFileOptions::default()
         .compression_method(CompressionMethod::Deflated)
@@ -442,13 +459,13 @@ pub fn augment_static(upstream: &[u8], table: &PlatformTable) -> Result<Vec<u8>,
         let entry = archive
             .by_index_raw(index)
             .map_err(|error| fail("entry", error))?;
-        if entry.name() == STOPS_FILE {
+        if entry.name() == name {
             drop(entry);
             writer
-                .start_file(STOPS_FILE, options)
+                .start_file(name, options)
                 .map_err(|error| fail("write", error))?;
             writer
-                .write_all(&rewritten)
+                .write_all(contents)
                 .map_err(|error| fail("write", error))?;
         } else {
             writer
@@ -462,7 +479,7 @@ pub fn augment_static(upstream: &[u8], table: &PlatformTable) -> Result<Vec<u8>,
         .into_inner())
 }
 
-fn fail(stage: &str, error: impl std::fmt::Display) -> AugmentError {
+pub(crate) fn fail(stage: &str, error: impl std::fmt::Display) -> AugmentError {
     AugmentError(format!("{stage}: {error}"))
 }
 
@@ -841,7 +858,9 @@ NYP,Penn,40.75,-73.99,America/New_York,https://www.amtrak.com/stations/nyp\n";
         let input = std::env::var("AUGMENT_IN").expect("AUGMENT_IN");
         let output = std::env::var("AUGMENT_OUT").expect("AUGMENT_OUT");
         let table = PlatformTable::parse("NYP=1-21;NWK=A,1-5;NHV=1-4,8,10,12,14").unwrap();
-        let augmented = augment_static(&std::fs::read(input).unwrap(), &table).unwrap();
+        let upstream = std::fs::read(input).unwrap();
+        let upstream = crate::static_repair::repair_static(&upstream).unwrap_or(upstream);
+        let augmented = augment_static(&upstream, &table).unwrap();
         std::fs::write(output, augmented).unwrap();
     }
 }
