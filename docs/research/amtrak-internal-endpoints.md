@@ -10,7 +10,7 @@ The statuses request Chromium captured sent `accept`, `content-type: application
 
 | Endpoint | New GTFS-RT value | Poll |
 | --- | --- | --- |
-| `GET /dotcom/travel-service/statuses/{number}?service-date=` | Per-stop delay, actual vs estimate, cancellation, track, operational comment. A substitute bus is a separate `BUS` service, not a flag on the train. | Only trains already in the track sidecar's window, plus numbers named by an advisory. About once a minute near a stop; every 10–15 minutes for a future cancellation. |
+| `GET /dotcom/travel-service/statuses/{number}?service-date=` | Actual vs estimate (`dateTimeType`, `autoCalculated`), per-stop cancellation (sometimes weeks ahead), track, operational comment. A substitute bus is a separate `BUS` service, not a flag on the train. Per-stop delay is not new: trip updates already carry estimated times from `getTrainsData`. | Only trains already in the track sidecar's window, plus numbers named by an advisory. About once a minute near a stop; every 10–15 minutes for a future cancellation. |
 | `GET /dotcom/travel-service/statuses/stations?origin-code=&destination-code=&departure-date=` | One corridor board: tracks, **gate letters**, delays, and cancellations for every train between two stations. Origin and destination only. | A few major pairs (NYP–WAS, NYP–BOS, and similar), every 2–5 minutes. |
 | Existing `getTrainsData` | Live position, speed, bearing. The status document's `locationInfo` was still the origin station after the train had left. | Keep the current fleet poll. Do not replace it. |
 | HTML `/alert` and `/alert/{slug}.html` | The only place that ties a canceled train number to the substitute bus number. Already consumed by the advisory fetcher. | List every 5–10 minutes. Open a detail page when the list changes. |
@@ -140,7 +140,7 @@ GET /dotcom/travel-service/statuses/stations?origin-code={ORG}&destination-code=
 
 Also `no-store`. NYP to WAS on 2026-10-17 returned 32 services, about 58 KB: 26 `TRN` and 6 `HST` (Acela). Each item is `{ "travelLegs": [ { "travelService", "origin", "destination" } ] }`. Only the two ends of the searched pair, not the stops in between.
 
-Across those endpoints: 35 tracks, 35 gates, and status counts `ON TIME` 29, `DELAYED` 27, `EARLY` 18, `CANCELED` 12. A gate was not on the Lake Shore document; it was common on this Northeast Corridor board. Train 109 departing New York:
+Across the origin and destination stops in that one NYP–WAS response: 35 tracks, 35 gates, and status counts `ON TIME` 29, `DELAYED` 27, `EARLY` 18, `CANCELED` 12. A gate was not on the Lake Shore document; it was common on this Northeast Corridor board. Train 109 departing New York:
 
 ```json
 {
@@ -235,10 +235,12 @@ The same bundle references signed-in paths (`/dotcom/order/retrieve`, `/dotcom/c
 `no-store` on the status URLs means every call reaches origin. The map feed is the one fleet call. Everything under `www.amtrak.com` should stay on a single resident browser, the way PR #22 already does for tracks.
 
 - **Positions.** Keep polling `getTrainsData` on the existing interval. Do not read position from `statusSummary.locationInfo`.
-- **Delays and tracks for trains that are out.** The PR #22 window (a rail stop from 10 minutes past to 30 minutes ahead, a cap per cycle, about 60 seconds for the closest trains) matches how fresh the estimates were. Extending that same fetch to copy `delay`, `dateTimeType`, and `autoCalculated` into the trip update is the integration with the least new traffic. Skip estimates that are `autoCalculated` and many stops away.
+- **Delays and tracks for trains that are out.** The PR #22 window (a rail stop from 10 minutes past to 30 minutes ahead, a cap per cycle, about 60 seconds for the closest trains) matches how fresh the estimates were. Trip updates already carry estimated times from `getTrainsData`, so the value here is knowing which times are actuals, not the delay itself. Extending that same fetch to copy `dateTimeType` and `autoCalculated` is the integration with the least new traffic. Skip estimates that are `autoCalculated` and many stops away.
 - **Gates.** A corridor board, not a per-train poll. Two or three pairs that publish gates, every few minutes, is a handful of requests per hour. NYP gate letters are the field the Lake Shore document did not have.
 - **Cancellations and bus substitutions.** Take numbers from `/alert` detail pages. One status fetch per number and service date, then every 10–15 minutes. Cancellations were stable for weeks (`asOf` on 2 October for an 18 October trip). Emit the bus as its own trip only when `type.code` is `BUS`; the canceled train document does not name it.
 - **Alerts.** Keep the HTML poll at 5–10 minutes. The JSON alert checks and the homepage banner can be ignored until a non-empty payload shows up.
 - **Directories.** At most daily, or honor `max-age`. Never poll `/dotcom/stations/{code}/all` into logs.
 
 Not recommended: walking every train number, every station pair, or the schedule search. That is a different traffic pattern from a rider opening Train Status a few times.
+
+Every item above that reads `www.amtrak.com` is new automated traffic to Amtrak's site. Check it against Amtrak's terms of use before building it, as the `track-fetcher` README does for the track sidecar.
