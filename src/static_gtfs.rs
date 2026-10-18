@@ -282,9 +282,12 @@ async fn augmented_snapshot(
     };
     let zip: Arc<[u8]> = Arc::from(augmented);
     let suffix = format!("+tracks.{}", table.digest());
-    let Ok(snapshot) = snapshot_from_bytes(zip.clone(), now, Some(&suffix)) else {
-        tracing::warn!(stage = "static", "augmented static did not parse");
-        return None;
+    let snapshot = match snapshot_from_bytes(zip.clone(), now, Some(&suffix)) {
+        Ok(snapshot) => snapshot,
+        Err(error) => {
+            tracing::warn!(%error, stage = "static", "augmented static did not parse");
+            return None;
+        }
     };
     if validator.validate(zip).await.is_err() {
         tracing::warn!(stage = "static", "augmented static rejected by validator");
@@ -303,7 +306,7 @@ fn snapshot_from_bytes(
     suffix: Option<&str>,
 ) -> Result<StaticSnapshot, StaticError> {
     let parsed = Gtfs::from_reader(Cursor::new(zip.clone()))
-        .map_err(|_| StaticError("static parse failed".into()))?;
+        .map_err(|error| StaticError(format!("static parse failed: {}", error_chain(&error))))?;
     let version = parsed
         .feed_info
         .iter()
@@ -316,6 +319,19 @@ fn snapshot_from_bytes(
         parsed: Arc::new(parsed),
         zip,
     })
+}
+
+/// An error and its sources, joined with `: `. GTFS parse errors name the file, id, or value that
+/// failed; they never carry a URL or credential, because the bytes are parsed from memory.
+fn error_chain(error: &dyn std::error::Error) -> String {
+    let mut text = error.to_string();
+    let mut source = error.source();
+    while let Some(cause) = source {
+        text.push_str(": ");
+        text.push_str(&cause.to_string());
+        source = cause.source();
+    }
+    text
 }
 
 /// Reconstructs active static state from a previously validated durable generation.
@@ -492,7 +508,11 @@ pub async fn refresh_snapshot_once(
             StaticRefreshOutcome::Staged(version)
         }
         Ok(None) => StaticRefreshOutcome::Unchanged,
-        Err(_) => StaticRefreshOutcome::Rejected,
+        Err(error) => {
+            // StaticError messages are fixed summaries plus parse detail; none carries a URL.
+            tracing::warn!(%error, stage = "static", "static refresh failed");
+            StaticRefreshOutcome::Rejected
+        }
     }
 }
 
@@ -1178,6 +1198,23 @@ mod tests {
         assert!(snapshot.parsed.stops.contains_key("NWK:track:1"));
         assert!(!snapshot.parsed.stops.contains_key("NWK:track:9"));
         server.abort();
+    }
+
+    #[test]
+    fn a_static_parse_failure_names_its_cause() {
+        let mut archive = zip::ZipWriter::new(Cursor::new(Vec::new()));
+        archive
+            .start_file("agency.txt", SimpleFileOptions::default())
+            .unwrap();
+        archive
+            .write_all(b"agency_id,agency_name,agency_url,agency_timezone\na,A,https://a,UTC\n")
+            .unwrap();
+        let bytes = archive.finish().unwrap().into_inner();
+        let error = snapshot_from_bytes(Arc::from(bytes), SystemTime::UNIX_EPOCH, None)
+            .err()
+            .expect("an archive without stops.txt does not parse");
+        assert!(error.0.starts_with("static parse failed: "), "{}", error.0);
+        assert!(error.0.len() > "static parse failed: ".len(), "{}", error.0);
     }
 
     #[test]
