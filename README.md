@@ -7,36 +7,76 @@ A small Rust service that produces **live GTFS-Realtime feeds for Amtrak** — T
 VehiclePositions, and Alerts — plus the static GTFS they bind to, for use in third-party
 transit apps (Transit, Transitland, OpenTripPlanner).
 
-## Repository, release, and deployment state
+It loads Amtrak's official static `GTFS.zip`, then on an interval delegates the
+decrypt → parse → match → encode work to the
+[`catenarytransit/amtrak-gtfs-rt`](https://github.com/catenarytransit/amtrak-gtfs-rt) crate, which
+fetches and decrypts Amtrak's `getTrainsData`, matches each train to a GTFS trip, and returns
+ready-made protobuf feeds. Complete static and realtime generations are persisted immutably and
+served by a small `axum` HTTP server. A neutral `RtSource` trait wraps the data source so fallback
+sources (TransitDocs, RailRat) can be added later without touching the core.
 
-- **Source:** `main` contains the Rust service, advisory consumption and the Playwright
-  advisory-fetcher (with advisory detail text in `alerts.pb`), the `amtrak-status` station and
-  train consumer, root-level Compose/Bake packaging for the service plus fetcher, and live
-  track/platform assignments (default-off via `AMTRAK_TRACKS`).
-- **Releases:** `v0.5.0` is the current release line, including those track assignments. A release
-  is complete only when its GitHub Release exists with `image-release.txt` recording the tag,
-  revisions, manifest digest, and both platform digests; until then the previous completed
-  release, `v0.4.0`, stays the stable image. Pull the version tag, and pin the manifest digest
-  from that release's `image-release.txt`:
+Two optional features add data Amtrak's feed does not carry. Both are off by default and fail
+open, so turning them on never stops trip updates or vehicle positions from publishing:
+
+- **[Service Alerts & Notices](#service-alerts--notices)** (`AMTRAK_ADVISORIES`): station and
+  passenger advisories in `alerts.pb`.
+- **[Platform and track assignments](#platform-and-track-assignments)** (`AMTRAK_TRACKS`): the live
+  track a train will use, from Amtrak, NJ Transit, and the Hartford Line.
+
+```mermaid
+flowchart LR
+  subgraph amtrak["Amtrak"]
+    gtfs["content.amtrak.com GTFS.zip"]
+    maps["maps.amtrak.com getTrainsData"]
+    www["www.amtrak.com notices and train status"]
+  end
+  subgraph optional["Optional sidecars and boards"]
+    adv["advisory-fetcher"]
+    trk["track-fetcher"]
+    njt["NJ Transit RailData"]
+    hart["Hartford Line board"]
+  end
+  gtfs --> validator["MobilityData static validator"]
+  validator --> orch["Orchestrator"]
+  maps --> crate["catenary amtrak-gtfs-rt crate"]
+  crate --> orch
+  www --> adv
+  www --> trk
+  adv -->|"AMTRAK_ADVISORIES"| orch
+  trk -->|"AMTRAK_TRACKS"| orch
+  njt --> orch
+  hart --> orch
+  orch --> store["Immutable generations in /data"]
+  store --> http["axum HTTP server"]
+  http --> apps["Transit apps and consumers"]
+```
+
+## Release and deployment status
+
+- **Source:** `main` contains the Rust service, the Playwright `advisory-fetcher` (with advisory
+  detail text in `alerts.pb`), the `track-fetcher` sidecar for Amtrak's own track numbers, the
+  `amtrak-status` station and train CLI, root-level Compose and Bake packaging, and live track and
+  platform assignments (default-off via `AMTRAK_TRACKS`). Changes merged after a release are
+  listed under **Unreleased** in [CHANGELOG.md](CHANGELOG.md).
+- **Releases:** `v0.6.0` (2026-10-18) is the current release. A release is complete when its
+  GitHub Release carries `image-release.txt` with the tag, revisions, manifest digest, and both
+  platform digests; until then, `v0.5.0` stays the stable image. The release workflow publishes
+  the scratch service image only; build the browser sidecars from this repository. Pull the
+  version tag, and pin the manifest digest from that release's `image-release.txt`:
 
   ```bash
-  docker pull ghcr.io/sohampatwardhan/amtrak-gtfs-rt:0.5.0
+  docker pull ghcr.io/sohampatwardhan/amtrak-gtfs-rt:0.6.0
   docker pull ghcr.io/sohampatwardhan/amtrak-gtfs-rt@sha256:<release-manifest-digest>
   ```
 
-- **Superseded:** the `v0.3.0` tag exists, but its publication never completed and it has no
-  GitHub Release. Its code is included in `v0.4.0` and later. Do not deploy `v0.3.0` or its
-  partial images. `v0.2.0` was the last completed release before `v0.4.0`.
-- **Deployment:** this repository does not record or authorize a running production deployment,
-  anonymous public feed exposure, reverse-proxy trust, or orchestration.
+> [!CAUTION]
+> Do not deploy `v0.3.0` or its partial images. The tag exists, but its publication never
+> completed and it has no GitHub Release. Its code ships in `v0.4.0` and later.
 
-It loads Amtrak's official static `GTFS.zip`, then on an interval delegates the
-decrypt → parse → match → encode work to the
-[`catenarytransit/amtrak-gtfs-rt`](https://github.com/catenarytransit/amtrak-gtfs-rt)
-crate (which fetches and decrypts Amtrak's `getTrainsData`, matches each train to a GTFS
-trip, and returns ready-made protobuf feeds). Complete static and realtime generations are
-persisted immutably and served by a small `axum` HTTP server. A neutral `RtSource` trait wraps the data source so
-fallback sources (TransitDocs, RailRat) can be added later without touching the core.
+> [!IMPORTANT]
+> This repository does not record or authorize a running production deployment, anonymous public
+> feed exposure, reverse-proxy trust, or orchestration. Publishing the image does not change the
+> loopback-only default.
 
 ## Endpoints
 
@@ -48,25 +88,38 @@ fallback sources (TransitDocs, RailRat) can be added later without touching the 
 | `/v1/generations/{id}/static.zip` | controlled | `application/zip` | Static GTFS for exactly generation `{id}` |
 | `/v1/generations/{id}/{trip-updates,vehicle-positions,alerts}.pb` | controlled | `application/x-protobuf` | One GTFS-Realtime product from exactly generation `{id}` |
 
-Fetch `/v1/feed-set.json` first and then use only the URLs it returns. Do not construct
-generation URLs or substitute a newer ID between artifact requests. Every realtime header is
-stamped with the manifest's static version and generation timestamp.
+> [!IMPORTANT]
+> Fetch `/v1/feed-set.json` first and then use only the URLs it returns. Do not construct
+> generation URLs or substitute a newer ID between artifact requests. Every realtime header is
+> stamped with the manifest's static version and generation timestamp, so the four artifacts of
+> one manifest always belong together.
 
-Feed, manifest, and readiness routes authorize the direct socket peer. With no explicit
-allowlist, only loopback peers are admitted. `Forwarded` and `X-Forwarded-For` are ignored;
-placing a reverse proxy at this authorization boundary requires a separately designed trusted-
-proxy policy.
+```mermaid
+sequenceDiagram
+  participant C as Consumer
+  participant S as Service
+  C->>S: GET /v1/feed-set.json
+  S-->>C: 200 manifest with generation id and four URLs
+  C->>S: GET /v1/generations/{id}/trip-updates.pb
+  S-->>C: 200 application/x-protobuf
+  C->>S: GET /v1/generations/{id}/static.zip
+  S-->>C: 200 application/zip
+  Note over C,S: 403 unauthorized peer, 404 unknown generation or artifact,<br/>503 no current or fresh generation
+```
 
-## Running
+**Access control.** Controlled routes authorize the direct socket peer. With no explicit
+allowlist, only loopback peers are admitted. `Forwarded` and `X-Forwarded-For` are ignored; placing
+a reverse proxy at this authorization boundary requires a separately designed trusted-proxy policy.
 
-Requires a current stable Rust toolchain (the `amtrak-gtfs-rt` dependency uses
-edition 2024; developed against 1.96) and **`protoc`**, the protobuf compiler —
-the `gtfs-realtime` crate generates its Rust bindings from `.proto` files at build
-time:
+## Running from source
+
+Requires a current stable Rust toolchain (the `amtrak-gtfs-rt` dependency uses edition 2024;
+developed against 1.96) and **`protoc`**, the protobuf compiler. The `gtfs-realtime` crate
+generates its Rust bindings from `.proto` files at build time:
 
 ```bash
-brew install protobuf          # macOS
-sudo apt-get install -y protobuf-compiler   # Debian/Ubuntu
+brew install protobuf                        # macOS
+sudo apt-get install -y protobuf-compiler    # Debian/Ubuntu
 ```
 
 ```bash
@@ -89,46 +142,24 @@ Versioned releases are published for `linux/amd64` and `linux/arm64` at
 without a registry login:
 
 ```bash
-docker pull ghcr.io/sohampatwardhan/amtrak-gtfs-rt:0.5.0
+docker pull ghcr.io/sohampatwardhan/amtrak-gtfs-rt:0.6.0
 ```
 
-`0.5.0` is the current release tag, while `latest` is a convenience pointer that can move. Until
-the `v0.5.0` GitHub Release includes `image-release.txt`, `0.4.0` remains the last completed
-image. Pin the manifest digest recorded in the corresponding GitHub Release for reproducible
-production deployment:
-
-```bash
-docker pull ghcr.io/sohampatwardhan/amtrak-gtfs-rt@sha256:<release-manifest-digest>
-```
+> [!TIP]
+> `latest` is a convenience pointer that can move. For reproducible production deployment, pin the
+> manifest digest recorded in the release's `image-release.txt`:
+>
+> ```bash
+> docker pull ghcr.io/sohampatwardhan/amtrak-gtfs-rt@sha256:<release-manifest-digest>
+> ```
 
 The service ships as a digest-pinned, non-root, multi-stage image assembled from `scratch`. The
 build compiles the locked Rust binary against musl and rebuilds MobilityData validator v8.0.1 from
 its SHA-256-pinned source snapshot with reviewed security-version overrides. The complete upstream
 validator suite runs during the build, and a fixed reproducible JAR digest gates copy-forward. The
 runtime contains only the binary, that JAR, a minimized Corretto Java 17 runtime, musl, zlib, CA
-roots, and license notices—no shell, package manager, curl, Rust toolchain, `protoc`, or repository
-source.
-
-### Build locally
-
-The scratch service image is still the default build. `runtime` is the last Dockerfile stage, so
-this does not include the advisory fetcher or a browser:
-
-```bash
-docker build --tag amtrak-gtfs-rt:local .
-```
-
-[`docker-bake.hcl`](docker-bake.hcl) builds that image and the separate advisory-fetcher image.
-The fetcher target uses [`advisory-fetcher/Dockerfile`](advisory-fetcher/Dockerfile); the service
-target stays `runtime`. The track sidecar is a third target and is not in the default bake group,
-so `docker buildx bake` and the scratch release stay unchanged.
-
-```bash
-docker buildx bake                  # service + advisory-fetcher
-docker buildx bake service          # scratch service only
-docker buildx bake advisory-fetcher # advisory browser sidecar only
-docker buildx bake track-fetcher    # optional track sidecar
-```
+roots, and license notices — no shell, package manager, curl, Rust toolchain, `protoc`, or
+repository source.
 
 **Image contract:** runs as UID/GID `10001`, entrypoint `/usr/local/bin/amtrak-gtfs-rt-service`
 (PID 1), documented port `8080/tcp`, persistent volume `/data`, and a Docker healthcheck that
@@ -142,28 +173,49 @@ paths are correct inside the image:
 | `AMTRAK_BIND_ADDR` | `127.0.0.1:8080` | `127.0.0.1:8080` (loopback-only) |
 | `AMTRAK_ALLOWED_PEER_IPS` | empty | empty (loopback only) |
 
-### Run — host networking (simplest safe posture)
+### Build locally
+
+The scratch service image is the default build. `runtime` is the last Dockerfile stage, so this
+does not include either fetcher or a browser:
+
+```bash
+docker build --tag amtrak-gtfs-rt:local .
+```
+
+[`docker-bake.hcl`](docker-bake.hcl) builds that image and the separate fetcher images. The
+`track-fetcher` target is not in the default group, so `docker buildx bake` and the scratch release
+stay unchanged:
+
+```bash
+docker buildx bake                  # service + advisory-fetcher
+docker buildx bake service          # scratch service only
+docker buildx bake advisory-fetcher # advisory browser sidecar only
+docker buildx bake track-fetcher    # optional track sidecar
+```
+
+### Run with host networking (simplest safe posture)
 
 With host networking the container shares the host's loopback, so the safe loopback default works
 unchanged and only loopback peers are admitted:
 
-This works directly with Docker Engine on Linux. Docker Desktop requires version 4.34 or later and
-**Settings → Resources → Network → Enable host networking**; if that option is unavailable or
-disabled, use the dedicated-bridge command below instead.
-
 ```bash
 docker run --rm --network host \
   -v amtrak-data:/data \
-  ghcr.io/sohampatwardhan/amtrak-gtfs-rt:0.5.0
+  ghcr.io/sohampatwardhan/amtrak-gtfs-rt:0.6.0
 # manifest is reachable from the host loopback (an admitted peer):
 curl -fsS http://127.0.0.1:8080/v1/feed-set.json
 ```
 
-### Run — dedicated bridge (explicit network policy required)
+> [!NOTE]
+> This works directly with Docker Engine on Linux. Docker Desktop requires version 4.34 or later and
+> **Settings → Resources → Network → Enable host networking**. If that option is unavailable or
+> disabled, use the dedicated bridge below instead.
+
+### Run on a dedicated bridge (explicit network policy required)
 
 A bridge port map is **intentionally unreachable** with the loopback default. Bridged operation
-must bind the wildcard address *and* name the exact peer(s) allowed to reach the feed boundary —
-there is no wildcard allowlist and no proxy trust. Publish the port on host loopback only:
+must bind the wildcard address *and* name the exact peer(s) allowed to reach the feed boundary.
+There is no wildcard allowlist and no proxy trust. Publish the port on host loopback only:
 
 ```bash
 docker network create --subnet 172.31.240.0/24 --gateway 172.31.240.1 amtrak-net
@@ -172,14 +224,14 @@ docker run --rm --network amtrak-net \
   -e AMTRAK_BIND_ADDR=0.0.0.0:8080 \
   -e AMTRAK_ALLOWED_PEER_IPS=172.31.240.1 \
   -v amtrak-data:/data \
-  ghcr.io/sohampatwardhan/amtrak-gtfs-rt:0.5.0
+  ghcr.io/sohampatwardhan/amtrak-gtfs-rt:0.6.0
 ```
 
-`AMTRAK_ALLOWED_PEER_IPS` must be the **exact** source IP the container observes for admitted
-traffic. That IP is engine-dependent (the bridge gateway on a Linux bridge; it can differ on
-Docker Desktop), so confirm it — a wrong value yields `403`, and the denied request logs its
-observed `peer=<ip>` in the container logs. Authorization uses only the direct socket peer;
-`Forwarded` and `X-Forwarded-For` are ignored.
+> [!WARNING]
+> `AMTRAK_ALLOWED_PEER_IPS` must be the **exact** source IP the container observes for admitted
+> traffic. That IP is engine-dependent (the bridge gateway on a Linux bridge; it can differ on
+> Docker Desktop), so confirm it. A wrong value yields `403`, and the denied request logs its
+> observed `peer=<ip>` in the container logs.
 
 ### Health, readiness, manifest, and artifacts
 
@@ -197,23 +249,25 @@ static_url=$(printf '%s' "$manifest" | jq -r '.urls.static_zip')
 curl -fsS "http://127.0.0.1:8080${static_url}" --output static.zip
 ```
 
-`/livez` is the Docker health signal — process liveness only. `/readyz` is a separate,
-peer-gated feed-availability signal. They are deliberately distinct: Docker must not restart a
-healthy process that is merely waiting for its first good generation.
+`/livez` is the Docker health signal: process liveness only. `/readyz` is a separate, peer-gated
+feed-availability signal. They are deliberately distinct, so Docker does not restart a healthy
+process that is merely waiting for its first good generation.
 
 ### Volume retention and rollback
 
-Generations live only in the mounted volume, so **retain the named volume across upgrades**.
+> [!IMPORTANT]
+> Generations live only in the mounted volume, so **retain the named volume across upgrades**.
+
 `GenerationStore` recovers the last complete, valid generation on startup and rejects partial
 state, so recreating the container over the same volume — even before any successful upstream
 refresh — recovers the previous last-good feed set byte-for-byte.
 
 Each realtime poll publishes a new immutable generation. The static ZIP rarely changes, so it is
-stored once under `blobs/<sha256>` and hard-linked into `generations/<id>/static.zip`. Served
-URLs stay `/v1/generations/{id}/static.zip`; only the inode is shared.
+stored once under `blobs/<sha256>` and hard-linked into `generations/<id>/static.zip`. Served URLs
+stay `/v1/generations/{id}/static.zip`; only the inode is shared.
 
-After every publish, and again on startup, the store applies three limits to generations that
-are **not** the current feed set:
+After every publish, and again on startup, the store applies three limits to generations that are
+**not** the current feed set:
 
 1. **Retention window.** A generation is deleted once it has been superseded for
    `AMTRAK_GENERATION_RETAIN_SECS` (default 600). This keeps a reader that fetched the previous
@@ -227,10 +281,10 @@ are **not** the current feed set:
 
 Every retained generation is held in memory for lock-free responses, so the count cap also bounds
 resident memory. Startup reads only the current generation, prunes the volume by directory
-metadata, and then loads the survivors, so it uses about the same memory however many
-directories an older release left behind. The current generation is never deleted, even when it alone is larger than the budget. If
-the filesystem still cannot hold the next publish, older non-current generations are removed
-until there is room or only the current feed set remains.
+metadata, and then loads the survivors, so it uses about the same memory however many directories
+an older release left behind. The current generation is never deleted, even when it alone is
+larger than the budget. If the filesystem still cannot hold the next publish, older non-current
+generations are removed until there is room or only the current feed set remains.
 
 ```mermaid
 flowchart TD
@@ -247,10 +301,14 @@ flowchart TD
   cap -->|no| serve["GET /v1/generations/id/static.zip"]
 ```
 
-A volume should be larger than the budget by about one static ZIP, because a publish briefly
-keeps the previous generation beside the new one. On a 512 MiB tmpfs, the old unbounded layout
-(about 19 MiB copied into every generation) filled the disk by the 27th publish and the next
-publish failed. Dedup plus the 256 MiB cap keeps that from happening.
+> [!TIP]
+> Size the volume about one static ZIP larger than the budget, because a publish briefly keeps the
+> previous generation beside the new one. On a 512 MiB tmpfs, the old unbounded layout (about
+> 19 MiB copied into every generation) filled the disk by the 27th publish. Dedup plus the 256 MiB
+> cap keeps that from happening.
+
+Rollback is running the preceding image tag against the retained volume. Immutable artifacts are
+never rewritten and there is no on-disk migration:
 
 ```bash
 docker rm -f <container>                       # keep the volume
@@ -260,21 +318,23 @@ docker run -d --network amtrak-net -p 127.0.0.1:8080:8080 \
   ghcr.io/sohampatwardhan/amtrak-gtfs-rt@sha256:<release-manifest-digest>
 ```
 
-Rollback is simply running the preceding image tag against the retained volume; immutable
-artifacts are never rewritten and there is no on-disk migration.
-
 ### Smoke test
 
 [`scripts/test-container.sh`](scripts/test-container.sh) runs a bounded, fail-closed smoke test
-against a built image on an isolated bridge and named volume: it waits for health, readiness, and
-the manifest; fetches and independently decodes all four artifacts; asserts denied-peer and
-spoofed-header requests get `403`; asserts a wildcard bind without a policy and a non-writable
-`/data` refuse to start; and verifies retained-volume recovery. It also records image size and
-time-to-health and exports an SBOM plus a CVE report under `validation-reports/container/`. CVE
-scanning prefers Docker Scout (needs `docker login`) and falls back to [grype](https://github.com/anchore/grype)
-if it is installed (no auth required); unavailable CVE evidence is reported as such, never assumed
-clean. The smoke-only shell/curl helper is separately digest-pinned and never enters the production
-image. Reviewed release evidence is retained under
+against a built image on an isolated bridge and named volume. It:
+
+- waits for health, readiness, and the manifest, then fetches and independently decodes all four
+  artifacts;
+- asserts that denied-peer and spoofed-header requests get `403`, and that a wildcard bind without
+  a policy and a non-writable `/data` refuse to start;
+- verifies retained-volume recovery;
+- records image size and time-to-health, and exports an SBOM plus a CVE report under
+  `validation-reports/container/`.
+
+CVE scanning prefers Docker Scout (needs `docker login`) and falls back to
+[grype](https://github.com/anchore/grype) if it is installed (no auth required). Unavailable CVE
+evidence is reported as such, never assumed clean. The smoke-only shell/curl helper is separately
+digest-pinned and never enters the production image. Reviewed release evidence is retained under
 [`.security/risk-acceptance/evidence/`](.security/risk-acceptance/evidence/).
 
 ```bash
@@ -283,26 +343,26 @@ scripts/test-container.sh amtrak-gtfs-rt:local
 
 ### Release evidence and licensing
 
-The tag-triggered or explicit main-only recovery workflow builds and tests each architecture separately, scans each exact
-platform digest, attaches its SPDX SBOM as a registry attestation, and only then assembles the
-public version tags. The final multi-platform digest receives a provenance attestation. The GitHub
-Release records that digest and attaches per-platform SPDX SBOMs, vulnerability reports, and
-license evidence. No release workflow deploys a running service.
+The tag-triggered (or explicit main-only recovery) workflow builds and tests each architecture
+separately, scans each exact platform digest, attaches its SPDX SBOM as a registry attestation, and
+only then assembles the public version tags. The final multi-platform digest receives a provenance
+attestation. The GitHub Release records that digest and attaches per-platform SPDX SBOMs,
+vulnerability reports, and license evidence. No release workflow deploys a running service.
 
 The project is licensed `AGPL-3.0-only`. The complete project license and generated Rust
 third-party notices are available inside every released image at `/licenses/`, in the repository,
 and as GitHub Release assets. The minimized Java runtime and validator JAR retain their own legal
 notices. OCI labels identify the exact source repository, revision, version, and project license.
 
-**Still out of scope:** anonymous public exposure of a running feed service, reverse-proxy or
-forwarded-identity trust, Docker Hub publication, and orchestration. Publishing the image does not
-change the loopback-only default or authorize internet-facing deployment.
+> [!NOTE]
+> Still out of scope: anonymous public exposure of a running feed service, reverse-proxy or
+> forwarded-identity trust, Docker Hub publication, and orchestration.
 
 ## Deployment
 
-Run it under a process supervisor. The service exits with a non-zero status if any
-of its long-lived tasks (poller, static refresher, HTTP server) stops unexpectedly,
-so a supervisor configured to restart on failure will bring it back:
+Run it under a process supervisor. The service exits with a non-zero status if any of its
+long-lived tasks (poller, static refresher, HTTP server) stops unexpectedly, so a supervisor
+configured to restart on failure brings it back:
 
 ```ini
 [Service]
@@ -311,9 +371,10 @@ Environment=AMTRAK_OUTPUT_DIR=/var/lib/amtrak-gtfs-rt
 Restart=on-failure
 ```
 
-The built-in HTTP layer is the supported access boundary. Do not expose the generation directory
-through a generic file server: that would bypass peer authorization, readiness semantics, strict
-identifier parsing, and manifest-first discovery.
+> [!WARNING]
+> The built-in HTTP layer is the supported access boundary. Do not expose the generation directory
+> through a generic file server: that would bypass peer authorization, readiness semantics, strict
+> identifier parsing, and manifest-first discovery.
 
 ## Configuration (environment variables)
 
@@ -349,6 +410,74 @@ identifier parsing, and manifest-first discovery.
 | `AMTRAK_TRACKS_AMTRAK_URL` | empty | Sidecar URL for Amtrak's own status JSON. Empty skips that source. This is not `www.amtrak.com`; that host blocks plain HTTP |
 | `AMTRAK_TRACKS_RETAIN_GRACE_SECS` | `900` | How long an Amtrak track stays published after the stop's latest time |
 
+> [!CAUTION]
+> Pass `NJT_RAILDATA_USERNAME` and `NJT_RAILDATA_PASSWORD` through the environment only. Never put
+> them in the repository, a Compose file, or an image.
+
+The browser sidecars have their own settings, documented in
+[`advisory-fetcher/README.md`](advisory-fetcher/README.md) and
+[`track-fetcher/README.md`](track-fetcher/README.md).
+
+## Compose stack
+
+From the repository root, one Compose file builds and runs the scratch service with the advisory
+sidecar, advisories on. The track sidecar is the `tracks` profile and is not started by a plain
+`docker compose up`:
+
+```bash
+docker compose up -d --build
+```
+
+```mermaid
+flowchart LR
+  host["Host loopback 127.0.0.1:8090"] --> svc["amtrak-gtfs-rt :8080"]
+  subgraph net["Compose network amtrak 172.31.240.0/24"]
+    svc
+    adv["advisory-fetcher :8080"]
+    trk["track-fetcher :8081, profile tracks"]
+  end
+  svc -->|"AMTRAK_ADVISORIES_URL"| adv
+  svc -->|"AMTRAK_TRACKS_AMTRAK_URL"| trk
+  svc --- data[("amtrak-data volume")]
+  adv --- snaps[("advisory-snapshots volume")]
+```
+
+That stack sets:
+
+```text
+AMTRAK_ADVISORIES=on
+AMTRAK_ADVISORIES_URL=http://advisory-fetcher:8080/service-alerts-and-notices
+AMTRAK_BIND_ADDR=0.0.0.0:8080
+AMTRAK_ALLOWED_PEER_IPS=172.31.240.1
+```
+
+The feed is published on host loopback port 8090 (`http://127.0.0.1:8090`), leaving host port 8080
+free for other services. The allowlist is the gateway of the Compose network, which is the peer
+the container sees for that published port on Docker Engine for Linux. A `403` means the observed
+peer differs; the denied request logs `peer=<ip>`. Neither sidecar is published to the host.
+
+Both sidecars run Chromium with `--disable-dev-shm-usage`, so Compose gives each a 64 MiB
+`/dev/shm` instead of 1 GiB. Chromium stays in the sidecar images and never enters the scratch
+service image. The scratch-image release workflow does not publish the sidecars; their browser
+base is outside that image's zero-match vulnerability gate.
+
+> [!TIP]
+> Both sidecars use `chromium-headless-shell`, the lightest browser that passes Amtrak's Akamai
+> check. If Amtrak starts rejecting it, rebuild both with full Chromium and Xvfb and run them
+> headful. The images get larger and headful Chromium uses more memory:
+>
+> ```bash
+> FETCHER_BROWSER_BUNDLE=full FETCHER_BROWSER_MODE=xvfb-headful docker compose up -d --build
+> ```
+
+To run the Rust service alone with advisories left off, skip Compose and run the scratch image by
+itself:
+
+```bash
+docker build --tag amtrak-gtfs-rt:local .
+docker run --rm --network host -v amtrak-data:/data amtrak-gtfs-rt:local
+```
+
 ## Service Alerts & Notices
 
 Station Advisories and Passenger Advisories from Amtrak's notices page are merged into the
@@ -358,14 +487,12 @@ Playwright sidecar in [`advisory-fetcher/`](advisory-fetcher/README.md). The sid
 notices list and each linked `/alert/...` detail page. The service GETs those pages on the fetcher
 origin: `header_text` is the list title, and `description_text` is the detail body (effective
 date, paragraphs, and PSN). A missing detail page keeps that alert's title and effective date.
-A list fetch or parse failure adds no advisory entities and still publishes trip updates and
-vehicle positions.
 
 The fetcher re-renders the notices list on `POLL_INTERVAL_SECS` (default 15 minutes). It samples
 the page HTML until the size is stable and the advisory markup is present, then closes the
 renderer instead of waiting out the page's ~20 second timers. Detail pages already stored within
-`DETAIL_TTL_SECS` (default 24 hours) are not rendered again; the HTTP server keeps serving them
-for `DETAIL_MAX_STALE_SECS` (default 24 hours, and it must be at least the TTL). The list snapshot
+`DETAIL_TTL_SECS` (default 24 hours) are not rendered again; the HTTP server keeps serving them for
+`DETAIL_MAX_STALE_SECS` (default 24 hours, and it must be at least the TTL). The list snapshot
 still uses `MAX_STALE_SECS`.
 
 ```mermaid
@@ -380,55 +507,40 @@ flowchart TD
   http --> service["Rust service GETs the list and /alert pages"]
 ```
 
-From the repository root, one Compose file builds both images and runs them with advisories on.
-The service container is the scratch `runtime` image. The fetcher is the other image. Chromium
-is started with `--disable-dev-shm-usage`, so Compose gives it a 64 MiB `/dev/shm` instead of
-1 GiB. The fetcher is not published to the host:
-
-```bash
-docker compose up -d --build
-```
-
-That stack sets:
-
-```text
-AMTRAK_ADVISORIES=on
-AMTRAK_ADVISORIES_URL=http://advisory-fetcher:8080/service-alerts-and-notices
-AMTRAK_BIND_ADDR=0.0.0.0:8080
-AMTRAK_ALLOWED_PEER_IPS=172.31.240.1
-```
-
-The feed is published on host loopback port 8090 (`http://127.0.0.1:8090`), leaving host port
-8080 free for other services. The allowlist is the gateway of the
-Compose network `172.31.240.0/24`, which is the peer the container sees for that published port
-on Docker Engine for Linux. A `403` means the observed peer differs; the denied request logs
-`peer=<ip>`.
-
-To run the Rust service alone with advisories left off, do not use this Compose file's service
-environment. Build and run the scratch image by itself:
-
-```bash
-docker build --tag amtrak-gtfs-rt:local .
-docker run --rm --network host -v amtrak-data:/data amtrak-gtfs-rt:local
-```
-
-Stopping the fetcher, or unsetting `AMTRAK_ADVISORIES`, leaves trip updates and vehicle positions
-publishing. A missing fetcher does not fail a generation. Chromium stays in the fetcher image.
-The scratch-image release workflow does not publish the fetcher; its browser base is outside that
-image's zero-match vulnerability gate.
+> [!NOTE]
+> Advisories fail open. A list fetch or parse failure, a stopped fetcher, or unsetting
+> `AMTRAK_ADVISORIES` adds no advisory entities and still publishes trip updates and vehicle
+> positions. A missing fetcher does not fail a generation.
 
 ## Platform and track assignments
 
-With `AMTRAK_TRACKS=on`, trip updates carry the live track at stations whose boards publish it,
-in the form the GTFS-Realtime reference defines: `stop_time_properties.assigned_stop_id` names a
+With `AMTRAK_TRACKS=on`, trip updates carry the live track at stations whose boards publish it, in
+the form the GTFS-Realtime reference defines: `stop_time_properties.assigned_stop_id` names a
 platform stop that exists in the published static feed.
 
-**Static feed.** Amtrak's `stops.txt` has one plain stop per station, referenced directly by
-`stop_times.txt`, so the service adds structure for each station in `AMTRAK_TRACKS_PLATFORMS`:
+> [!IMPORTANT]
+> Turning tracks on changes the published **static** feed as well as trip updates. Consumers that
+> list every row of `stops.txt` should filter by `location_type` or `parent_station`, so parent
+> stations and platforms do not show up as separate places. Consumers that match stop times by
+> `stop_id` should fall back to `stop_sequence` when `stop_id` is absent.
+
+### Static feed
+
+Amtrak's `stops.txt` has one plain stop per station, referenced directly by `stop_times.txt`, so
+the service adds structure for each station in `AMTRAK_TRACKS_PLATFORMS`:
 
 - a parent station `{stop}:station` (`location_type=1`);
 - `parent_station={stop}:station` on the original stop, whose id and trips are unchanged;
 - one platform stop per track, `{stop}:track:{label}` (`location_type=0`, `platform_code` = track).
+
+```mermaid
+flowchart TD
+  parent["NYP:station (location_type 1)"] --> stop["NYP, Amtrak's scheduled stop (unchanged id and trips)"]
+  parent --> t1["NYP:track:1 (platform_code 1)"]
+  parent --> t2["NYP:track:2 (platform_code 2)"]
+  parent --> tn["... one platform stop per track"]
+  stop -.->|"trip update assigned_stop_id"| t1
+```
 
 Nothing else in Amtrak's feed changes, and the other files are copied byte-for-byte. The published
 static version becomes `{feed_version}+tracks.{digest}`, where the digest changes only when the
@@ -437,92 +549,54 @@ augmentation fails or is rejected, Amtrak's feed is published unchanged and no t
 The only new validator notice is a `stop_without_stop_time` warning per platform stop, because no
 scheduled trip calls at a platform directly.
 
-The seeded list covers tracks from published track maps: New York Penn 1–21, Newark Penn A and
-1–5, and New Haven Union's platform tracks (1–4, 8, 10, 12, 14). A track any source later reports
-that is not in that list — Amtrak's status, RailData at Metropark, New Brunswick, Princeton
-Junction, Trenton, Newark Airport, or 30th Street, or the Hartford board — is recorded as an
-observed platform in `{AMTRAK_OUTPUT_DIR}/tracks/observed-platforms.txt` and the static feed is
-rebuilt. The rebuild waits 30 seconds so a burst of new labels is one refresh, and runs at most
-once every 10 minutes. The track is stamped only once that platform stop is in the published
-snapshot.
+### Platform list and observed tracks
 
-The file holds only observed labels, not the configured ones, so removing a track from
-`AMTRAK_TRACKS_PLATFORMS` takes effect, and deleting the file resets observations. It is loaded
-on startup, so a restart does not change the static version. A file that does not parse is
-renamed to `observed-platforms.txt.invalid` and ignored. Only stations in the active static feed
-are observed, and at most 1000 labels are kept. If the static validator rejects the feed with the
-observed platforms, it is rebuilt with the configured platforms alone, so one bad observation
-cannot remove every platform stop.
+The seeded list covers tracks from published track maps: New York Penn 1–21, Newark Penn A and
+1–5, and New Haven Union's platform tracks (1–4, 8, 10, 12, 14). Add a known list ahead of time
+with `AMTRAK_TRACKS_PLATFORMS`, for example `NYP=1-21;NWK=A,1-5;NHV=1-4,8,10,12,14;EWR=1-4`.
+
+A track any source later reports that is not in that list is recorded as an observed platform in
+`{AMTRAK_OUTPUT_DIR}/tracks/observed-platforms.txt`, and the static feed is rebuilt. The rebuild
+waits 30 seconds so a burst of new labels is one refresh, and runs at most once every 10 minutes.
+The track is stamped only once that platform stop is in the published snapshot.
+
+- The file holds only observed labels, not the configured ones, so removing a track from
+  `AMTRAK_TRACKS_PLATFORMS` takes effect, and deleting the file resets observations.
+- It is loaded on startup, so a restart does not change the static version. A file that does not
+  parse is renamed to `observed-platforms.txt.invalid` and ignored.
+- Only stations in the active static feed are observed, and at most 1000 labels are kept.
+- If the static validator rejects the feed with the observed platforms, it is rebuilt with the
+  configured platforms alone, so one bad observation cannot remove every platform stop.
 
 Labels are platform tokens such as `4`, `14`, `2A`, `A`, or the named track `MAIN` (Buffalo).
-Anything else, such as `TBD`, is ignored. Add a known list ahead of time with
-`AMTRAK_TRACKS_PLATFORMS`, for example `NYP=1-21;NWK=A,1-5;NHV=1-4,8,10,12,14;EWR=1-4`. A
-station that is not in the static feed at all is skipped.
+Anything else, such as `TBD`, is ignored. A station that is not in the static feed at all is
+skipped.
 
-**Trip updates.** A matching stop time gets `assigned_stop_id={stop}:track:{label}` and its
-`stop_sequence`, and its `stop_id` is removed, as the reference prefers. A stop time is stamped only
-when it is not skipped, has a predicted time between one hour before and twelve hours after the
-generation, and visits its station exactly once in the trip. Vehicle positions are unchanged.
+### Trip updates
 
-Consumers that match stop times by `stop_id` should fall back to `stop_sequence` when `stop_id` is
-absent. Consumers that list every row of `stops.txt` should filter by `location_type` or
-`parent_station` to avoid showing parent stations and platforms as separate places.
+A matching stop time gets `assigned_stop_id={stop}:track:{label}` and its `stop_sequence`, and its
+`stop_id` is removed, as the reference prefers. A stop time is stamped only when it is not skipped,
+has a predicted time between one hour before and twelve hours after the generation, and visits its
+station exactly once in the trip. Vehicle positions are unchanged.
 
-**Sources.** A background task reads the boards every `AMTRAK_TRACKS_REFRESH_SECS`; generation only
-reads its latest results, so a slow or failed board never delays the feed. NJ Transit and Hartford
-readings are published for at most `AMTRAK_TRACKS_MAX_AGE_SECS`, and a failed refresh never
-extends that age. When two sources name the same train and stop, Amtrak's own status wins while
-its document is fresh (fetched by the sidecar within `AMTRAK_TRACKS_MAX_AGE_SECS`), then NJ
-Transit, then the Hartford board. Amtrak is what the app shows; the other boards fill the gap
-before Amtrak publishes a number. An Amtrak track from an older document is still published until
-departure, but a live NJ Transit or Hartford reading replaces it, so a blocked sidecar cannot hold
-a track over a board's track change.
+### Sources and precedence
 
-- Amtrak's train-status API, for every station where that API publishes a track. The service does
-  not call `www.amtrak.com` itself. Set `AMTRAK_TRACKS_AMTRAK_URL` to the
-  [`track-fetcher`](track-fetcher/README.md) sidecar, which serves `GET /tracks.json`. On
-  2026-10-17 the app showed track 1 at Providence for train 167 about ten minutes before arrival
-  (`arrival.track.number` `1`, `asOf` 16:57, scheduled 17:06). Some stations publish hours earlier,
-  and that value is already on the document once the train is near the stop, so the sidecar polls
-  trains with a stop inside a 30-minute lookahead and a 10-minute lookback instead of the whole
-  fleet. A train whose next stop is within about 12 minutes and still has no track is fetched
-  every cycle; every other train in the window, including one that has just left a stop, rotates
-  with a 90-second cooldown, and a cycle makes at most 24 fetches. A track Amtrak has shown is kept until the stop's
-  latest scheduled or predicted time plus `AMTRAK_TRACKS_RETAIN_GRACE_SECS` (default 15 minutes),
-  including when a later document drops the field after departure. An empty URL leaves this source
-  off.
-- NJ Transit RailData, for every station both railroads schedule. One cached token is reused for
-  the whole pass; a token is requested only when the cache is empty or older than 23 hours, and
-  never more than 10 times in 24 hours. The pass stops when credentials are rejected or that budget
-  is spent, so the extra stations do not become extra token calls. This needs a
-  registered RailData account from the [NJ Transit developer portal](https://developer.njtransit.com/registration);
-  set `NJT_RAILDATA_USERNAME` and `NJT_RAILDATA_PASSWORD` in the environment, never in the repo.
-  Rejected credentials pause NJ Transit requests for an hour. Without credentials, NJ Transit
-  stations are skipped. Amtrak rows are those whose `TRAIN_ID` starts with `A`; the prefix and
-  leading zeros are stripped before matching GTFS `trip_short_name`. The codes are Appendix V of
-  NJ Transit's Rail Real-time Data API, checked against Amtrak's station codes:
+A background task reads the boards every `AMTRAK_TRACKS_REFRESH_SECS`; generation only reads its
+latest results, so a slow or failed board never delays the feed. NJ Transit and Hartford readings
+are published for at most `AMTRAK_TRACKS_MAX_AGE_SECS`, and a failed refresh never extends that
+age.
 
-  | RailData | Amtrak | Station |
-  | --- | --- | --- |
-  | `NY` | `NYP` | New York Penn |
-  | `NP` | `NWK` | Newark Penn |
-  | `NA` | `EWR` | Newark Liberty Airport |
-  | `MP` | `MET` | Metropark |
-  | `NB` | `NBK` | New Brunswick |
-  | `PJ` | `PJC` | Princeton Junction |
-  | `TR` | `TRE` | Trenton |
-  | `PH` | `PHL` | Philadelphia 30th Street |
+When two sources name the same train and stop, the order is:
 
-  New York and the six New Jersey stops are Amtrak's scheduled stops in the state (FY25 fact sheet)
-  plus New York Penn. Philadelphia is the Atlantic City Line's terminal, which Amtrak also serves.
-  North Philadelphia (`NF` / `PHN`) is not polled: a few Keystone trains stop, and NJ Transit does
-  not. Wilmington, Baltimore, BWI, New Carrollton, and Washington are stop codes on Amtrak
-  itineraries in the same API, and NJ Transit does not operate them. Westerly is not in that
-  station list. On 2026-10-17 Amtrak's own status had no track for train 167 at Westerly or New
-  Haven, and none for train 1164 at Princeton Junction; New Haven stays on the Hartford board, and
-  Princeton Junction comes from this RailData row.
-- The CTrail Hartford Line connecting-train board, for New Haven Union. Set
-  `AMTRAK_TRACKS_HARTFORD_URL` empty to skip it. New Haven is not an NJ Transit RailData station.
+1. Amtrak's own status, while its document is fresh (fetched by the sidecar within
+   `AMTRAK_TRACKS_MAX_AGE_SECS`). This is what the Amtrak app shows.
+2. NJ Transit RailData.
+3. The Hartford Line board.
+4. An older Amtrak track that is still before departure.
+
+The other boards fill the gap before Amtrak publishes a number, and a live NJ Transit or Hartford
+reading replaces a stale Amtrak track, so a blocked sidecar cannot hold a track over a board's
+track change.
 
 ```mermaid
 flowchart TD
@@ -547,19 +621,65 @@ flowchart TD
   static --> stamp
 ```
 
-The sidecar keeps a single `chromium-headless-shell` between polls and blocks image, font,
-stylesheet, and media requests, and every host outside `amtrak.com`. A browser failure ends that
-cycle's fetches, and relaunches back off from 1 to 15 minutes. If every fetch in a cycle fails,
-`/tracks.json` goes `503` after five minutes instead of serving old documents as current. In
-Compose the sidecar runs read-only, with no capabilities, a 768 MB memory limit, and no published
-port; see [`track-fetcher/README.md`](track-fetcher/README.md). The maps feed, which has no track field, is decrypted without a
-browser and is only used to decide who is near a stop. The image uses the same headless-shell
-build the advisory sidecar's on-device notes ran on a Raspberry Pi 5 (`linux/arm64`). One browser
-stays resident across the 60-second polls, and each cycle issues at most 24 status requests.
-Chromium stays in this sidecar image.
+#### Amtrak's train-status API
 
-The root Compose file does not enable tracks. The sidecar is the `tracks` profile and is not
-started by `docker compose up`:
+Amtrak's own status covers every station where Amtrak posts a track. The service does not call
+`www.amtrak.com` itself: set `AMTRAK_TRACKS_AMTRAK_URL` to the
+[`track-fetcher`](track-fetcher/README.md) sidecar, which serves `GET /tracks.json`. An empty URL
+leaves this source off.
+
+On 2026-10-17 the app showed track 1 at Providence for train 167 about ten minutes before arrival
+(`arrival.track.number` `1`, `asOf` 16:57, scheduled 17:06). Some stations publish hours earlier,
+and that value is already on the document once the train is near the stop, so the sidecar polls
+trains with a stop inside a 30-minute lookahead and a 10-minute lookback instead of the whole
+fleet. A train whose next stop is within about 12 minutes and still has no track is fetched every
+cycle; every other train in the window, including one that has just left a stop, rotates with a
+90-second cooldown, and a cycle makes at most 24 fetches. A track Amtrak has shown is kept until
+the stop's latest scheduled or predicted time plus `AMTRAK_TRACKS_RETAIN_GRACE_SECS` (default 15
+minutes), including when a later document drops the field after departure.
+
+Stations where Amtrak's status documents carried a track on 2026-10-17:
+
+| Amtrak | Station | When the track appeared |
+| --- | --- | --- |
+| `RTE` | Route 128, MA | Hours ahead |
+| `PVD` | Providence, RI | About 8–10 minutes before arrival (train 167, track 1) |
+| `KIN` | Kingston, RI | Overnight (`asOf` 01:18, train 167, track 1) |
+| `OSB` | Old Saybrook, CT | Hours ahead |
+| `NYP` | New York Penn | Hours ahead on the New York–Washington board (train 109, track 12, gate `W`) |
+| `PHL` | Philadelphia 30th Street | Minutes before the stop |
+| `WIL` | Wilmington, DE | Minutes before the stop |
+| `BAL` | Baltimore Penn | Minutes before the stop |
+| `BWI` | BWI Airport, MD | Hours ahead |
+| `FBG` | Fredericksburg, VA | Minutes before the stop |
+| `RVR` | Richmond Staples Mill Road, VA | Minutes before the stop |
+| `NFK` | Norfolk, VA | Not recorded |
+| `RHI` | Rhinecliff, NY | Overnight (`asOf` 01:19, train 49, track 1) |
+| `BUF` | Buffalo-Depew, NY | Hours ahead (`asOf` 12:29, train 49, track `MAIN`) |
+| `WTI` | Waterloo, IN | Overnight (`asOf` 01:19, train 49, track 1) |
+| `TCL` | Tuscaloosa, AL | Not recorded |
+| `LAJ` | La Junta, CO | Not recorded |
+
+> [!NOTE]
+> Amtrak publishes no list of the stations it posts tracks for. This table is a one-day sample: a
+> twelve-train sample, the Lake Shore Limited (train 49), and the New York–Washington board. The
+> sidecar reads whatever Amtrak posts, so a station not listed here is picked up as soon as Amtrak
+> shows a track for it.
+
+Amtrak posted no track that day for train 167 at Westerly (`WLY`), New Haven (`NHV`), or its New
+York arrival, and none for train 1164 at Princeton Junction (`PJC`). New Haven comes from the
+Hartford board and Princeton Junction from NJ Transit RailData. A track posted minutes before the
+stop is why trains near a stop are polled every cycle; one posted hours ahead is already on the
+document when the train enters the window.
+
+The sidecar keeps a single `chromium-headless-shell` between polls and blocks image, font,
+stylesheet, and media requests, and every host outside `amtrak.com`. The maps feed, which has no
+track field, is decrypted without a browser and only decides who is near a stop. A browser failure
+ends that cycle's fetches, and relaunches back off from 1 to 15 minutes. If every fetch in a cycle
+fails, `/tracks.json` goes `503` after five minutes instead of serving old documents as current. In
+Compose the sidecar runs read-only, with no capabilities, a 768 MB memory limit, and no published
+port. The image uses the same headless-shell build the advisory sidecar's on-device notes ran on a
+Raspberry Pi 5 (`linux/arm64`).
 
 ```bash
 AMTRAK_TRACKS=on \
@@ -567,7 +687,43 @@ AMTRAK_TRACKS_AMTRAK_URL=http://track-fetcher:8081/tracks.json \
   docker compose --profile tracks up -d --build
 ```
 
-RailData still needs its own credentials, passed the same way as before:
+> [!WARNING]
+> The sidecar sends up to 24 status requests a minute to `www.amtrak.com`, fewer once trains near
+> a stop already show their tracks. Check that this volume suits Amtrak's terms of use before
+> running it.
+
+#### NJ Transit RailData
+
+RailData covers every station both railroads schedule. Amtrak rows are those whose `TRAIN_ID`
+starts with `A`; the prefix and leading zeros are stripped before matching GTFS
+`trip_short_name`. The codes are Appendix V of NJ Transit's Rail Real-time Data API, checked
+against Amtrak's station codes:
+
+| RailData | Amtrak | Station |
+| --- | --- | --- |
+| `NY` | `NYP` | New York Penn |
+| `NP` | `NWK` | Newark Penn |
+| `NA` | `EWR` | Newark Liberty Airport |
+| `MP` | `MET` | Metropark |
+| `NB` | `NBK` | New Brunswick |
+| `PJ` | `PJC` | Princeton Junction |
+| `TR` | `TRE` | Trenton |
+| `PH` | `PHL` | Philadelphia 30th Street |
+
+New York and the six New Jersey stops are Amtrak's scheduled stops in the state (FY25 fact sheet)
+plus New York Penn. Philadelphia is the Atlantic City Line's terminal, which Amtrak also serves.
+North Philadelphia (`NF` / `PHN`) is not polled: a few Keystone trains stop, and NJ Transit does
+not. Wilmington, Baltimore, BWI, New Carrollton, and Washington are stop codes on Amtrak
+itineraries in the same API, and NJ Transit does not operate them. Westerly is not in that station
+list.
+
+This source needs a registered RailData account from the
+[NJ Transit developer portal](https://developer.njtransit.com/registration). Without credentials,
+NJ Transit stations are skipped. One cached token is reused for the whole pass, and it is kept in
+`{AMTRAK_OUTPUT_DIR}/tracks/raildata-token.json` (mode `0600`, never served). A token is requested
+only when the cache is empty or older than 23 hours, and never more than 10 times in 24 hours, NJ
+Transit's limit. The pass stops when credentials are rejected or that budget is spent, and rejected
+credentials pause NJ Transit requests for an hour.
 
 ```bash
 AMTRAK_TRACKS=on NJT_RAILDATA_USERNAME=... NJT_RAILDATA_PASSWORD=... \
@@ -575,8 +731,33 @@ AMTRAK_TRACKS=on NJT_RAILDATA_USERNAME=... NJT_RAILDATA_PASSWORD=... \
   -e AMTRAK_TRACKS -e NJT_RAILDATA_USERNAME -e NJT_RAILDATA_PASSWORD amtrak-gtfs-rt:local
 ```
 
-`amtrak-status` prints `track N` on a departure or remaining stop, reading the assigned platform
-stop's `platform_code`.
+> [!NOTE]
+> The station codes were checked against NJ Transit's API appendix and Amtrak's station list, not
+> yet against a live RailData response.
+
+#### CTrail Hartford Line board
+
+The CTrail Hartford Line connecting-train board covers New Haven Union, which is not an NJ Transit
+RailData station. Amtrak's own status had no New Haven track for train 167 on 2026-10-17, while
+this board showed track 3. Set `AMTRAK_TRACKS_HARTFORD_URL` empty to skip it.
+
+## Station and train status CLI
+
+`amtrak-status` answers station-departure and train-status questions from one coherent generation
+of the local feed service, or straight from Amtrak. It renders times in each station's local zone,
+shows delay against the schedule, prints `track N` where a platform is assigned, and always names
+the generation it read. It is built only with the `status` feature, so it stays out of the
+released service image:
+
+```bash
+cargo run --features status --bin amtrak-status -- station NYP --limit 10
+cargo run --features status --bin amtrak-status -- train 167
+cargo run --features status --bin amtrak-status -- train 167 --source amtrak
+```
+
+`--source local` (the default) reads `--base-url` (default `http://127.0.0.1:8080`). Exit codes:
+`0` success, including a resolved "no such station or train" answer; `1` a feed fetch or decode
+failure; `2` a usage error; `3` the service has no current generation.
 
 ## Resilience
 
@@ -591,73 +772,94 @@ stop's `platform_code`.
 - **Freshness semantics.** Readiness becomes false at exactly 300 seconds of generation age while
   liveness remains independently available.
 
+```mermaid
+stateDiagram-v2
+  [*] --> Active: bootstrap or recover from /data
+  Active --> Pending: refresh stages a valid new static snapshot
+  Pending --> Pending: a newer valid snapshot replaces it
+  Pending --> Active: realtime built, validated, and committed against it
+  Active --> Active: a rejected or unchanged refresh keeps the active snapshot
+```
+
 ## Project layout
 
-| File | Responsibility |
+| Path | Responsibility |
 |------|----------------|
+| `src/main.rs` | Wiring: configuration, sources, static bootstrap, supervised tasks |
 | `src/config.rs` | Environment-driven configuration |
 | `src/sources/mod.rs` | `RtSource` trait and the `RtBatch` normalization model |
 | `src/sources/amtrak.rs` | Amtrak source, wrapping the catenary crate |
 | `src/sources/advisories.rs` | Optional Service Alerts & Notices scraper (`AMTRAK_ADVISORIES`) |
 | `src/sources/tracks/` | Optional platform/track assignments (`AMTRAK_TRACKS`): Amtrak status documents, RailData client, Hartford board, precedence and retention, background refresher, stamper |
-| `track-fetcher/` | Optional sidecar (`AMTRAK_TRACKS_AMTRAK_URL`): decrypts the maps feed, polls trains near a stop, serves `/tracks.json` |
 | `src/static_augment.rs` | Platform stops added to the published static feed when tracks are on |
 | `src/static_gtfs.rs` | Exact-byte static GTFS validation and pending/active lifecycle |
 | `src/orchestrator.rs` | Source selection, coherent generation build/validation, and recoverable polling |
 | `src/serve.rs` | Controlled immutable HTTP delivery and freshness health |
 | `src/writer.rs` | Durable immutable generation persistence and recovery |
+| `src/bin/amtrak_status.rs`, `src/bin/status/` | `amtrak-status` CLI (`--features status`) |
+| `advisory-fetcher/` | Optional browser sidecar that snapshots Amtrak's notices pages |
+| `track-fetcher/` | Optional browser sidecar (`AMTRAK_TRACKS_AMTRAK_URL`): decrypts the maps feed, polls trains near a stop, serves `/tracks.json` |
+| `scripts/` | Container smoke test, feed validation gate, release tooling |
+| `docs/` | Design specs, implementation plans, and research notes |
 
 ## Testing
 
 ```bash
-cargo test                      # unit + integration (offline)
-cargo test -- --include-ignored # also runs live tests against Amtrak's endpoints
+cargo test                          # unit + integration (offline)
+cargo test --features status        # also the amtrak-status CLI
+cargo test -- --include-ignored     # also runs live tests against Amtrak's endpoints
+
+(cd advisory-fetcher && python -m pytest tests -q)   # sidecar tests, no browser or network
+(cd track-fetcher && python -m pytest tests -q)
 ```
 
-The feeds are verified two ways in the suite: RT protobuf round-trips through the
-decoder, and a live end-to-end test fetches real Amtrak data and asserts non-empty,
-statically-bound output.
+The feeds are verified two ways in the suite: RT protobuf round-trips through the decoder, and a
+live end-to-end test fetches real Amtrak data and asserts non-empty, statically-bound output.
+CI also builds both sidecar images, in both browser bundles, natively on amd64 and arm64.
 
 ## Validation gate
 
 Spec compliance is enforced separately by
 [MobilityData's gtfs-validator](https://github.com/MobilityData/gtfs-validator) and
-[gtfs-realtime-validator](https://github.com/MobilityData/gtfs-realtime-validator),
-run against feeds generated from live data:
+[gtfs-realtime-validator](https://github.com/MobilityData/gtfs-realtime-validator), run against
+feeds generated from live data:
 
 ```bash
 ./scripts/validate-feeds.sh
 ```
 
-The script generates feeds (or reuses `out/`), fetches and pins both validators,
-validates each RT feed type in its own directory, and prints every notice by
-severity. Reports land in `validation-reports/`. It needs Java 17 and Maven, and
-falls back to Docker automatically if they aren't installed.
+The script generates feeds (or reuses `out/`), fetches and pins both validators, validates each RT
+feed type in its own directory, and prints every notice by severity. Reports land in
+`validation-reports/`. It needs Java 17 and Maven, and falls back to Docker automatically if they
+aren't installed.
 
-**How the gate decides.** It fails when a validator reports an ERROR code that is
-not listed in [`validation/baseline.json`](validation/baseline.json). Occurrence
-*counts* are not gated — they track how many trains are running and vary
-legitimately between runs, whereas a new error *code* is a real regression.
+**How the gate decides.** It fails when a validator reports an ERROR code that is not listed in
+[`validation/baseline.json`](validation/baseline.json). Occurrence *counts* are not gated — they
+track how many trains are running and vary legitimately between runs, whereas a new error *code*
+is a real regression.
 
-The baseline currently records eleven known RT error codes, most of them inherited
-from upstream (trips and stations that appear in live data but not in Amtrak's
-published schedule) and two that are fixable here (`E039` `is_deleted` on a
-FULL_DATASET feed, `E049` unpopulated header incrementality). Each entry is
-annotated with its cause; they are debt to burn down, not permanent exemptions.
-Amtrak's static GTFS currently produces **zero** ERROR notices, so the static side
-is gated at zero.
+The baseline currently records eleven known RT error codes, most of them inherited from upstream
+(trips and stations that appear in live data but not in Amtrak's published schedule) and two that
+are fixable here (`E039` `is_deleted` on a FULL_DATASET feed, `E049` unpopulated header
+incrementality). Each entry is annotated with its cause; they are debt to burn down, not permanent
+exemptions. Amtrak's static GTFS currently produces **zero** ERROR notices, so the static side is
+gated at zero.
 
-CI runs this nightly, on pushes that touch the pipeline, and on demand — not on
-pull requests, since an Amtrak outage would otherwise block unrelated work.
+> [!NOTE]
+> CI runs this gate nightly, on pushes that touch the pipeline, and on demand — not on pull
+> requests, since an Amtrak outage would otherwise block unrelated work.
 
 ## Consumer migration
 
-The mutable `/trip-updates.pb`, `/vehicle-positions.pb`, `/alerts.pb`, `/static.zip`, and `/health`
-routes are removed from the generation API. Controlled consumers must switch atomically to
-manifest-first discovery, accept `application/x-protobuf` for realtime products, and treat `403`,
-`404`, and `503` distinctly: unauthorized peer, unknown immutable generation/artifact, and no
-current or fresh generation respectively. Rollback uses the preceding service binary and retained
-generation directory; it never rewrites immutable artifacts.
+> [!WARNING]
+> The mutable `/trip-updates.pb`, `/vehicle-positions.pb`, `/alerts.pb`, `/static.zip`, and
+> `/health` routes are removed from the generation API.
+
+Controlled consumers must switch atomically to manifest-first discovery, accept
+`application/x-protobuf` for realtime products, and treat `403`, `404`, and `503` distinctly:
+unauthorized peer, unknown immutable generation or artifact, and no current or fresh generation
+respectively. Rollback uses the preceding service binary and retained generation directory; it
+never rewrites immutable artifacts.
 
 ## Changelog
 
@@ -666,5 +868,5 @@ See [CHANGELOG.md](CHANGELOG.md).
 ## License
 
 **AGPL-3.0-only.** This service depends on the AGPL-3.0-licensed
-[`catenarytransit/amtrak-gtfs-rt`](https://github.com/catenarytransit/amtrak-gtfs-rt)
-crate, which does the core decryption and GTFS matching. Thanks to the Catenary project.
+[`catenarytransit/amtrak-gtfs-rt`](https://github.com/catenarytransit/amtrak-gtfs-rt) crate, which
+does the core decryption and GTFS matching. Thanks to the Catenary project.
