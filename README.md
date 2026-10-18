@@ -723,8 +723,10 @@ This source needs a registered RailData account from the
 NJ Transit stations are skipped. One cached token is reused for the whole pass, and it is kept in
 `{AMTRAK_OUTPUT_DIR}/tracks/raildata-token.json` (mode `0600`, never served). A token is requested
 only when the cache is empty or older than 23 hours, and never more than 10 times in 24 hours, NJ
-Transit's limit. The pass stops when credentials are rejected or that budget is spent, and rejected
-credentials pause NJ Transit requests for an hour.
+Transit's limit. The pass stops when credentials are rejected or that budget is spent. Any failed
+token request (rejected credentials, an NJ Transit error such as `Missing user account.` for an
+unknown username, or a network failure) pauses NJ Transit requests for an hour, so each failure
+costs one request.
 
 ```bash
 AMTRAK_TRACKS=on NJT_RAILDATA_USERNAME=... NJT_RAILDATA_PASSWORD=... \

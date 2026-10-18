@@ -287,7 +287,7 @@ async fn augmented_snapshot(
         }
     };
     let zip: Arc<[u8]> = Arc::from(augmented);
-    let suffix = format!("+tracks.{}", table.digest());
+    let suffix = tracks_version_suffix(table);
     let snapshot = match snapshot_from_bytes(zip.clone(), now, Some(&suffix)) {
         Ok(snapshot) => snapshot,
         Err(error) => {
@@ -300,6 +300,23 @@ async fn augmented_snapshot(
         return None;
     }
     Some(snapshot)
+}
+
+const TRACKS_VERSION_MARKER: &str = "+tracks.";
+
+fn tracks_version_suffix(table: &PlatformTable) -> String {
+    format!("{TRACKS_VERSION_MARKER}{}", table.digest())
+}
+
+/// Whether a snapshot `version` was built for the current track configuration: augmented with
+/// one of the candidate `tables` when tracks are on, and not augmented when there are none.
+pub fn matches_platforms(version: &str, tables: &[PlatformTable]) -> bool {
+    if tables.is_empty() {
+        return !version.contains(TRACKS_VERSION_MARKER);
+    }
+    tables
+        .iter()
+        .any(|table| version.ends_with(&tracks_version_suffix(table)))
 }
 
 /// Parses retained bytes into a snapshot whose version is `feed_version` plus `suffix`.
@@ -547,6 +564,10 @@ fn platform_refresh_delay(
 /// With `platforms`, a newly observed track also wakes this loop (after a debounce, and at most
 /// once per [`PLATFORM_REFRESH_MIN_GAP`]) so the platform stop is published before the next daily
 /// static poll. Each staged snapshot also refreshes which stations may be observed.
+///
+/// The first attempt waits one `interval`, except when the active snapshot was built for a
+/// different track configuration (typically one recovered from a run with tracks toggled); then
+/// it runs immediately so the published static matches the configuration without a day's delay.
 pub async fn run_snapshot_refresh(
     state: StaticSnapshotState,
     static_url: String,
@@ -557,7 +578,20 @@ pub async fn run_snapshot_refresh(
     let notify = platforms.as_ref().map(SharedPlatforms::changed);
     let mut ticker = tokio::time::interval(interval);
     ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
-    ticker.tick().await;
+    let active_version = state.active().await.version.clone();
+    let startup_tables = platforms
+        .as_ref()
+        .map(SharedPlatforms::candidates)
+        .unwrap_or_default();
+    if matches_platforms(&active_version, &startup_tables) {
+        ticker.tick().await;
+    } else {
+        tracing::info!(
+            stage = "static",
+            static_version = %active_version,
+            "static does not match the track configuration; refreshing now"
+        );
+    }
     let mut previous_platform_refresh = None;
     loop {
         if let Some(notify) = &notify {
@@ -1332,5 +1366,92 @@ t,10:00:00,10:00:00,NWK,1\nt,10:30:00,10:30:00,OSM,2\n";
         assert!(reopened.validate(other).await.is_err());
         assert_eq!(calls.load(Ordering::Relaxed), 4);
         std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn versions_match_only_their_track_configuration() {
+        let table = PlatformTable::parse("NWK=1-2").unwrap();
+        let other = PlatformTable::parse("NWK=1-3").unwrap();
+        let augmented = format!("20260927+tracks.{}", table.digest());
+        assert!(matches_platforms("20260927", &[]));
+        assert!(!matches_platforms(&augmented, &[]));
+        assert!(matches_platforms(&augmented, std::slice::from_ref(&table)));
+        assert!(!matches_platforms(&augmented, std::slice::from_ref(&other)));
+        assert!(!matches_platforms("20260927", std::slice::from_ref(&table)));
+        let configured = PlatformTable::parse("NWK=1").unwrap();
+        assert!(matches_platforms(
+            &augmented,
+            &[other.clone(), table.clone()]
+        ));
+        assert!(!matches_platforms(&augmented, &[other, configured]));
+    }
+
+    /// Runs the refresh task for up to two seconds with a day-long interval and returns what it
+    /// staged, so only an immediate first attempt can stage anything.
+    async fn staged_by_refresh_task(
+        recovered: Vec<u8>,
+        recovered_version: &str,
+        upstream: Vec<u8>,
+        platforms: Option<PlatformTable>,
+    ) -> Option<Arc<StaticSnapshot>> {
+        let (url, server) = served_zip(upstream);
+        let state = recover_static(Arc::from(recovered), recovered_version.into()).unwrap();
+        let validator: Arc<dyn StaticStandardsValidator> = Arc::new(RecordingValidator {
+            seen: Mutex::new(Vec::new()),
+            result: Ok(()),
+        });
+        let task = tokio::spawn(run_snapshot_refresh(
+            state.clone(),
+            url,
+            Duration::from_secs(86_400),
+            validator,
+            platforms.map(|table| SharedPlatforms::new(table, None)),
+        ));
+        let _ = tokio::time::timeout(Duration::from_secs(2), async {
+            while state.pending().await.is_none() {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await;
+        task.abort();
+        server.abort();
+        state.pending().await
+    }
+
+    #[tokio::test]
+    async fn recovered_static_without_platforms_is_refreshed_at_startup() {
+        let upstream = augmentable_zip("20260927");
+        let table = PlatformTable::parse("NWK=1-2").unwrap();
+        let staged =
+            staged_by_refresh_task(upstream.clone(), "20260927", upstream, Some(table.clone()))
+                .await
+                .expect("mismatched static was not refreshed immediately");
+        assert_eq!(
+            staged.version,
+            format!("20260927+tracks.{}", table.digest())
+        );
+        assert!(staged.parsed.stops.contains_key("NWK:track:1"));
+    }
+
+    #[tokio::test]
+    async fn recovered_static_with_platforms_is_refreshed_when_tracks_are_off() {
+        let upstream = augmentable_zip("20260927");
+        let table = PlatformTable::parse("NWK=1-2").unwrap();
+        let augmented = augment_static(&upstream, &table).unwrap();
+        let recovered_version = format!("20260927+tracks.{}", table.digest());
+        let staged = staged_by_refresh_task(augmented, &recovered_version, upstream.clone(), None)
+            .await
+            .expect("mismatched static was not refreshed immediately");
+        assert_eq!(staged.version, "20260927");
+        assert_eq!(staged.zip.as_ref(), upstream.as_slice());
+    }
+
+    #[tokio::test]
+    async fn matching_recovered_static_waits_for_the_interval() {
+        let upstream = augmentable_zip("20260927");
+        let newer = augmentable_zip("20260928");
+        assert!(staged_by_refresh_task(upstream, "20260927", newer, None)
+            .await
+            .is_none());
     }
 }
