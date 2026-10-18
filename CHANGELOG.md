@@ -64,6 +64,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- A static GTFS feed that does not parse now reports why, for example
+  `static parse failed: The id OSM is not known` for a stop time that names a stop missing from
+  `stops.txt`, instead of a bare `static parse failed`. A rejected daily static refresh logs the
+  same reason. Parse errors come from in-memory bytes and never include a URL or credential.
 - The README is reorganized: GitHub callouts for warnings and requirements, diagrams for the
   architecture, the manifest-first request flow, the Compose stack, platform stops, and the static
   snapshot lifecycle, a table of the stations where Amtrak's own status posted a track, and a
