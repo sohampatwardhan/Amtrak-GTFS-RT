@@ -361,6 +361,7 @@ pub fn assignments_for_station(
             train_number,
             stop_id: stop_id.clone(),
             track,
+            retain_until: None,
         });
     }
     Ok(rows)

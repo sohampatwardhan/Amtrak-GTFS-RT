@@ -40,7 +40,7 @@ scratch/musl, no-vulnerabilities posture.
 | `SNAPSHOT_DIR` | `/snapshot` | Where the snapshot file is written |
 | `SERVE_PATH` | `/service-alerts-and-notices` | HTTP path the service GETs |
 | `GATE_SELECTOR` | `[class*='na-service-alert']` | Selector proving the markup rendered |
-| `BROWSER_MODE` | `headless-shell` | `headless-shell` (efficient) or `xvfb-headful` (fallback) |
+| `BROWSER_MODE` | `headless-shell` | `headless-shell` (efficient), or `xvfb-headful` (fallback: full Chromium under an Xvfb display the fetcher starts itself). `xvfb-headful` needs an image built with `--build-arg BROWSER_BUNDLE=full`; the default image stops at startup and says so |
 | `BLOCK_SUBRESOURCES` | `true` | Skip image/font/media/CSS during the fetch |
 | `DETAIL_TTL_SECS` | `86400` | Do not re-render a detail page younger than this |
 | `DETAIL_MAX_STALE_SECS` | `86400` | Serve a stored detail as fresh for this long. Must be ≥ `DETAIL_TTL_SECS` |

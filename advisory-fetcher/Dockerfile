@@ -10,6 +10,11 @@ FROM python:3.12-slim-bookworm
 # Pin Playwright to an exact release. Its bundled chromium-headless-shell is the build the
 # on-device spike verified against Amtrak's Akamai gate.
 ARG PLAYWRIGHT_VERSION=1.61.0
+# `headless-shell` (default) installs only chromium-headless-shell. `full` also installs full
+# Chromium and Xvfb for BROWSER_MODE=xvfb-headful, the fallback if Amtrak blocks the headless shell.
+# It makes the image larger, so build it only when that mode is needed:
+#   docker build --build-arg BROWSER_BUNDLE=full .
+ARG BROWSER_BUNDLE=headless-shell
 
 ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright \
     PIP_NO_CACHE_DIR=1 \
@@ -44,12 +49,26 @@ RUN apt-get update \
         libxfixes3 \
         libxkbcommon0 \
         libxrandr2 \
+    && if [ "${BROWSER_BUNDLE}" = "full" ]; then \
+        apt-get install --yes --no-install-recommends xvfb; \
+    elif [ "${BROWSER_BUNDLE}" != "headless-shell" ]; then \
+        echo "BROWSER_BUNDLE must be headless-shell or full" >&2; exit 1; \
+    fi \
     && rm -rf /var/lib/apt/lists/*
 
-# `--only-shell` installs chromium-headless-shell and skips full Chromium. Dependencies were
-# installed above, so `--with-deps` is intentionally not used.
+# `--only-shell` installs chromium-headless-shell and skips full Chromium; the `full` bundle installs
+# both and checks full Chromium's libraries too. Dependencies were installed above, so
+# `--with-deps` is intentionally not used.
 RUN pip install --no-cache-dir "playwright==${PLAYWRIGHT_VERSION}" \
-    && python -m playwright install --only-shell chromium \
+    && if [ "${BROWSER_BUNDLE}" = "full" ]; then \
+        python -m playwright install chromium \
+        && full="$(find /ms-playwright -type f -name chrome -path '*chrome-linux*' -print -quit)" \
+        && test -n "${full}" \
+        && ! ldd "${full}" | grep 'not found' \
+        && command -v Xvfb; \
+    else \
+        python -m playwright install --only-shell chromium; \
+    fi \
     && shell="$(find /ms-playwright -type f \( -name chrome-headless-shell -o -name headless_shell \) -print -quit)" \
     && test -n "${shell}" \
     && ldd "${shell}" \

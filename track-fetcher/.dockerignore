@@ -1,0 +1,7 @@
+# Only the fetcher package is copied into the image.
+tests/
+README.md
+**/__pycache__/
+*.pyc
+.pytest_cache/
+.git/

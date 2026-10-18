@@ -6,10 +6,12 @@
 //! reads the store, so a slow or failing board cannot delay the feed; a failure simply leaves that
 //! station's earlier rows to expire.
 
+use super::amtrak::groups_from_status;
 use super::hartford::{parse_hartford_board, BOARD_MARKER};
 use super::raildata::{assignments_for_station, BoardError, RailDataClient};
 use super::store::{Assignment, AssignmentStore};
 use crate::config::TrackConfig;
+use crate::static_augment::SharedPlatforms;
 use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -23,6 +25,7 @@ pub async fn run_board_refresher(
     store: Arc<AssignmentStore>,
     config: TrackConfig,
     token_path: PathBuf,
+    platforms: SharedPlatforms,
 ) {
     let http = board_client(&config);
     let credentials = config
@@ -41,7 +44,15 @@ pub async fn run_board_refresher(
     ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
     loop {
         ticker.tick().await;
-        refresh_once(&store, &config, &mut raildata, &http, &mut reported).await;
+        refresh_once(
+            &store,
+            &config,
+            &mut raildata,
+            &http,
+            &mut reported,
+            &platforms,
+        )
+        .await;
     }
 }
 
@@ -65,6 +76,7 @@ pub async fn refresh_once(
     raildata: &mut RailDataClient,
     http: &reqwest::Client,
     reported: &mut HashSet<BoardError>,
+    platforms: &SharedPlatforms,
 ) {
     if raildata.is_configured() {
         for station in &config.njt_stations {
@@ -72,6 +84,7 @@ pub async fn refresh_once(
                 Ok(body) => match assignments_for_station(&body, station, &config.station_map) {
                     Ok(rows) => {
                         reported.clear();
+                        observe_tracks(platforms, &rows);
                         store.replace_station(&format!("njt:{station}"), rows, SystemTime::now());
                     }
                     Err(_) => {
@@ -92,14 +105,64 @@ pub async fn refresh_once(
     }
     if let Some(url) = config.hartford_url.as_deref() {
         match fetch_hartford(http, url, &config.hartford_stop_id).await {
-            Some(rows) => store.replace_station(
-                &format!("hartford:{}", config.hartford_stop_id),
-                rows,
-                SystemTime::now(),
-            ),
+            Some(rows) => {
+                observe_tracks(platforms, &rows);
+                store.replace_station(
+                    &format!("hartford:{}", config.hartford_stop_id),
+                    rows,
+                    SystemTime::now(),
+                );
+            }
             None => tracing::warn!(source = "hartford", "board fetch failed"),
         }
     }
+    if let Some(url) = config.amtrak_url.as_deref() {
+        match fetch_amtrak(http, url).await {
+            Ok(body) => {
+                let now = SystemTime::now();
+                match groups_from_status(&body, config.retain_grace, now) {
+                    Ok(groups) => {
+                        for group in groups {
+                            observe_tracks(platforms, &group.rows);
+                            let fetched_at = group.fetched_at.unwrap_or(now);
+                            store.upsert_retained(&group.source_key, group.rows, fetched_at);
+                        }
+                    }
+                    Err(error) => {
+                        tracing::warn!(source = "amtrak", %error, "unusable status snapshot")
+                    }
+                }
+            }
+            Err(error) => tracing::warn!(source = "amtrak", %error, "status fetch failed"),
+        }
+    }
+    // Written once per refresh, after the table lock is released. Covers RailData and Hartford
+    // as well as Amtrak, and does nothing when no new label was seen.
+    platforms.persist().await;
+    store.prune(SystemTime::now(), config.max_age);
+}
+
+fn observe_tracks(platforms: &SharedPlatforms, rows: &[Assignment]) {
+    for row in rows {
+        platforms.observe(&row.stop_id, &row.track);
+    }
+}
+
+/// The sidecar's bundle body. The parser decides whether it is usable.
+async fn fetch_amtrak(http: &reqwest::Client, url: &str) -> Result<String, String> {
+    let response = http
+        .get(url)
+        .send()
+        .await
+        .map_err(|error| format!("request failed: {}", error.without_url()))?;
+    let status = response.status();
+    if !status.is_success() {
+        return Err(format!("sidecar answered {status}"));
+    }
+    response
+        .text()
+        .await
+        .map_err(|error| format!("body read failed: {}", error.without_url()))
 }
 
 async fn fetch_hartford(
@@ -122,6 +185,7 @@ async fn fetch_hartford(
                 train_number,
                 stop_id: stop_id.to_string(),
                 track,
+                retain_until: None,
             })
             .collect(),
     )
@@ -130,7 +194,7 @@ async fn fetch_hartford(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use axum::routing::get;
+    use axum::routing::{get, post};
     use axum::Router;
     use std::time::{Duration, Instant};
 
@@ -148,6 +212,10 @@ mod tests {
         config
     }
 
+    fn platforms() -> SharedPlatforms {
+        SharedPlatforms::new(crate::static_augment::PlatformTable::default(), None)
+    }
+
     #[tokio::test]
     async fn hartford_rows_reach_the_store_and_failures_keep_them() {
         let base = serve(Router::new().route(
@@ -161,7 +229,15 @@ mod tests {
         let mut raildata =
             RailDataClient::new(http.clone(), &config.raildata_base, None, "unused".into());
         let mut reported = HashSet::new();
-        refresh_once(&store, &config, &mut raildata, &http, &mut reported).await;
+        refresh_once(
+            &store,
+            &config,
+            &mut raildata,
+            &http,
+            &mut reported,
+            &platforms(),
+        )
+        .await;
         let fresh = store.fresh_board(SystemTime::now(), Duration::from_secs(300));
         assert_eq!(fresh.track("141", "NHV"), Some("3"));
 
@@ -170,7 +246,15 @@ mod tests {
             hartford_url: Some(format!("{base}/missing")),
             ..config.clone()
         };
-        refresh_once(&store, &broken, &mut raildata, &http, &mut reported).await;
+        refresh_once(
+            &store,
+            &broken,
+            &mut raildata,
+            &http,
+            &mut reported,
+            &platforms(),
+        )
+        .await;
         let fresh = store.fresh_board(SystemTime::now(), Duration::from_secs(300));
         assert_eq!(fresh.track("141", "NHV"), Some("3"));
         let expired = store.fresh_board(
@@ -196,10 +280,102 @@ mod tests {
         let mut raildata =
             RailDataClient::new(http.clone(), &config.raildata_base, None, "unused".into());
         let started = Instant::now();
-        refresh_once(&store, &config, &mut raildata, &http, &mut HashSet::new()).await;
+        refresh_once(
+            &store,
+            &config,
+            &mut raildata,
+            &http,
+            &mut HashSet::new(),
+            &platforms(),
+        )
+        .await;
         assert!(started.elapsed() < Duration::from_secs(2));
         assert!(store
             .fresh_board(SystemTime::now(), Duration::from_secs(300))
             .is_empty());
+    }
+
+    #[tokio::test]
+    async fn amtrak_rows_are_stored_and_become_platform_stops() {
+        let base = serve(Router::new().route(
+            "/tracks.json",
+            get(|| async { include_str!("../../../fixtures/tracks/amtrak_status.json") }),
+        ))
+        .await;
+        let store = AssignmentStore::new();
+        let mut config = config(format!("{base}/board"));
+        config.hartford_url = None;
+        config.amtrak_url = Some(format!("{base}/tracks.json"));
+        let http = board_client(&config);
+        let mut raildata =
+            RailDataClient::new(http.clone(), &config.raildata_base, None, "unused".into());
+        let platforms = platforms();
+        refresh_once(
+            &store,
+            &config,
+            &mut raildata,
+            &http,
+            &mut HashSet::new(),
+            &platforms,
+        )
+        .await;
+        let fresh = store.fresh_board(SystemTime::now(), Duration::from_secs(300));
+        assert_eq!(fresh.track("167", "PVD"), Some("1"));
+        assert_eq!(fresh.track("167", "KIN"), Some("2"));
+        assert_eq!(fresh.track("167", "BUF"), Some("MAIN"));
+        let table = platforms.snapshot();
+        assert!(table.contains("PVD", "1"));
+        assert!(table.contains("BUF", "MAIN"));
+        assert!(!table.contains("KIN", "TBD"));
+    }
+
+    #[tokio::test]
+    async fn a_rail_data_track_outside_the_seeded_list_becomes_a_platform_stop() {
+        let app = Router::new()
+            .route(
+                "/TrainData/getToken",
+                post(|| async { r#"{"Authenticated":"True","UserToken":"tok"}"# }),
+            )
+            .route(
+                "/TrainData/getTrainSchedule19Rec",
+                post(|| async { include_str!("../../../fixtures/tracks/njt_princeton.json") }),
+            );
+        let base = serve(app).await;
+        let store = AssignmentStore::new();
+        let mut config = config(format!("{base}/unused"));
+        config.hartford_url = None;
+        config.njt_stations = vec!["PJ".into()];
+        config.njt_username = Some("user".into());
+        config.njt_password = Some("secret".into());
+        let http = board_client(&config);
+        let token_path = std::env::temp_dir().join(format!(
+            "raildata-pjc-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let mut raildata = RailDataClient::new(
+            http.clone(),
+            &format!("{base}/TrainData"),
+            Some(("user".into(), "secret".into())),
+            token_path,
+        );
+        let platforms = platforms();
+        refresh_once(
+            &store,
+            &config,
+            &mut raildata,
+            &http,
+            &mut HashSet::new(),
+            &platforms,
+        )
+        .await;
+        let fresh = store.fresh_board(SystemTime::now(), Duration::from_secs(300));
+        assert_eq!(fresh.track("1164", "PJC"), Some("2"));
+        assert_eq!(fresh.track("3872", "PJC"), None);
+        assert_eq!(fresh.track("167", "PJC"), None);
+        assert!(platforms.snapshot().contains("PJC", "2"));
     }
 }

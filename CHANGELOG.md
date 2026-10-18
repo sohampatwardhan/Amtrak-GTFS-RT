@@ -9,6 +9,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **RailData coverage for every station Amtrak and NJ Transit both serve.** The default poll is
+  New York Penn, Newark Penn, Newark Airport, Metropark, New Brunswick, Princeton Junction,
+  Trenton, and Philadelphia 30th Street (`NY`, `NP`, `NA`, `MP`, `NB`, `PJ`, `TR`, `PH` mapped to
+  `NYP`, `NWK`, `EWR`, `MET`, `NBK`, `PJC`, `TRE`, `PHL`). A track from that board is published
+  even when it is not in the seeded New York, Newark, and New Haven platform lists. All eight
+  stations share one cached token.
+- **Amtrak's own track numbers** (still default-off). Set `AMTRAK_TRACKS_AMTRAK_URL` to the
+  `track-fetcher` sidecar and `AMTRAK_TRACKS=on`. The sidecar reads
+  `GET /dotcom/travel-service/statuses/{train}?service-date={YYYY-MM-DD}` — the document the
+  Amtrak app uses for `departure.track.number`, falling back to `arrival.track.number` — for
+  trains with a stop inside a 30-minute lookahead and a 10-minute lookback. A train whose next
+  stop is within about 12 minutes and still has no track is fetched every minute; the rest of
+  that window rotates under a 90-second cooldown with at most 24 fetches a cycle, using one
+  resident headless browser. A track stays published until the stop's latest time plus
+  `AMTRAK_TRACKS_RETAIN_GRACE_SECS` (default 900), including when a later document omits it.
+  Amtrak wins over NJ Transit and the Hartford board while its document is fresh; an older
+  Amtrak track yields to a live board reading. An Amtrak track that is not already in
+  `AMTRAK_TRACKS_PLATFORMS`, at a station in the static feed, is recorded in
+  `observed-platforms.txt` (observed labels only, at most 1000) and becomes a platform stop on a
+  static rebuild at most every 10 minutes; if the validator rejects it, static is rebuilt with
+  the configured platforms alone. The sidecar backs off browser relaunches, times out each
+  request, blocks hosts outside `amtrak.com`, serves `503` when every fetch fails, and fails
+  `/healthz` when its poll loop stalls; in Compose it runs read-only with no capabilities and a
+  768 MB memory limit. Unset the URL to leave this source off. `docker buildx bake` does not build
+  the sidecar; CI builds it on amd64 and arm64.
 - **Time- and count-bounded generation retention.** A superseded generation is deleted once it
   has been superseded for `AMTRAK_GENERATION_RETAIN_SECS` (default 600), measured from the newer
   generation's manifest mtime so the window holds across restarts. `AMTRAK_GENERATION_MAX`
@@ -48,6 +73,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`BROWSER_MODE=xvfb-headful` works in both browser sidecars.** Neither image had full
+  Chromium or Xvfb, and nothing started an X server, so the documented fallback failed at launch.
+  Build with `--build-arg BROWSER_BUNDLE=full` (or `FETCHER_BROWSER_BUNDLE=full` for Compose and
+  bake) to add both; the fetcher then starts Xvfb itself. The default image is unchanged, and
+  selecting headful mode on it stops at startup with a message naming the build argument. CI
+  builds both bundles of both images on amd64 and arm64.
 - Startup no longer reads every generation on the volume into memory. It loads the current
   generation, prunes the rest by directory metadata, and then loads only the survivors. A volume
   with hundreds of generations left by an older release previously pushed the process past

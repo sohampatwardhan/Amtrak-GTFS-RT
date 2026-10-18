@@ -120,12 +120,14 @@ docker build --tag amtrak-gtfs-rt:local .
 
 [`docker-bake.hcl`](docker-bake.hcl) builds that image and the separate advisory-fetcher image.
 The fetcher target uses [`advisory-fetcher/Dockerfile`](advisory-fetcher/Dockerfile); the service
-target stays `runtime`.
+target stays `runtime`. The track sidecar is a third target and is not in the default bake group,
+so `docker buildx bake` and the scratch release stay unchanged.
 
 ```bash
-docker buildx bake                  # both images
+docker buildx bake                  # service + advisory-fetcher
 docker buildx bake service          # scratch service only
-docker buildx bake advisory-fetcher # browser sidecar only
+docker buildx bake advisory-fetcher # advisory browser sidecar only
+docker buildx bake track-fetcher    # optional track sidecar
 ```
 
 **Image contract:** runs as UID/GID `10001`, entrypoint `/usr/local/bin/amtrak-gtfs-rt-service`
@@ -340,10 +342,12 @@ identifier parsing, and manifest-first discovery.
 | `AMTRAK_TRACKS_RAILDATA_BASE` | `https://raildata.njtransit.com/api/TrainData` | NJ Transit RailData `TrainData` base URL |
 | `NJT_RAILDATA_USERNAME` | empty | Registered RailData username. Set with the password, or set neither |
 | `NJT_RAILDATA_PASSWORD` | empty | Registered RailData password. Never commit this |
-| `AMTRAK_TRACKS_NJT_STATIONS` | `NY,NP,NA,MP,NB,PJ,TR` | RailData station codes to read. Each code needs a map entry |
-| `AMTRAK_TRACKS_STATION_MAP` | `NY=NYP,NP=NWK,NA=EWR,MP=MET,NB=NBK,PJ=PJC,TR=TRE` | RailData code to Amtrak GTFS `stop_id`. Overrides or extends the default |
+| `AMTRAK_TRACKS_NJT_STATIONS` | `NY,NP,NA,MP,NB,PJ,TR,PH` | RailData station codes to read. Each code needs a map entry |
+| `AMTRAK_TRACKS_STATION_MAP` | `NY=NYP,NP=NWK,NA=EWR,MP=MET,NB=NBK,PJ=PJC,TR=TRE,PH=PHL` | RailData code to Amtrak GTFS `stop_id`. Overrides or extends the default |
 | `AMTRAK_TRACKS_HARTFORD_URL` | `https://hartfordline.com/connecting-train-status/` | New Haven board. Set empty to skip it |
 | `AMTRAK_TRACKS_HARTFORD_STOP` | `NHV` | Amtrak `stop_id` for that board |
+| `AMTRAK_TRACKS_AMTRAK_URL` | empty | Sidecar URL for Amtrak's own status JSON. Empty skips that source. This is not `www.amtrak.com`; that host blocks plain HTTP |
+| `AMTRAK_TRACKS_RETAIN_GRACE_SECS` | `900` | How long an Amtrak track stays published after the stop's latest time |
 
 ## Service Alerts & Notices
 
@@ -433,12 +437,27 @@ augmentation fails or is rejected, Amtrak's feed is published unchanged and no t
 The only new validator notice is a `stop_without_stop_time` warning per platform stop, because no
 scheduled trip calls at a platform directly.
 
-The default list covers tracks from published track maps: New York Penn 1–21, Newark Penn A and
-1–5, and New Haven Union's platform tracks (1–4, 8, 10, 12, 14). Newark Airport, Metropark, New
-Brunswick, Princeton Junction, and Trenton are read but not covered, because their platform
-numbering is not published; a reported track that is not in the list is logged once and not
-published. Add verified tracks with `AMTRAK_TRACKS_PLATFORMS`, for example
-`NYP=1-21;NWK=A,1-5;NHV=1-4,8,10,12,14;EWR=1-4`.
+The seeded list covers tracks from published track maps: New York Penn 1–21, Newark Penn A and
+1–5, and New Haven Union's platform tracks (1–4, 8, 10, 12, 14). A track any source later reports
+that is not in that list — Amtrak's status, RailData at Metropark, New Brunswick, Princeton
+Junction, Trenton, Newark Airport, or 30th Street, or the Hartford board — is recorded as an
+observed platform in `{AMTRAK_OUTPUT_DIR}/tracks/observed-platforms.txt` and the static feed is
+rebuilt. The rebuild waits 30 seconds so a burst of new labels is one refresh, and runs at most
+once every 10 minutes. The track is stamped only once that platform stop is in the published
+snapshot.
+
+The file holds only observed labels, not the configured ones, so removing a track from
+`AMTRAK_TRACKS_PLATFORMS` takes effect, and deleting the file resets observations. It is loaded
+on startup, so a restart does not change the static version. A file that does not parse is
+renamed to `observed-platforms.txt.invalid` and ignored. Only stations in the active static feed
+are observed, and at most 1000 labels are kept. If the static validator rejects the feed with the
+observed platforms, it is rebuilt with the configured platforms alone, so one bad observation
+cannot remove every platform stop.
+
+Labels are platform tokens such as `4`, `14`, `2A`, `A`, or the named track `MAIN` (Buffalo).
+Anything else, such as `TBD`, is ignored. Add a known list ahead of time with
+`AMTRAK_TRACKS_PLATFORMS`, for example `NYP=1-21;NWK=A,1-5;NHV=1-4,8,10,12,14;EWR=1-4`. A
+station that is not in the static feed at all is skipped.
 
 **Trip updates.** A matching stop time gets `assigned_stop_id={stop}:track:{label}` and its
 `stop_sequence`, and its `stop_id` is removed, as the reference prefers. A stop time is stamped only
@@ -450,23 +469,105 @@ absent. Consumers that list every row of `stops.txt` should filter by `location_
 `parent_station` to avoid showing parent stations and platforms as separate places.
 
 **Sources.** A background task reads the boards every `AMTRAK_TRACKS_REFRESH_SECS`; generation only
-reads its latest results, so a slow or failed board never delays the feed. A reading is published
-for at most `AMTRAK_TRACKS_MAX_AGE_SECS`, and a failed refresh never extends it.
+reads its latest results, so a slow or failed board never delays the feed. NJ Transit and Hartford
+readings are published for at most `AMTRAK_TRACKS_MAX_AGE_SECS`, and a failed refresh never
+extends that age. When two sources name the same train and stop, Amtrak's own status wins while
+its document is fresh (fetched by the sidecar within `AMTRAK_TRACKS_MAX_AGE_SECS`), then NJ
+Transit, then the Hartford board. Amtrak is what the app shows; the other boards fill the gap
+before Amtrak publishes a number. An Amtrak track from an older document is still published until
+departure, but a live NJ Transit or Hartford reading replaces it, so a blocked sidecar cannot hold
+a track over a board's track change.
 
-- NJ Transit RailData, for New York Penn, Newark Penn, Newark Airport, Metropark, New Brunswick,
-  Princeton Junction, and Trenton. This needs a
+- Amtrak's train-status API, for every station where that API publishes a track. The service does
+  not call `www.amtrak.com` itself. Set `AMTRAK_TRACKS_AMTRAK_URL` to the
+  [`track-fetcher`](track-fetcher/README.md) sidecar, which serves `GET /tracks.json`. On
+  2026-10-17 the app showed track 1 at Providence for train 167 about ten minutes before arrival
+  (`arrival.track.number` `1`, `asOf` 16:57, scheduled 17:06). Some stations publish hours earlier,
+  and that value is already on the document once the train is near the stop, so the sidecar polls
+  trains with a stop inside a 30-minute lookahead and a 10-minute lookback instead of the whole
+  fleet. A train whose next stop is within about 12 minutes and still has no track is fetched
+  every cycle; every other train in the window, including one that has just left a stop, rotates
+  with a 90-second cooldown, and a cycle makes at most 24 fetches. A track Amtrak has shown is kept until the stop's
+  latest scheduled or predicted time plus `AMTRAK_TRACKS_RETAIN_GRACE_SECS` (default 15 minutes),
+  including when a later document drops the field after departure. An empty URL leaves this source
+  off.
+- NJ Transit RailData, for every station both railroads schedule. One cached token is reused for
+  the whole pass; a token is requested only when the cache is empty or older than 23 hours, and
+  never more than 10 times in 24 hours. The pass stops when credentials are rejected or that budget
+  is spent, so the extra stations do not become extra token calls. This needs a
   registered RailData account from the [NJ Transit developer portal](https://developer.njtransit.com/registration);
   set `NJT_RAILDATA_USERNAME` and `NJT_RAILDATA_PASSWORD` in the environment, never in the repo.
-  NJ Transit allows 10 token requests a day, so the token is cached in
-  `{AMTRAK_OUTPUT_DIR}/tracks/raildata-token.json` (mode `0600`, never served) and reused across
-  restarts, and the service never makes more than 10 token requests in 24 hours. Rejected
-  credentials pause NJ Transit requests for an hour. Without credentials, NJ Transit stations are
-  skipped. Amtrak rows are those whose `TRAIN_ID` starts with `A`; the prefix and leading zeros are
-  stripped before matching GTFS `trip_short_name`.
-- The CTrail Hartford Line connecting-train board, for New Haven Union. Set
-  `AMTRAK_TRACKS_HARTFORD_URL` empty to skip it.
+  Rejected credentials pause NJ Transit requests for an hour. Without credentials, NJ Transit
+  stations are skipped. Amtrak rows are those whose `TRAIN_ID` starts with `A`; the prefix and
+  leading zeros are stripped before matching GTFS `trip_short_name`. The codes are Appendix V of
+  NJ Transit's Rail Real-time Data API, checked against Amtrak's station codes:
 
-The root Compose file does not set `AMTRAK_TRACKS`; the default stack is unchanged.
+  | RailData | Amtrak | Station |
+  | --- | --- | --- |
+  | `NY` | `NYP` | New York Penn |
+  | `NP` | `NWK` | Newark Penn |
+  | `NA` | `EWR` | Newark Liberty Airport |
+  | `MP` | `MET` | Metropark |
+  | `NB` | `NBK` | New Brunswick |
+  | `PJ` | `PJC` | Princeton Junction |
+  | `TR` | `TRE` | Trenton |
+  | `PH` | `PHL` | Philadelphia 30th Street |
+
+  New York and the six New Jersey stops are Amtrak's scheduled stops in the state (FY25 fact sheet)
+  plus New York Penn. Philadelphia is the Atlantic City Line's terminal, which Amtrak also serves.
+  North Philadelphia (`NF` / `PHN`) is not polled: a few Keystone trains stop, and NJ Transit does
+  not. Wilmington, Baltimore, BWI, New Carrollton, and Washington are stop codes on Amtrak
+  itineraries in the same API, and NJ Transit does not operate them. Westerly is not in that
+  station list. On 2026-10-17 Amtrak's own status had no track for train 167 at Westerly or New
+  Haven, and none for train 1164 at Princeton Junction; New Haven stays on the Hartford board, and
+  Princeton Junction comes from this RailData row.
+- The CTrail Hartford Line connecting-train board, for New Haven Union. Set
+  `AMTRAK_TRACKS_HARTFORD_URL` empty to skip it. New Haven is not an NJ Transit RailData station.
+
+```mermaid
+flowchart TD
+  maps["maps.amtrak.com getTrainsData"] --> dec["Decrypt in the sidecar"]
+  dec --> win["Stops from 10 min past to 30 min ahead"]
+  win --> hot["Next stop within 12 min, no track yet: every cycle"]
+  win --> outer["Otherwise: 90s cooldown, 24 fetches max"]
+  hot --> browser["One resident headless browser"]
+  outer --> browser
+  browser --> status["Status JSON for that train-day"]
+  status --> snap["/tracks.json"]
+  snap --> store["Assignment store"]
+  njt["RailData NY NP NA MP NB PJ TR PH"] --> store
+  hart["Hartford board at New Haven"] --> store
+  store --> rank["Fresh Amtrak, then NJ Transit, then Hartford, then older Amtrak"]
+  rank --> stamp["assigned_stop_id on trip updates"]
+  status --> seen["Track not in the seeded list"]
+  njt --> seen
+  hart --> seen
+  seen --> file["observed-platforms.txt"]
+  file --> static["Next static refresh adds the platform stop"]
+  static --> stamp
+```
+
+The sidecar keeps a single `chromium-headless-shell` between polls and blocks image, font,
+stylesheet, and media requests, and every host outside `amtrak.com`. A browser failure ends that
+cycle's fetches, and relaunches back off from 1 to 15 minutes. If every fetch in a cycle fails,
+`/tracks.json` goes `503` after five minutes instead of serving old documents as current. In
+Compose the sidecar runs read-only, with no capabilities, a 768 MB memory limit, and no published
+port; see [`track-fetcher/README.md`](track-fetcher/README.md). The maps feed, which has no track field, is decrypted without a
+browser and is only used to decide who is near a stop. The image uses the same headless-shell
+build the advisory sidecar's on-device notes ran on a Raspberry Pi 5 (`linux/arm64`). One browser
+stays resident across the 60-second polls, and each cycle issues at most 24 status requests.
+Chromium stays in this sidecar image.
+
+The root Compose file does not enable tracks. The sidecar is the `tracks` profile and is not
+started by `docker compose up`:
+
+```bash
+AMTRAK_TRACKS=on \
+AMTRAK_TRACKS_AMTRAK_URL=http://track-fetcher:8081/tracks.json \
+  docker compose --profile tracks up -d --build
+```
+
+RailData still needs its own credentials, passed the same way as before:
 
 ```bash
 AMTRAK_TRACKS=on NJT_RAILDATA_USERNAME=... NJT_RAILDATA_PASSWORD=... \
@@ -498,7 +599,8 @@ stop's `platform_code`.
 | `src/sources/mod.rs` | `RtSource` trait and the `RtBatch` normalization model |
 | `src/sources/amtrak.rs` | Amtrak source, wrapping the catenary crate |
 | `src/sources/advisories.rs` | Optional Service Alerts & Notices scraper (`AMTRAK_ADVISORIES`) |
-| `src/sources/tracks/` | Optional platform/track assignments (`AMTRAK_TRACKS`): RailData client, Hartford board, expiring store, background refresher, stamper |
+| `src/sources/tracks/` | Optional platform/track assignments (`AMTRAK_TRACKS`): Amtrak status documents, RailData client, Hartford board, precedence and retention, background refresher, stamper |
+| `track-fetcher/` | Optional sidecar (`AMTRAK_TRACKS_AMTRAK_URL`): decrypts the maps feed, polls trains near a stop, serves `/tracks.json` |
 | `src/static_augment.rs` | Platform stops added to the published static feed when tracks are on |
 | `src/static_gtfs.rs` | Exact-byte static GTFS validation and pending/active lifecycle |
 | `src/orchestrator.rs` | Source selection, coherent generation build/validation, and recoverable polling |

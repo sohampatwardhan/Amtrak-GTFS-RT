@@ -2,13 +2,19 @@
 #
 # Chromium stays in the advisory-fetcher image. The service build is the root
 # Dockerfile `runtime` stage (scratch). Advisories are on in this stack and
-# fail open if the fetcher is down. Track assignments stay off (`AMTRAK_TRACKS`
-# default); enabling them needs RailData credentials from the environment and
-# changes the published static feed; see the README.
+# fail open if the fetcher is down. Track assignments stay off unless
+# `AMTRAK_TRACKS=on` is set in the environment. The track sidecar is the
+# Compose profile `tracks` and is not started by `docker compose up`.
+# Enabling tracks changes the published static feed; see the README.
 #
 #   docker compose up -d --build
 #
 # Build both images without starting them: `docker buildx bake`
+#
+# Both browser sidecars use chromium-headless-shell. If Amtrak blocks it, rebuild them with full
+# Chromium and Xvfb and run headful (larger images, more memory on a Pi):
+#
+#   FETCHER_BROWSER_BUNDLE=full FETCHER_BROWSER_MODE=xvfb-headful docker compose up -d --build
 #
 # Rust service alone, advisories off (image default; do not set AMTRAK_ADVISORIES):
 #
@@ -25,16 +31,47 @@ services:
     build:
       context: ./advisory-fetcher
       dockerfile: Dockerfile
+      args:
+        BROWSER_BUNDLE: ${FETCHER_BROWSER_BUNDLE:-headless-shell}
     image: advisory-fetcher:local
     restart: unless-stopped
     # Chromium is launched with --disable-dev-shm-usage, so it does not need a 1 GB /dev/shm.
     shm_size: "64mb"
     environment:
       POLL_INTERVAL_SECS: "900"
-      BROWSER_MODE: headless-shell
+      BROWSER_MODE: ${FETCHER_BROWSER_MODE:-headless-shell}
       BLOCK_SUBRESOURCES: "true"
     volumes:
       - advisory-snapshots:/snapshot
+    networks: [amtrak]
+
+  track-fetcher:
+    profiles: ["tracks"]
+    build:
+      context: ./track-fetcher
+      dockerfile: Dockerfile
+      args:
+        BROWSER_BUNDLE: ${FETCHER_BROWSER_BUNDLE:-headless-shell}
+    image: track-fetcher:local
+    restart: unless-stopped
+    shm_size: "64mb"
+    # Chromium runs Amtrak's page scripts without its own sandbox, so the container is the
+    # boundary: read-only root, no capabilities, bounded memory and processes, and no published
+    # port (only amtrak-gtfs-rt reaches it on the internal network).
+    read_only: true
+    tmpfs:
+      - /tmp
+      - /home/fetcher
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    init: true
+    mem_limit: 768m
+    pids_limit: 256
+    environment:
+      POLL_INTERVAL_SECS: "60"
+      BROWSER_MODE: ${FETCHER_BROWSER_MODE:-headless-shell}
+      BLOCK_SUBRESOURCES: "true"
+      BLOCK_THIRD_PARTY: "true"
     networks: [amtrak]
 
   amtrak-gtfs-rt:
@@ -48,6 +85,9 @@ services:
     environment:
       AMTRAK_ADVISORIES: "on"
       AMTRAK_ADVISORIES_URL: http://advisory-fetcher:8080/service-alerts-and-notices
+      # Empty unless the operator sets them. Empty leaves track assignments off.
+      AMTRAK_TRACKS: ${AMTRAK_TRACKS:-}
+      AMTRAK_TRACKS_AMTRAK_URL: ${AMTRAK_TRACKS_AMTRAK_URL:-}
       # Published on host loopback port 8090 (8080 is often taken on the host).
       # The container sees that traffic from the bridge gateway of the pinned
       # subnet below, not from 127.0.0.1.

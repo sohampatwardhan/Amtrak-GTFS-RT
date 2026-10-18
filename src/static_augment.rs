@@ -18,6 +18,9 @@ use crate::sources::tracks::is_track_label;
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, HashSet};
 use std::io::{Cursor, Read, Write};
+use std::path::PathBuf;
+use std::sync::{Arc, RwLock};
+use tokio::sync::Notify;
 use zip::write::SimpleFileOptions;
 use zip::{CompressionMethod, DateTime, ZipArchive, ZipWriter};
 
@@ -81,6 +84,31 @@ impl PlatformTable {
             .collect()
     }
 
+    /// Adds one platform. Returns whether the table changed.
+    ///
+    /// Stop ids are uppercased. A label that is not a platform token, or a stop id that contains
+    /// `:`, is ignored. Duplicate labels are ignored.
+    pub fn insert_track(&mut self, stop_id: &str, label: &str) -> bool {
+        let stop = stop_id.trim().to_uppercase();
+        let label = label.trim().to_uppercase();
+        if stop.is_empty()
+            || stop.contains(':')
+            || !(2..=5).contains(&stop.len())
+            || !stop
+                .chars()
+                .all(|character| character.is_ascii_alphanumeric())
+            || !is_track_label(&label)
+        {
+            return false;
+        }
+        let tracks = self.stations.entry(stop).or_default();
+        if tracks.iter().any(|track| track == &label) {
+            return false;
+        }
+        tracks.push(label);
+        true
+    }
+
     /// Whether `label` is a configured track of covered stop `stop_id`.
     pub fn contains(&self, stop_id: &str, label: &str) -> bool {
         self.stations
@@ -93,7 +121,25 @@ impl PlatformTable {
         self.stations.keys().map(String::as_str)
     }
 
-    fn canonical(&self) -> String {
+    /// Number of platform labels across all stations.
+    pub fn label_count(&self) -> usize {
+        self.stations.values().map(Vec::len).sum()
+    }
+
+    /// Adds every label of `other` after this table's own.
+    fn extend(&mut self, other: &PlatformTable) {
+        for (stop, tracks) in &other.stations {
+            let existing = self.stations.entry(stop.clone()).or_default();
+            for track in tracks {
+                if !existing.contains(track) {
+                    existing.push(track.clone());
+                }
+            }
+        }
+    }
+
+    /// Canonical form (`NHV=1,2;NWK=A,1`), also the on-disk record of observed platforms.
+    pub fn canonical(&self) -> String {
         self.stations
             .iter()
             .map(|(stop, tracks)| format!("{stop}={}", tracks.join(",")))
@@ -122,6 +168,228 @@ fn expand(part: &str) -> Result<Vec<String>, String> {
         return Err(format!("{part:?} is not a platform track label"));
     }
     Ok(vec![upper])
+}
+
+/// Most observed labels kept, so a misbehaving source cannot grow the static feed without bound.
+pub const MAX_OBSERVED_PLATFORMS: usize = 1000;
+
+struct PlatformState {
+    configured: PlatformTable,
+    /// Labels seen at runtime that are not configured. This delta is what `path` records.
+    observed: PlatformTable,
+    /// Plain stop ids of the active static snapshot. Only these stations are observed.
+    known: Option<HashSet<String>>,
+    /// Observations changed since the file was last written.
+    dirty: bool,
+    cap_reported: bool,
+}
+
+/// Configured platforms plus tracks observed at runtime, shared by the stamper and static refresh.
+///
+/// Observed labels are kept apart from configured ones and only the observed delta is written to
+/// `path`, so removing a track from `AMTRAK_TRACKS_PLATFORMS` takes effect and deleting the file
+/// resets observations. A newly observed track is signaled on [`Self::changed`] so static refresh
+/// can publish the platform stop without waiting for the daily Amtrak feed poll.
+#[derive(Clone)]
+pub struct SharedPlatforms {
+    inner: Arc<RwLock<PlatformState>>,
+    changed: Arc<Notify>,
+    path: Option<PathBuf>,
+}
+
+impl SharedPlatforms {
+    /// Shares `configured` with no observations. `path` is where new observations are recorded.
+    #[cfg(test)]
+    pub fn new(configured: PlatformTable, path: Option<PathBuf>) -> SharedPlatforms {
+        SharedPlatforms::with_observed(configured, PlatformTable::default(), path)
+    }
+
+    /// Shares `configured` plus the observations recorded at `path`.
+    ///
+    /// A missing file is no observations. A file that does not parse is renamed to `*.invalid`
+    /// and ignored, so a corrupt record cannot fail startup or be silently overwritten. Recorded
+    /// labels that are now configured are dropped from the delta.
+    pub fn load(configured: PlatformTable, path: PathBuf) -> SharedPlatforms {
+        let observed = match std::fs::read_to_string(&path) {
+            Ok(saved) => match PlatformTable::parse(saved.trim()) {
+                Ok(saved) => saved,
+                Err(error) => {
+                    let mut invalid = path.clone().into_os_string();
+                    invalid.push(".invalid");
+                    let renamed = std::fs::rename(&path, &invalid);
+                    tracing::warn!(
+                        %error,
+                        renamed = renamed.is_ok(),
+                        path = %path.display(),
+                        "ignoring unreadable platform observations"
+                    );
+                    PlatformTable::default()
+                }
+            },
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => PlatformTable::default(),
+            Err(error) => {
+                tracing::warn!(%error, path = %path.display(), "cannot read platform observations");
+                PlatformTable::default()
+            }
+        };
+        SharedPlatforms::with_observed(configured, observed, Some(path))
+    }
+
+    fn with_observed(
+        configured: PlatformTable,
+        saved: PlatformTable,
+        path: Option<PathBuf>,
+    ) -> SharedPlatforms {
+        let mut observed = PlatformTable::default();
+        for (stop, tracks) in &saved.stations {
+            for track in tracks {
+                if !configured.contains(stop, track)
+                    && observed.label_count() < MAX_OBSERVED_PLATFORMS
+                {
+                    observed.insert_track(stop, track);
+                }
+            }
+        }
+        let dirty = observed != saved;
+        SharedPlatforms {
+            inner: Arc::new(RwLock::new(PlatformState {
+                configured,
+                observed,
+                known: None,
+                dirty,
+                cap_reported: false,
+            })),
+            changed: Arc::new(Notify::new()),
+            path,
+        }
+    }
+
+    fn read(&self) -> std::sync::RwLockReadGuard<'_, PlatformState> {
+        self.inner
+            .read()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    fn write(&self) -> std::sync::RwLockWriteGuard<'_, PlatformState> {
+        self.inner
+            .write()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    /// Configured and observed platforms together, configured labels first.
+    pub fn snapshot(&self) -> PlatformTable {
+        let state = self.read();
+        let mut table = state.configured.clone();
+        table.extend(&state.observed);
+        table
+    }
+
+    /// Tables to augment static with, in order of preference.
+    ///
+    /// With observations, the configured table alone follows the full one, so a single bad
+    /// observation that makes augmentation or validation fail costs only the observed platforms,
+    /// not every platform stop.
+    pub fn candidates(&self) -> Vec<PlatformTable> {
+        let full = self.snapshot();
+        let configured = self.read().configured.clone();
+        if full == configured {
+            vec![full]
+        } else {
+            vec![full, configured]
+        }
+    }
+
+    /// Limits observation to `stop_ids` (an active static snapshot's stops). Generated platform
+    /// and parent ids, which contain `:`, are skipped.
+    pub fn set_known_stations<'a>(&self, stop_ids: impl IntoIterator<Item = &'a str>) {
+        let known = stop_ids
+            .into_iter()
+            .filter(|stop| !stop.contains(':'))
+            .map(str::to_uppercase)
+            .collect();
+        self.write().known = Some(known);
+    }
+
+    /// Records one observed platform. Returns whether it was new.
+    ///
+    /// Configured labels, labels already observed, stations outside the static feed, and anything
+    /// past [`MAX_OBSERVED_PLATFORMS`] are ignored. Nothing is written to disk here; see
+    /// [`Self::persist`].
+    pub fn observe(&self, stop_id: &str, label: &str) -> bool {
+        let stop = stop_id.trim().to_uppercase();
+        let label = label.trim().to_uppercase();
+        {
+            let mut state = self.write();
+            if state.configured.contains(&stop, &label) || state.observed.contains(&stop, &label) {
+                return false;
+            }
+            if state
+                .known
+                .as_ref()
+                .is_some_and(|known| !known.contains(&stop))
+            {
+                return false;
+            }
+            if state.observed.label_count() >= MAX_OBSERVED_PLATFORMS {
+                if !state.cap_reported {
+                    state.cap_reported = true;
+                    tracing::warn!(
+                        limit = MAX_OBSERVED_PLATFORMS,
+                        "observed platform limit reached; new tracks are not added"
+                    );
+                }
+                return false;
+            }
+            if !state.observed.insert_track(&stop, &label) {
+                return false;
+            }
+            state.dirty = true;
+        }
+        self.changed.notify_one();
+        true
+    }
+
+    /// Writes the observed delta to `path` if it changed, atomically and outside the table lock.
+    /// A failure is logged and retried on the next call.
+    pub async fn persist(&self) {
+        let Some(path) = self.path.clone() else {
+            return;
+        };
+        let contents = {
+            let mut state = self.write();
+            if !state.dirty {
+                return;
+            }
+            state.dirty = false;
+            state.observed.canonical()
+        };
+        let target = path.clone();
+        let written = tokio::task::spawn_blocking(move || write_atomically(&target, &contents))
+            .await
+            .unwrap_or_else(|error| Err(std::io::Error::other(error)));
+        if let Err(error) = written {
+            self.write().dirty = true;
+            tracing::warn!(%error, path = %path.display(), "could not save platform observations");
+        }
+    }
+
+    /// Wakes [`crate::static_gtfs::run_snapshot_refresh`] after a new platform is observed.
+    pub fn changed(&self) -> Arc<Notify> {
+        self.changed.clone()
+    }
+}
+
+fn write_atomically(path: &std::path::Path, contents: &str) -> std::io::Result<()> {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let mut temporary = path.as_os_str().to_owned();
+    temporary.push(".tmp");
+    let temporary = PathBuf::from(temporary);
+    let mut file = std::fs::File::create(&temporary)?;
+    file.write_all(contents.as_bytes())?;
+    file.sync_all()?;
+    std::fs::rename(&temporary, path)
 }
 
 /// Parent station id added for covered stop `stop_id`.
@@ -380,6 +648,88 @@ NYP,NYP,\"Ny Moynihan Train Hall At Penn Station\",https://www.amtrak.com/statio
         for bad in ["NWK", "NWK=", "NWK=TBD", "NWK=5-1", "NWK=0-3", "N:W=1"] {
             assert!(PlatformTable::parse(bad).is_err(), "{bad}");
         }
+    }
+
+    #[test]
+    fn an_observed_track_is_added_once_and_changes_the_digest() {
+        let mut table = PlatformTable::parse("NWK=1").unwrap();
+        let before = table.digest();
+        assert!(!table.insert_track("NWK", "1"));
+        assert!(table.insert_track("pvd", "1"));
+        assert!(table.insert_track("BUF", "MAIN"));
+        assert!(!table.insert_track("PVD", "TBD"));
+        assert!(!table.insert_track("bad:stop", "1"));
+        assert_ne!(table.digest(), before);
+        assert_eq!(table.canonical(), "BUF=MAIN;NWK=1;PVD=1");
+        let augmented = augment_static(&fixture_zip(STOPS.as_bytes()), &table).unwrap();
+        let gtfs = Gtfs::from_reader(Cursor::new(augmented)).unwrap();
+        assert!(gtfs.stops.contains_key("NWK:track:1"));
+        assert!(!gtfs.stops.contains_key("PVD:track:1"));
+    }
+
+    fn temp_path(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "amtrak-platforms-{name}-{}-{:?}",
+            std::process::id(),
+            std::time::SystemTime::now()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        dir.join("observed-platforms.txt")
+    }
+
+    #[tokio::test]
+    async fn only_the_observed_delta_is_recorded_and_reloaded() {
+        let path = temp_path("delta");
+        let shared = SharedPlatforms::load(PlatformTable::parse("NWK=1,4").unwrap(), path.clone());
+        shared.set_known_stations(["NWK", "PVD", "PVD:track:1"]);
+        assert!(!shared.observe("NWK", "4"));
+        assert!(shared.observe("pvd", "1"));
+        assert!(!shared.observe("PVD", "1"));
+        assert!(
+            !shared.observe("XYZ", "2"),
+            "station outside the static feed"
+        );
+        assert!(!shared.observe("PVD", "TBD"));
+        shared.persist().await;
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "PVD=1");
+        assert_eq!(shared.snapshot().canonical(), "NWK=1,4;PVD=1");
+        assert_eq!(shared.candidates().len(), 2);
+        assert_eq!(shared.candidates()[1].canonical(), "NWK=1,4");
+
+        // Removing NWK=4 from the configuration takes effect; PVD=1 is still observed. A recorded
+        // label that is now configured leaves the delta.
+        let reloaded = SharedPlatforms::load(PlatformTable::parse("PVD=1").unwrap(), path.clone());
+        assert_eq!(reloaded.snapshot().canonical(), "PVD=1");
+        assert_eq!(reloaded.candidates().len(), 1);
+        reloaded.persist().await;
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "");
+    }
+
+    #[test]
+    fn an_unreadable_record_is_set_aside_and_ignored() {
+        let path = temp_path("invalid");
+        std::fs::write(&path, "PVD=1;garbage").unwrap();
+        let shared = SharedPlatforms::load(PlatformTable::parse("NWK=1").unwrap(), path.clone());
+        assert_eq!(shared.snapshot().canonical(), "NWK=1");
+        assert!(!path.exists());
+        let mut invalid = path.into_os_string();
+        invalid.push(".invalid");
+        assert!(PathBuf::from(invalid).exists());
+    }
+
+    #[test]
+    fn observations_are_capped() {
+        let shared = SharedPlatforms::new(PlatformTable::default(), None);
+        let mut added = 0;
+        for station in 0..100 {
+            for track in 1..=20 {
+                if shared.observe(&format!("S{station:03}"), &track.to_string()) {
+                    added += 1;
+                }
+            }
+        }
+        assert_eq!(added, MAX_OBSERVED_PLATFORMS);
+        assert_eq!(shared.snapshot().label_count(), MAX_OBSERVED_PLATFORMS);
     }
 
     #[test]

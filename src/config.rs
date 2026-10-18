@@ -109,16 +109,23 @@ impl AdvisoryConfig {
 const DEFAULT_TRACKS_REFRESH_SECS: u64 = 60;
 const DEFAULT_TRACKS_MAX_AGE_SECS: u64 = 300;
 const DEFAULT_TRACKS_REQUEST_TIMEOUT_SECS: u64 = 10;
+/// How long an Amtrak track stays published after the stop's latest time. The status document
+/// often drops `departure.track` once the train has left; this covers that gap.
+const DEFAULT_TRACKS_RETAIN_GRACE_SECS: u64 = 900;
 const DEFAULT_RAILDATA_BASE: &str = "https://raildata.njtransit.com/api/TrainData";
 const DEFAULT_HARTFORD_URL: &str = "https://hartfordline.com/connecting-train-status/";
 const DEFAULT_HARTFORD_STOP: &str = "NHV";
-/// RailData stations with Amtrak service, north to south: New York Penn, Newark Penn, Newark
-/// Airport, Metropark, New Brunswick, Princeton Junction, Trenton.
-const DEFAULT_NJT_STATIONS: &str = "NY,NP,NA,MP,NB,PJ,TR";
-/// Sourced platform tracks: New York Penn 1–21, Newark Penn A and 1–5, New Haven Union's platform
-/// tracks (track 6 has no platform). Newark Airport, Metropark, New Brunswick, Princeton Junction,
-/// and Trenton have no published platform numbering, so they are read but not covered until an
-/// operator configures a verified list; their reported tracks are logged meanwhile.
+/// RailData stations where both Amtrak and NJ Transit have scheduled stops, north to south.
+///
+/// Codes are the Appendix V 2-character codes in NJ Transit's Rail Real-time Data Web API.
+/// Philadelphia is included because the Atlantic City Line and Amtrak both stop at 30th Street.
+/// North Philadelphia (`NF`) is not: Amtrak's Keystone stops there, and NJ Transit does not.
+/// Wilmington, Baltimore, BWI, New Carrollton, and Washington appear as stop codes on Amtrak
+/// itineraries in that API, and NJ Transit does not operate those stations.
+const DEFAULT_NJT_STATIONS: &str = "NY,NP,NA,MP,NB,PJ,TR,PH";
+/// Platform tracks taken from published track maps: New York Penn 1–21, Newark Penn A and 1–5,
+/// New Haven Union's platform tracks (track 6 has no platform). Other shared stations have no
+/// published inventory, so a track RailData or the Hartford board reports is added when it is seen.
 const DEFAULT_TRACK_PLATFORMS: &str = "NYP=1-21;NWK=A,1-5;NHV=1-4,8,10,12,14";
 
 /// Live platform/track enrichment. Default **off** and fail-open: a board failure never fails a
@@ -152,8 +159,14 @@ pub struct TrackConfig {
     /// Amtrak `stop_id` for the Hartford board (New Haven Union). Env `AMTRAK_TRACKS_HARTFORD_STOP`.
     pub hartford_stop_id: String,
     /// Covered stations and their real tracks; each becomes a platform stop in the published
-    /// static feed. Env `AMTRAK_TRACKS_PLATFORMS`.
+    /// static feed. Env `AMTRAK_TRACKS_PLATFORMS`. Tracks Amtrak later reports are added on top.
     pub platforms: crate::static_augment::PlatformTable,
+    /// Sidecar URL serving Amtrak train-status JSON. Empty or unset skips that source.
+    /// Env `AMTRAK_TRACKS_AMTRAK_URL`.
+    pub amtrak_url: Option<String>,
+    /// How long to keep an Amtrak track after the stop's latest time.
+    /// Env `AMTRAK_TRACKS_RETAIN_GRACE_SECS` (default 900).
+    pub retain_grace: Duration,
 }
 
 impl fmt::Debug for TrackConfig {
@@ -172,6 +185,8 @@ impl fmt::Debug for TrackConfig {
             .field("hartford_url", &self.hartford_url)
             .field("hartford_stop_id", &self.hartford_stop_id)
             .field("platforms", &self.platforms)
+            .field("amtrak_url", &self.amtrak_url)
+            .field("retain_grace", &self.retain_grace)
             .finish()
     }
 }
@@ -253,6 +268,16 @@ impl TrackConfig {
             &get("AMTRAK_TRACKS_PLATFORMS").unwrap_or_else(|| DEFAULT_TRACK_PLATFORMS.to_string()),
         )
         .map_err(|reason| ConfigError::new("AMTRAK_TRACKS_PLATFORMS", reason))?;
+        let amtrak_url = match get("AMTRAK_TRACKS_AMTRAK_URL") {
+            Some(value) if value.trim().is_empty() => None,
+            Some(value) => Some(value),
+            None => None,
+        };
+        let retain_grace = positive_secs(
+            &get,
+            "AMTRAK_TRACKS_RETAIN_GRACE_SECS",
+            DEFAULT_TRACKS_RETAIN_GRACE_SECS,
+        )?;
         Ok(TrackConfig {
             enabled,
             refresh_interval,
@@ -266,6 +291,8 @@ impl TrackConfig {
             hartford_url,
             hartford_stop_id,
             platforms,
+            amtrak_url,
+            retain_grace,
         })
     }
 
@@ -354,6 +381,7 @@ fn default_njt_station_map() -> Vec<(String, String)> {
         ("NB", "NBK"),
         ("PJ", "PJC"),
         ("TR", "TRE"),
+        ("PH", "PHL"),
     ]
     .into_iter()
     .map(|(njt, amtrak)| (njt.to_string(), amtrak.to_string()))
@@ -899,19 +927,33 @@ mod tests {
         );
         assert_eq!(
             defaults.njt_stations,
-            vec!["NY", "NP", "NA", "MP", "NB", "PJ", "TR"]
+            vec!["NY", "NP", "NA", "MP", "NB", "PJ", "TR", "PH"]
         );
-        for (njt, amtrak) in [("NA", "EWR"), ("NB", "NBK"), ("PJ", "PJC")] {
-            assert!(defaults
-                .station_map
-                .iter()
-                .any(|(code, stop)| code == njt && stop == amtrak));
-        }
+        let mapped: Vec<(&str, &str)> = defaults
+            .station_map
+            .iter()
+            .map(|(njt, amtrak)| (njt.as_str(), amtrak.as_str()))
+            .collect();
+        assert_eq!(
+            mapped,
+            vec![
+                ("NY", "NYP"),
+                ("NP", "NWK"),
+                ("NA", "EWR"),
+                ("MP", "MET"),
+                ("NB", "NBK"),
+                ("PJ", "PJC"),
+                ("TR", "TRE"),
+                ("PH", "PHL"),
+            ]
+        );
         assert!(defaults.platforms.contains("NYP", "21"));
         assert!(defaults.platforms.contains("NWK", "A"));
         assert!(defaults.platforms.contains("NHV", "14"));
         assert!(!defaults.platforms.contains("NHV", "6"));
         assert!(!defaults.platforms.contains("TRE", "1"));
+        assert!(defaults.amtrak_url.is_none());
+        assert_eq!(defaults.retain_grace, Duration::from_secs(900));
         assert_eq!(
             TrackConfig::from_map(
                 |key| (key == "AMTRAK_TRACKS_PLATFORMS").then(|| "NWK=TBD".into())
@@ -970,6 +1012,7 @@ mod tests {
             "AMTRAK_TRACKS_REFRESH_SECS",
             "AMTRAK_TRACKS_MAX_AGE_SECS",
             "AMTRAK_TRACKS_REQUEST_TIMEOUT_SECS",
+            "AMTRAK_TRACKS_RETAIN_GRACE_SECS",
         ] {
             let error =
                 TrackConfig::from_map(|key| (key == field).then(|| "0".into())).unwrap_err();

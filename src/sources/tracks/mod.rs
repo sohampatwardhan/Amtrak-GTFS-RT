@@ -1,13 +1,18 @@
 //! Live platform/track numbers for Amtrak trip updates.
 //!
-//! NJ Transit's RailData API and the CTrail Hartford Line board publish the track an Amtrak train
-//! will use at stations those operators share with Amtrak. When `AMTRAK_TRACKS` is on, a background
+//! NJ Transit's RailData API, the CTrail Hartford Line board, and Amtrak's own train-status
+//! documents publish the track an Amtrak train will use. When `AMTRAK_TRACKS` is on, a background
 //! [`refresher`] reads them into an expiring [`store`], and [`WithTracks`] stamps matching
 //! stop-time updates during generation without making any network request itself.
+//!
+//! When more than one source names a track for the same train and stop, Amtrak's own status wins,
+//! then NJ Transit RailData, then the Hartford board. Amtrak is what the Amtrak app shows; the
+//! other boards still fill the gap before Amtrak publishes a number.
 //!
 //! NJ Transit data is read only through a registered RailData account ([`raildata`]); the service
 //! contains no copy of the DepartureVision web client's session handshake.
 
+pub mod amtrak;
 pub mod hartford;
 pub mod raildata;
 pub mod refresher;
@@ -16,7 +21,7 @@ pub mod store;
 pub use store::{AssignmentStore, TrackBoard};
 
 use super::{RtBatch, RtSource, SourceError};
-use crate::static_augment::{platform_stop_id, PlatformTable};
+use crate::static_augment::{platform_stop_id, PlatformTable, SharedPlatforms};
 use async_trait::async_trait;
 use gtfs_realtime::trip_update::stop_time_update::ScheduleRelationship;
 use gtfs_realtime::trip_update::StopTimeUpdate;
@@ -33,18 +38,18 @@ use std::time::{Duration, SystemTime};
 pub struct WithTracks<S> {
     inner: S,
     store: Arc<AssignmentStore>,
-    table: Arc<PlatformTable>,
+    table: SharedPlatforms,
     max_age: Duration,
     unlisted: Mutex<HashSet<(String, String)>>,
 }
 
 impl<S> WithTracks<S> {
     /// Wraps `inner`, stamping tracks from `store` that are no older than `max_age` and that name
-    /// a platform configured in `table` (and therefore present in the augmented static feed).
+    /// a platform in `table` (and therefore present in the augmented static feed).
     pub fn new(
         inner: S,
         store: Arc<AssignmentStore>,
-        table: Arc<PlatformTable>,
+        table: SharedPlatforms,
         max_age: Duration,
     ) -> Self {
         Self {
@@ -68,7 +73,8 @@ impl<S: RtSource> RtSource for WithTracks<S> {
         let now = SystemTime::now();
         let board = self.store.fresh_board(now, self.max_age);
         if !board.is_empty() {
-            apply_track_assignments(&mut batch, gtfs, &board, &self.table, now, &self.unlisted);
+            let table = self.table.snapshot();
+            apply_track_assignments(&mut batch, gtfs, &board, &table, now, &self.unlisted);
         }
         Ok(batch)
     }
@@ -155,7 +161,11 @@ fn stamp_stop(
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         if seen.insert((stop_id.clone(), track.to_string())) {
-            tracing::warn!(stop = %stop_id, track, "board track is not a configured platform; not published");
+            tracing::warn!(
+                stop = %stop_id,
+                track,
+                "board track is not in the published static snapshot yet; not stamped"
+            );
         }
         return;
     }
@@ -224,8 +234,17 @@ fn canonical_stop_id(gtfs: &Gtfs, stop_id: &str) -> Option<String> {
         .map(|stop| stop.id.clone())
 }
 
-/// Platform token: `4`, `14`, `2A`, or a single letter. Words such as `TBD` are rejected.
+/// Named tracks Amtrak's status documents report at single-platform stations. An explicit list,
+/// so a placeholder word in any board's track column is still rejected.
+const NAMED_TRACKS: &[&str] = &["MAIN"];
+
+/// Platform token: `4`, `14`, `2A`, a single letter, or a named track such as `MAIN`.
+///
+/// Words such as `TBD` are rejected.
 pub fn is_track_label(track: &str) -> bool {
+    if NAMED_TRACKS.contains(&track) {
+        return true;
+    }
     let bytes = track.as_bytes();
     if bytes.is_empty() || bytes.len() > 4 || !bytes.iter().all(|byte| byte.is_ascii_alphanumeric())
     {
@@ -302,9 +321,13 @@ mod tests {
         assert!(is_track_label("14"));
         assert!(is_track_label("2A"));
         assert!(is_track_label("A"));
+        assert!(is_track_label("MAIN"));
         assert!(!is_track_label(""));
         assert!(!is_track_label("0"));
         assert!(!is_track_label("TBD"));
+        assert!(!is_track_label("NA"));
+        assert!(!is_track_label("GATE"));
+        assert!(!is_track_label("main"));
         assert!(!is_track_label("12AB"));
     }
 
@@ -403,12 +426,13 @@ mod tests {
             train_number: train.into(),
             stop_id: stop.into(),
             track: track.into(),
+            retain_until: None,
         });
         board
     }
 
-    fn table() -> PlatformTable {
-        PlatformTable::parse("NWK=1,4,5").unwrap()
+    fn table() -> SharedPlatforms {
+        SharedPlatforms::new(PlatformTable::parse("NWK=1,4,5").unwrap(), None)
     }
 
     fn stamp(batch: &mut RtBatch, board: &TrackBoard) {
@@ -417,7 +441,7 @@ mod tests {
             batch,
             &sample_gtfs(),
             board,
-            &table(),
+            &table().snapshot(),
             now,
             &Mutex::default(),
         );
@@ -528,7 +552,7 @@ mod tests {
                     behavior: Behavior::Ok(batch.clone()),
                 },
                 store,
-                Arc::new(table()),
+                table(),
                 Duration::from_secs(300),
             )
         };
@@ -536,6 +560,7 @@ mod tests {
             train_number: "67".into(),
             stop_id: "NWK".into(),
             track: "4".into(),
+            retain_until: None,
         };
         store.replace_station(
             "njt:NP",
