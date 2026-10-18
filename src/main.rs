@@ -4,6 +4,7 @@ mod serve;
 mod sources;
 mod static_augment;
 mod static_gtfs;
+mod static_repair;
 mod writer;
 
 use crate::config::Config;

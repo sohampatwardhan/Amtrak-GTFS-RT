@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Amtrak's static schedule is accepted again when it names an undefined stop.** In Amtrak's current feed
+  (20261018) the Mardi Gras Service calls at Ocean Springs (`OSM`), which `stops.txt` does not
+  define, so every static refresh failed with `The id OSM is not known` and the service kept the
+  last accepted schedule. With tracks on, this also meant no track was ever stamped. Stop times
+  naming a stop that `stops.txt` lacks are now dropped before parsing and validation, with a
+  warning naming the stop; the rest of each trip is kept.
+
 ## [0.6.0] - 2026-10-18
 
 ### Added

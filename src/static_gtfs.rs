@@ -1,5 +1,6 @@
 use crate::orchestrator::StaticSnapshot;
 use crate::static_augment::{augment_static, PlatformTable, SharedPlatforms};
+use crate::static_repair::repair_static;
 use async_trait::async_trait;
 use gtfs_structures::Gtfs;
 use serde_json::Value;
@@ -218,6 +219,9 @@ fn prune_validation_cache(cache_dir: &Path) {
 
 /// Fetches a static ZIP once, validates, then retains and parses those bytes.
 ///
+/// Stop times naming a stop missing from `stops.txt` are dropped first (see
+/// [`repair_static`]); "upstream bytes" below means the repaired bytes when that applies.
+///
 /// With `platforms`, the upstream ZIP is augmented with platform stops first, and the augmented
 /// bytes are the ones parsed, validated, and returned. Tables are tried in order. If augmentation
 /// fails or the validator rejects the bytes for every table, the upstream bytes are parsed and
@@ -252,12 +256,14 @@ async fn fetch_static_at(
         .bytes()
         .await
         .map_err(|_| StaticError("static body failed".into()))?;
+    let repaired = repair_static(bytes.as_ref());
+    let upstream = repaired.as_deref().unwrap_or(bytes.as_ref());
     for table in platforms {
-        if let Some(snapshot) = augmented_snapshot(bytes.as_ref(), table, validator, now).await {
+        if let Some(snapshot) = augmented_snapshot(upstream, table, validator, now).await {
             return Ok(snapshot);
         }
     }
-    let zip: Arc<[u8]> = Arc::from(bytes.as_ref());
+    let zip: Arc<[u8]> = Arc::from(upstream);
     let snapshot = snapshot_from_bytes(zip.clone(), now, None)?;
     validator
         .validate(zip)
@@ -1075,6 +1081,36 @@ mod tests {
             .write_all(format!("feed_publisher_name,feed_publisher_url,feed_lang,feed_version\nAmtrak,https://amtrak.com,en,{version}\n").as_bytes())
             .unwrap();
         archive.finish().unwrap().into_inner()
+    }
+
+    #[tokio::test]
+    async fn a_stop_missing_from_stops_txt_no_longer_rejects_the_schedule() {
+        // Amtrak's 20261018 feed called at OSM without defining it: "The id OSM is not known".
+        let upstream = augmentable_zip("20261018");
+        let stop_times = b"trip_id,arrival_time,departure_time,stop_id,stop_sequence\n\
+t,10:00:00,10:00:00,NWK,1\nt,10:30:00,10:30:00,OSM,2\n";
+        let upstream =
+            crate::static_augment::replace_entry(&upstream, "stop_times.txt", stop_times).unwrap();
+        assert!(Gtfs::from_reader(Cursor::new(upstream.clone())).is_err());
+        let (url, server) = served_zip(upstream);
+        let validator = RecordingValidator {
+            seen: Mutex::new(Vec::new()),
+            result: Ok(()),
+        };
+        let table = PlatformTable::parse("NWK=1").unwrap();
+        let snapshot = fetch_static(&url, &validator, std::slice::from_ref(&table))
+            .await
+            .unwrap();
+        assert_eq!(
+            snapshot.version,
+            format!("20261018+tracks.{}", table.digest())
+        );
+        assert!(snapshot.parsed.stops.contains_key("NWK:track:1"));
+        assert_eq!(snapshot.parsed.trips["t"].stop_times.len(), 1);
+
+        let plain = fetch_static(&url, &validator, &[]).await.unwrap();
+        assert_eq!(plain.version, "20261018");
+        server.abort();
     }
 
     /// Accepts only archives without platform stops, to drive the fallback path.
