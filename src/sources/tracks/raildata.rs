@@ -22,19 +22,20 @@ pub const TOKEN_REUSE: Duration = Duration::from_secs(23 * 3600);
 pub const TOKEN_BUDGET_WINDOW: Duration = Duration::from_secs(24 * 3600);
 /// Maximum token requests in [`TOKEN_BUDGET_WINDOW`]; NJT's documented daily limit.
 pub const TOKEN_BUDGET: usize = 10;
-/// Pause after NJT rejects the credentials, so a wrong password cannot spend the day's budget.
-pub const CREDENTIAL_SUSPENSION: Duration = Duration::from_secs(3600);
+/// Pause after any failed token request (rejected credentials, an NJT error, or a transport
+/// failure), so a persistent fault spends one request per pause instead of one per station.
+pub const TOKEN_FAILURE_PAUSE: Duration = Duration::from_secs(3600);
 
 /// Why a RailData request produced no usable schedule. Deliberately carries no response text.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum BoardError {
     /// No username/password configured.
     Unconfigured,
-    /// Requests are paused after rejected credentials.
+    /// Requests are paused after a failed token request.
     Suspended,
     /// The rolling token budget is spent.
     BudgetExhausted,
-    /// NJT answered `Authenticated: "False"`.
+    /// NJT answered `Authenticated: "False"` or a login `errorMessage`.
     CredentialsRejected,
     /// Transport failure, timeout, or non-success status.
     Http,
@@ -240,35 +241,55 @@ impl RailDataClient {
         // Counted before the call so a crash mid-request still spends budget, matching NJT's view.
         self.cache.record_request(now);
         self.cache.save();
-        let body = post_multipart(
+        let response = post_multipart(
             &self.http,
             &format!("{}/getToken", self.base),
             &[("username", &username), ("password", &password)],
         )
-        .await?;
-        let value: Value = serde_json::from_str(&body).map_err(|_| BoardError::Unusable)?;
-        if value.get("errorMessage").is_some() {
-            return Err(BoardError::BudgetExhausted);
-        }
-        let authenticated = value
-            .get("Authenticated")
-            .and_then(Value::as_str)
-            .is_some_and(|flag| flag.eq_ignore_ascii_case("true"));
-        let token = value
-            .get("UserToken")
-            .and_then(Value::as_str)
-            .filter(|token| !token.is_empty());
-        match (authenticated, token) {
-            (true, Some(token)) => {
-                self.cache.store_token(token.to_string(), now);
+        .await;
+        match response.and_then(|body| token_from_response(&body)) {
+            Ok(token) => {
+                self.cache.store_token(token.clone(), now);
                 self.cache.save();
-                Ok(token.to_string())
+                Ok(token)
             }
-            _ => {
-                self.suspended_until = Some(now + CREDENTIAL_SUSPENSION);
-                Err(BoardError::CredentialsRejected)
+            Err(error) => {
+                self.suspended_until = Some(now + TOKEN_FAILURE_PAUSE);
+                Err(error)
             }
         }
+    }
+}
+
+/// The token in a `getToken` answer.
+///
+/// An `errorMessage` naming a limit means NJT's daily budget is spent; any other `errorMessage`
+/// (live NJT sends `Missing user account.` for an unknown username) or `Authenticated: "False"`
+/// means the credentials were not accepted.
+fn token_from_response(body: &str) -> Result<String, BoardError> {
+    let value: Value = serde_json::from_str(body).map_err(|_| BoardError::Unusable)?;
+    if let Some(message) = value.get("errorMessage") {
+        let message = message.as_str().unwrap_or_default().to_ascii_lowercase();
+        let limit = ["limit", "exceed", "maximum", "too many"]
+            .iter()
+            .any(|word| message.contains(word));
+        return Err(if limit {
+            BoardError::BudgetExhausted
+        } else {
+            BoardError::CredentialsRejected
+        });
+    }
+    let authenticated = value
+        .get("Authenticated")
+        .and_then(Value::as_str)
+        .is_some_and(|flag| flag.eq_ignore_ascii_case("true"));
+    let token = value
+        .get("UserToken")
+        .and_then(Value::as_str)
+        .filter(|token| !token.is_empty());
+    match (authenticated, token) {
+        (true, Some(token)) => Ok(token.to_string()),
+        _ => Err(BoardError::CredentialsRejected),
     }
 }
 
@@ -279,15 +300,16 @@ fn token_rejected(body: &str) -> bool {
     if trimmed.is_empty() || trimmed == "null" {
         return true;
     }
-    serde_json::from_str::<Value>(trimmed)
-        .ok()
-        .and_then(|value| {
-            value
-                .get("errorMessage")
-                .and_then(Value::as_str)
-                .map(|message| message.to_ascii_lowercase().contains("token"))
-        })
-        .unwrap_or(false)
+    error_message(trimmed).is_some_and(|message| message.to_ascii_lowercase().contains("token"))
+}
+
+/// The `errorMessage` of a JSON error body, if `body` is one.
+fn error_message(body: &str) -> Option<String> {
+    serde_json::from_str::<Value>(body.trim())
+        .ok()?
+        .get("errorMessage")?
+        .as_str()
+        .map(str::to_string)
 }
 
 async fn post_multipart(
@@ -313,10 +335,15 @@ async fn post_multipart(
         .send()
         .await
         .map_err(|_| BoardError::Http)?;
-    if !response.status().is_success() {
-        return Err(BoardError::Http);
+    let status = response.status();
+    let body = response.text().await.map_err(|_| BoardError::Http)?;
+    // NJT reports application errors, rejected logins included, as a JSON `errorMessage` under an
+    // HTTP error status; the caller classifies those like the same message under 200.
+    if status.is_success() || error_message(&body).is_some() {
+        Ok(body)
+    } else {
+        Err(BoardError::Http)
     }
-    response.text().await.map_err(|_| BoardError::Http)
 }
 
 /// Amtrak rows from one `getTrainSchedule19Rec` document, keyed by the mapped Amtrak stop.
@@ -401,6 +428,7 @@ fn object_field<'a>(object: &'a serde_json::Map<String, Value>, name: &str) -> O
 mod tests {
     use super::*;
     use axum::extract::State;
+    use axum::http::StatusCode;
     use axum::routing::post;
     use axum::Router;
     use std::sync::atomic::{AtomicUsize, Ordering};
@@ -450,17 +478,36 @@ mod tests {
         assert!(token_rejected("null"));
         assert!(token_rejected("  "));
         assert!(token_rejected(r#"{"errorMessage":"Invalid token."}"#));
+        assert!(!token_rejected(r#"{"errorMessage":"Invalid station."}"#));
         assert!(!token_rejected(r#"{"STATION_2CHAR":"NP","ITEMS":[]}"#));
     }
 
     /// Scripted RailData stand-in: counts calls and records the tokens schedules were sent with.
+    ///
+    /// `errors_as_500` answers every `errorMessage` with HTTP 500, as live NJT does;
+    /// `login_error` answers `getToken` with that message instead of a token;
+    /// `token_outage` answers `getToken` with a bare 502.
     #[derive(Default)]
     struct Fake {
         token_calls: AtomicUsize,
         schedule_calls: AtomicUsize,
         reject_first_schedule: bool,
         reject_credentials: bool,
+        errors_as_500: bool,
+        login_error: Option<&'static str>,
+        token_outage: bool,
         seen_tokens: Mutex<Vec<String>>,
+    }
+
+    impl Fake {
+        fn error(&self, message: &str) -> (StatusCode, String) {
+            let status = if self.errors_as_500 {
+                StatusCode::INTERNAL_SERVER_ERROR
+            } else {
+                StatusCode::OK
+            };
+            (status, format!(r#"{{"errorMessage":"{message}"}}"#))
+        }
     }
 
     fn field(body: &str, name: &str) -> String {
@@ -472,21 +519,36 @@ mod tests {
             .to_string()
     }
 
-    async fn get_token(State(fake): State<Arc<Fake>>, body: String) -> String {
+    async fn get_token(State(fake): State<Arc<Fake>>, body: String) -> (StatusCode, String) {
         let n = fake.token_calls.fetch_add(1, Ordering::SeqCst) + 1;
-        if fake.reject_credentials || field(&body, "password") != "secret-pw" {
-            return r#"{"Authenticated":"False","UserToken":""}"#.into();
+        if fake.token_outage {
+            return (StatusCode::BAD_GATEWAY, "<html>Bad gateway</html>".into());
         }
-        format!(r#"{{"Authenticated":"True","UserToken":"tok-{n}"}}"#)
+        if let Some(message) = fake.login_error {
+            return fake.error(message);
+        }
+        if fake.reject_credentials || field(&body, "password") != "secret-pw" {
+            return (
+                StatusCode::OK,
+                r#"{"Authenticated":"False","UserToken":""}"#.into(),
+            );
+        }
+        (
+            StatusCode::OK,
+            format!(r#"{{"Authenticated":"True","UserToken":"tok-{n}"}}"#),
+        )
     }
 
-    async fn schedule(State(fake): State<Arc<Fake>>, body: String) -> String {
+    async fn schedule(State(fake): State<Arc<Fake>>, body: String) -> (StatusCode, String) {
         let n = fake.schedule_calls.fetch_add(1, Ordering::SeqCst);
         fake.seen_tokens.lock().unwrap().push(field(&body, "token"));
         if fake.reject_first_schedule && n == 0 {
-            return r#"{"errorMessage":"Invalid token."}"#.into();
+            return fake.error("Invalid token.");
         }
-        include_str!("../../../fixtures/tracks/njt_newark.json").into()
+        (
+            StatusCode::OK,
+            include_str!("../../../fixtures/tracks/njt_newark.json").into(),
+        )
     }
 
     async fn serve(fake: Arc<Fake>) -> String {
@@ -617,6 +679,84 @@ mod tests {
         assert_eq!(fake.token_calls.load(Ordering::SeqCst), 1);
         let error = format!("{:?}", raildata.schedule("NP", t(600)).await);
         assert!(!error.contains("wrong-pw"));
+    }
+
+    #[tokio::test]
+    async fn njt_login_errors_under_http_500_suspend_requests() {
+        let fake = Arc::new(Fake {
+            errors_as_500: true,
+            login_error: Some("Missing user account."),
+            ..Fake::default()
+        });
+        let base = serve(fake.clone()).await;
+        let mut raildata = client(&base, token_path("login-500"), "secret-pw");
+        assert_eq!(
+            raildata.schedule("NY", t(0)).await,
+            Err(BoardError::CredentialsRejected)
+        );
+        for station in ["NP", "NA", "MP", "NB", "PJ", "TR"] {
+            assert_eq!(
+                raildata.schedule(station, t(1)).await,
+                Err(BoardError::Suspended)
+            );
+        }
+        assert_eq!(fake.token_calls.load(Ordering::SeqCst), 1);
+        assert_eq!(fake.schedule_calls.load(Ordering::SeqCst), 0);
+
+        // After the pause one more attempt is made.
+        let _ = raildata
+            .schedule("NY", t(TOKEN_FAILURE_PAUSE.as_secs()))
+            .await;
+        assert_eq!(fake.token_calls.load(Ordering::SeqCst), 2);
+    }
+
+    #[test]
+    fn njt_limit_messages_are_budget_errors() {
+        assert_eq!(
+            token_from_response(r#"{"errorMessage":"Daily token limit exceeded."}"#),
+            Err(BoardError::BudgetExhausted)
+        );
+        assert_eq!(
+            token_from_response(r#"{"errorMessage":"Invalid password."}"#),
+            Err(BoardError::CredentialsRejected)
+        );
+        assert_eq!(
+            token_from_response(r#"{"Authenticated":"True","UserToken":"abc"}"#),
+            Ok("abc".to_string())
+        );
+    }
+
+    #[tokio::test]
+    async fn token_endpoint_outage_costs_one_request_per_pause() {
+        let fake = Arc::new(Fake {
+            token_outage: true,
+            ..Fake::default()
+        });
+        let base = serve(fake.clone()).await;
+        let mut raildata = client(&base, token_path("outage"), "secret-pw");
+        assert_eq!(raildata.schedule("NY", t(0)).await, Err(BoardError::Http));
+        for station in ["NP", "NA", "MP", "NB", "PJ", "TR"] {
+            assert_eq!(
+                raildata.schedule(station, t(60)).await,
+                Err(BoardError::Suspended)
+            );
+        }
+        assert_eq!(fake.token_calls.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn rejected_token_under_http_500_gets_one_replacement() {
+        let fake = Arc::new(Fake {
+            reject_first_schedule: true,
+            errors_as_500: true,
+            ..Fake::default()
+        });
+        let base = serve(fake.clone()).await;
+        let mut raildata = client(&base, token_path("retry-500"), "secret-pw");
+        let body = raildata.schedule("NP", t(0)).await.unwrap();
+        assert!(body.contains("A67"));
+        assert_eq!(fake.token_calls.load(Ordering::SeqCst), 2);
+        assert_eq!(*fake.seen_tokens.lock().unwrap(), vec!["tok-1", "tok-2"]);
     }
 
     #[tokio::test]

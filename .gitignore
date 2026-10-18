@@ -1,6 +1,9 @@
 /target
 /out
 .DS_Store
+.env
+.env.*
+*.env
 .validator-cache/
 /validation-reports/*
 !/validation-reports/release-decision.json
