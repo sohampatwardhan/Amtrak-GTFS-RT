@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-10-18
+
 ### Added
 
 - **RailData coverage for every station Amtrak and NJ Transit both serve.** The default poll is
@@ -62,6 +64,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- The README is reorganized: GitHub callouts for warnings and requirements, diagrams for the
+  architecture, the manifest-first request flow, the Compose stack, platform stops, and the static
+  snapshot lifecycle, a table of the stations where Amtrak's own status posted a track, and a
+  section for the `amtrak-status` CLI.
 - The container Java runtime's `jlink` set now includes `java.sql` (Gson loads `java.sql.Time`
   while parsing GTFS dates; without it the CLI does not produce a report) and strips debug
   symbols. `java.desktop` remains because notice introspection loads `java.beans`. The validator
@@ -239,7 +245,8 @@ against Amtrak's production endpoints (145 trip updates, 145 vehicle positions,
 - 21 tests, including live integration tests against Amtrak's real endpoints
   (run with `cargo test -- --include-ignored`).
 
-[Unreleased]: https://github.com/sohampatwardhan/Amtrak-GTFS-RT/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/sohampatwardhan/Amtrak-GTFS-RT/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/sohampatwardhan/Amtrak-GTFS-RT/releases/tag/v0.6.0
 [0.5.0]: https://github.com/sohampatwardhan/Amtrak-GTFS-RT/releases/tag/v0.5.0
 [0.4.0]: https://github.com/sohampatwardhan/Amtrak-GTFS-RT/releases/tag/v0.4.0
 [0.3.0]: https://github.com/sohampatwardhan/Amtrak-GTFS-RT/compare/v0.2.0...v0.3.0
