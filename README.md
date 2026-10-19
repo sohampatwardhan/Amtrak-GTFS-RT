@@ -58,20 +58,21 @@ flowchart LR
   `amtrak-status` station and train CLI, root-level Compose and Bake packaging, and live track and
   platform assignments (default-off via `AMTRAK_TRACKS`). Changes merged after a release are
   listed under **Unreleased** in [CHANGELOG.md](CHANGELOG.md).
-- **Releases:** `v0.6.0` (2026-10-19) is the current release. A release is complete when its
+- **Releases:** `v0.6.2` (2026-10-19) is the current release. A release is complete when its
   GitHub Release carries `image-release.txt` with the tag, revisions, manifest digest, and both
   platform digests; until then, `v0.5.0` stays the stable image. The release workflow publishes
   the scratch service image only; build the browser sidecars from this repository. Pull the
   version tag, and pin the manifest digest from that release's `image-release.txt`:
 
   ```bash
-  docker pull ghcr.io/sohampatwardhan/amtrak-gtfs-rt:0.6.0
+  docker pull ghcr.io/sohampatwardhan/amtrak-gtfs-rt:0.6.2
   docker pull ghcr.io/sohampatwardhan/amtrak-gtfs-rt@sha256:<release-manifest-digest>
   ```
 
 > [!CAUTION]
-> Do not deploy `v0.3.0` or its partial images. The tag exists, but its publication never
-> completed and it has no GitHub Release. Its code ships in `v0.4.0` and later.
+> Do not deploy `v0.3.0`, `v0.6.0`, or `v0.6.1`, or their partial images. Those tags exist, but
+> their publication never completed and they have no GitHub Release. `v0.3.0` ships in `v0.4.0`
+> and later; `v0.6.0` and `v0.6.1` ship in `v0.6.2`.
 
 > [!IMPORTANT]
 > This repository does not record or authorize a running production deployment, anonymous public
@@ -164,7 +165,7 @@ Versioned releases are published for `linux/amd64` and `linux/arm64` at
 without a registry login:
 
 ```bash
-docker pull ghcr.io/sohampatwardhan/amtrak-gtfs-rt:0.6.0
+docker pull ghcr.io/sohampatwardhan/amtrak-gtfs-rt:0.6.2
 ```
 
 > [!TIP]
@@ -223,7 +224,7 @@ unchanged and only loopback peers are admitted:
 ```bash
 docker run --rm --network host \
   -v amtrak-data:/data \
-  ghcr.io/sohampatwardhan/amtrak-gtfs-rt:0.6.0
+  ghcr.io/sohampatwardhan/amtrak-gtfs-rt:0.6.2
 # manifest is reachable from the host loopback (an admitted peer):
 curl -fsS http://127.0.0.1:8080/v1/feed-set.json
 ```
@@ -246,7 +247,7 @@ docker run --rm --network amtrak-net \
   -e AMTRAK_BIND_ADDR=0.0.0.0:8080 \
   -e AMTRAK_ALLOWED_PEER_IPS=172.31.240.1 \
   -v amtrak-data:/data \
-  ghcr.io/sohampatwardhan/amtrak-gtfs-rt:0.6.0
+  ghcr.io/sohampatwardhan/amtrak-gtfs-rt:0.6.2
 ```
 
 > [!WARNING]
@@ -861,6 +862,17 @@ cargo test -- --include-ignored     # also runs live tests against Amtrak's endp
 The feeds are verified two ways in the suite: RT protobuf round-trips through the decoder, and a
 live end-to-end test fetches real Amtrak data and asserts non-empty, statically-bound output.
 CI also builds both sidecar images, in both browser bundles, natively on amd64 and arm64.
+
+The [release gates](.github/workflows/release-gates.yml) workflow runs the release's per-platform
+image checks on pull requests before a tag is pushed: it builds the linux/amd64 service image, runs
+[`scripts/test-container.sh`](scripts/test-container.sh), and scans it with the pinned syft and
+grype from [`scripts/install-release-scanners.sh`](scripts/install-release-scanners.sh) under the
+same zero-match policy. Because the smoke test fetches live Amtrak data, it runs only when a PR
+touches the image inputs (`Dockerfile`, `.dockerignore`, `container/`, `src/config.rs`,
+`Cargo.toml`, `Cargo.lock`, or the smoke/scanner/policy scripts), which includes every release PR's
+version bump. It also runs weekly and on demand, so a new advisory against the current image shows
+up before release day. On failure the Grype report and smoke diagnostics are uploaded as an
+artifact. arm64 is still checked only by the release itself.
 
 ## Validation gate
 

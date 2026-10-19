@@ -1,0 +1,100 @@
+name: Release gates
+
+# Runs the release workflow's per-platform image gates (container smoke test, SBOM check, and the
+# zero-match Grype policy) before a tag is pushed, so a failure costs a PR iteration rather than an
+# immutable tag. It builds linux/amd64 only and is path-gated to the image inputs: the smoke test
+# fetches live Amtrak data, so it stays off unrelated PRs. The weekly run rescans the current main
+# image against a fresh vulnerability database so new advisories surface before release day.
+
+on:
+  pull_request:
+    paths:
+      - "Dockerfile"
+      - ".dockerignore"
+      - "container/**"
+      - "src/config.rs"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "scripts/test-container.sh"
+      - "scripts/release-vulnerability-policy.sh"
+      - "scripts/install-release-scanners.sh"
+      - ".github/workflows/release-gates.yml"
+  schedule:
+    # 08:41 UTC Mondays — off the hour to avoid the scheduler's busiest minutes.
+    - cron: "41 8 * * 1"
+  workflow_dispatch:
+
+concurrency:
+  group: release-gates-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  image-gates:
+    name: Smoke test and vulnerability gate (linux/amd64)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    env:
+      LOCAL_IMAGE: amtrak-gtfs-rt:release-gates
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
+
+      - name: Build the service image
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        with:
+          context: .
+          platforms: linux/amd64
+          tags: ${{ env.LOCAL_IMAGE }}
+          load: true
+          # Base images and validator inputs are digest-pinned, so layer reuse cannot change
+          # the scanned bytes; it only skips recompiling unchanged stages.
+          cache-from: type=gha,scope=release-gates
+          cache-to: type=gha,mode=max,scope=release-gates
+          sbom: false
+          provenance: false
+
+      - name: Prepare report directory
+        run: mkdir -p release-gates
+
+      # Same order as release.yml: smoke first, so the harness's optional grype fallback does not
+      # run (and fetch a second database) before the scanners are installed.
+      - name: Smoke-test the image
+        run: scripts/test-container.sh "$LOCAL_IMAGE"
+
+      - name: Install checksum-pinned release scanners
+        run: |
+          scripts/install-release-scanners.sh "$RUNNER_TEMP/release-tools"
+          printf '%s\n' "$RUNNER_TEMP/release-tools" >>"$GITHUB_PATH"
+
+      - name: Generate SBOM and Grype report
+        run: |
+          set -euo pipefail
+          syft "$LOCAL_IMAGE" -o spdx-json=release-gates/sbom.spdx.json
+          scripts/release-vulnerability-policy.sh validate-sbom release-gates/sbom.spdx.json
+          grype "$LOCAL_IMAGE" -o json >release-gates/cves-grype.json
+          scripts/release-vulnerability-policy.sh summarize release-gates/cves-grype.json \
+            release-gates/cves-grype.txt
+          {
+            printf '### Grype matches (linux/amd64)\n\n```\n'
+            cat release-gates/cves-grype.txt
+            printf '```\n'
+          } >>"$GITHUB_STEP_SUMMARY"
+
+      - name: Enforce the zero-match policy
+        run: scripts/release-vulnerability-policy.sh enforce release-gates/cves-grype.json
+
+      - name: Upload gate diagnostics
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-gates-linux-amd64-${{ github.run_attempt }}
+          path: |
+            release-gates/
+            validation-reports/container/
+          if-no-files-found: warn
+          retention-days: 14
