@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.1] - 2026-10-19
+
+### Security
+
+- The rebuilt MobilityData validator now bundles jsoup 1.23.2 instead of 1.23.1, fixing
+  GHSA-65r4-943x-97jj (High). The hardened validator JAR's pinned SHA-256 is now
+  `bc3ec6fb672fe45e96fd28e559301c075c752d10172e7b90e5ec3c1f29011a15`, and the service accepts that
+  digest. jsoup 1.23.2 adds no runtime dependency; its POM imports `netty-bom` 4.2.17.Final, whose
+  checksum is now in the dependency verification metadata.
+
+### Notes
+
+- `v0.6.0` never completed publication: its release stopped at the zero-match vulnerability gate
+  on the jsoup advisory above. Its changes ship in this release; see the 0.6.0 section for the
+  full list (Amtrak's own track numbers through the `track-fetcher` sidecar, RailData at every
+  shared station, static feeds that name an undefined stop, bounded generation retention).
+
 ## [0.6.0] - 2026-10-19
 
 ### Added
@@ -265,7 +282,8 @@ against Amtrak's production endpoints (145 trip updates, 145 vehicle positions,
 - 21 tests, including live integration tests against Amtrak's real endpoints
   (run with `cargo test -- --include-ignored`).
 
-[Unreleased]: https://github.com/sohampatwardhan/Amtrak-GTFS-RT/compare/v0.6.0...HEAD
+[Unreleased]: https://github.com/sohampatwardhan/Amtrak-GTFS-RT/compare/v0.6.1...HEAD
+[0.6.1]: https://github.com/sohampatwardhan/Amtrak-GTFS-RT/releases/tag/v0.6.1
 [0.6.0]: https://github.com/sohampatwardhan/Amtrak-GTFS-RT/releases/tag/v0.6.0
 [0.5.0]: https://github.com/sohampatwardhan/Amtrak-GTFS-RT/releases/tag/v0.5.0
 [0.4.0]: https://github.com/sohampatwardhan/Amtrak-GTFS-RT/releases/tag/v0.4.0
