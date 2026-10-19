@@ -58,7 +58,7 @@ flowchart LR
   `amtrak-status` station and train CLI, root-level Compose and Bake packaging, and live track and
   platform assignments (default-off via `AMTRAK_TRACKS`). Changes merged after a release are
   listed under **Unreleased** in [CHANGELOG.md](CHANGELOG.md).
-- **Releases:** `v0.6.0` (2026-10-18) is the current release. A release is complete when its
+- **Releases:** `v0.6.0` (2026-10-19) is the current release. A release is complete when its
   GitHub Release carries `image-release.txt` with the tag, revisions, manifest digest, and both
   platform digests; until then, `v0.5.0` stays the stable image. The release workflow publishes
   the scratch service image only; build the browser sidecars from this repository. Pull the

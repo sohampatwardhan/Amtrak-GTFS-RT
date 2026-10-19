@@ -7,26 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Fixed
-
-- **Amtrak's static schedule is accepted again when it names an undefined stop.** In Amtrak's current feed
-  (20261018) the Mardi Gras Service calls at Ocean Springs (`OSM`), which `stops.txt` does not
-  define, so every static refresh failed with `The id OSM is not known` and the service kept the
-  last accepted schedule. With tracks on, this also meant no track was ever stamped. Stop times
-  naming a stop that `stops.txt` lacks are now dropped before parsing and validation, with a
-  warning naming the stop; the rest of each trip is kept.
-- **RailData login errors no longer spend the daily token budget.** NJ Transit answers failed
-  logins with HTTP 500 and a JSON `errorMessage` (for example `Missing user account.`); these were
-  treated as transport errors, so the service requested a new token for every station and used all
-  10 of the day's requests within a minute. Such answers are now classified as rejected credentials
-  (or as NJ Transit's daily limit when the message says so), and any failed token request pauses
-  NJ Transit requests for an hour.
-- **Turning tracks on or off takes effect at startup.** A restart recovered the static feed saved
-  by the previous run, so platform stops appeared (or disappeared) only at the next daily static
-  refresh and every track was dropped until then. When the recovered static was built for a
-  different track configuration, the first static refresh now runs immediately.
-
-## [0.6.0] - 2026-10-18
+## [0.6.0] - 2026-10-19
 
 ### Added
 
@@ -102,6 +83,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Amtrak's static schedule is accepted again when it names an undefined stop.** In Amtrak's current feed
+  (20261018) the Mardi Gras Service calls at Ocean Springs (`OSM`), which `stops.txt` does not
+  define, so every static refresh failed with `The id OSM is not known` and the service kept the
+  last accepted schedule. With tracks on, this also meant no track was ever stamped. Stop times
+  naming a stop that `stops.txt` lacks are now dropped before parsing and validation, with a
+  warning naming the stop; the rest of each trip is kept.
+- **RailData login errors no longer spend the daily token budget.** NJ Transit answers failed
+  logins with HTTP 500 and a JSON `errorMessage` (for example `Missing user account.`); these were
+  treated as transport errors, so the service requested a new token for every station and used all
+  10 of the day's requests within a minute. Such answers are now classified as rejected credentials
+  (or as NJ Transit's daily limit when the message says so), and any failed token request pauses
+  NJ Transit requests for an hour.
+- **Turning tracks on or off takes effect at startup.** A restart recovered the static feed saved
+  by the previous run, so platform stops appeared (or disappeared) only at the next daily static
+  refresh and every track was dropped until then. When the recovered static was built for a
+  different track configuration, the first static refresh now runs immediately.
 - **`BROWSER_MODE=xvfb-headful` works in both browser sidecars.** Neither image had full
   Chromium or Xvfb, and nothing started an X server, so the documented fallback failed at launch.
   Build with `--build-arg BROWSER_BUNDLE=full` (or `FETCHER_BROWSER_BUNDLE=full` for Compose and
