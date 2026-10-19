@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.1] - 2026-10-19
+
+### Security
+
+- **jsoup 1.23.2 in the bundled GTFS validator.** The release scan blocked `v0.6.0` on
+  GHSA-65r4-943x-97jj (High): jsoup 1.23.1's XML parser could exhaust memory on deeply nested
+  namespace declarations. The validator's dependency override now pins the fixed 1.23.2.
+
+### Notes
+
+- `v0.6.0` never completed publication; its changes ship in this release.
+
 ## [0.6.0] - 2026-10-19
 
 ### Added
@@ -265,8 +277,9 @@ against Amtrak's production endpoints (145 trip updates, 145 vehicle positions,
 - 21 tests, including live integration tests against Amtrak's real endpoints
   (run with `cargo test -- --include-ignored`).
 
-[Unreleased]: https://github.com/sohampatwardhan/Amtrak-GTFS-RT/compare/v0.6.0...HEAD
-[0.6.0]: https://github.com/sohampatwardhan/Amtrak-GTFS-RT/releases/tag/v0.6.0
+[Unreleased]: https://github.com/sohampatwardhan/Amtrak-GTFS-RT/compare/v0.6.1...HEAD
+[0.6.1]: https://github.com/sohampatwardhan/Amtrak-GTFS-RT/releases/tag/v0.6.1
+[0.6.0]: https://github.com/sohampatwardhan/Amtrak-GTFS-RT/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/sohampatwardhan/Amtrak-GTFS-RT/releases/tag/v0.5.0
 [0.4.0]: https://github.com/sohampatwardhan/Amtrak-GTFS-RT/releases/tag/v0.4.0
 [0.3.0]: https://github.com/sohampatwardhan/Amtrak-GTFS-RT/compare/v0.2.0...v0.3.0
