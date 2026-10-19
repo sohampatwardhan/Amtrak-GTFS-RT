@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.2] - 2026-10-19
+
+### Fixed
+
+- **The container starts with the rebuilt validator.** The service checks the bundled GTFS
+  validator against a list of approved SHA-256 digests, and that list still named the jar from
+  before the jsoup 1.23.2 rebuild, so the `v0.6.1` image refused to start
+  (`AMTRAK_GTFS_VALIDATOR_JAR must match an approved MobilityData 8.0.1 CLI SHA-256`). The
+  approved repository-hardened digest is now the rebuilt jar's.
+
+### Notes
+
+- `v0.6.0` and `v0.6.1` never completed publication; their changes ship in this release.
+
 ## [0.6.1] - 2026-10-19
 
 ### Security
@@ -14,10 +28,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **jsoup 1.23.2 in the bundled GTFS validator.** The release scan blocked `v0.6.0` on
   GHSA-65r4-943x-97jj (High): jsoup 1.23.1's XML parser could exhaust memory on deeply nested
   namespace declarations. The validator's dependency override now pins the fixed 1.23.2.
-
-### Notes
-
-- `v0.6.0` never completed publication; its changes ship in this release.
 
 ## [0.6.0] - 2026-10-19
 
@@ -277,8 +287,9 @@ against Amtrak's production endpoints (145 trip updates, 145 vehicle positions,
 - 21 tests, including live integration tests against Amtrak's real endpoints
   (run with `cargo test -- --include-ignored`).
 
-[Unreleased]: https://github.com/sohampatwardhan/Amtrak-GTFS-RT/compare/v0.6.1...HEAD
-[0.6.1]: https://github.com/sohampatwardhan/Amtrak-GTFS-RT/releases/tag/v0.6.1
+[Unreleased]: https://github.com/sohampatwardhan/Amtrak-GTFS-RT/compare/v0.6.2...HEAD
+[0.6.2]: https://github.com/sohampatwardhan/Amtrak-GTFS-RT/releases/tag/v0.6.2
+[0.6.1]: https://github.com/sohampatwardhan/Amtrak-GTFS-RT/compare/v0.6.0...v0.6.1
 [0.6.0]: https://github.com/sohampatwardhan/Amtrak-GTFS-RT/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/sohampatwardhan/Amtrak-GTFS-RT/releases/tag/v0.5.0
 [0.4.0]: https://github.com/sohampatwardhan/Amtrak-GTFS-RT/releases/tag/v0.4.0

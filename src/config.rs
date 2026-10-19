@@ -25,7 +25,7 @@ const REQUIRED_VALIDATOR_VERSION: &str = "8.0.1";
 const OFFICIAL_VALIDATOR_SHA256: &str =
     "19293ddd9b6f954f216d4f12054bd8a3232921751c4484339e339764a91000e2";
 const HARDENED_VALIDATOR_SHA256: &str =
-    "24ca7e890ca15bfbb36fa889fcb16200f7276995b7e6ec75551a8b7175e818d7";
+    "bc3ec6fb672fe45e96fd28e559301c075c752d10172e7b90e5ec3c1f29011a15";
 const MINIMUM_JAVA_MAJOR: u32 = 17;
 const PROBE_TIMEOUT: Duration = Duration::from_secs(10);
 const DEFAULT_ADVISORIES_URL: &str = "https://www.amtrak.com/service-alerts-and-notices";
