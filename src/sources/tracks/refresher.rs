@@ -329,6 +329,123 @@ mod tests {
         assert!(!table.contains("KIN", "TBD"));
     }
 
+    /// Amtrak's 20261017 shape for train 167: Boston South Station, then Providence. Providence is
+    /// not in the seeded platform list, so its track must come from Amtrak's status alone.
+    fn northeast_regional_zip() -> Vec<u8> {
+        use std::io::Write;
+        let mut archive = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+        let files = [
+            ("agency.txt", "agency_id,agency_name,agency_url,agency_timezone\n51,Amtrak,https://www.amtrak.com,America/New_York\n"),
+            ("stops.txt", "stop_id,stop_name,stop_lat,stop_lon,stop_timezone\n\
+BOS,Boston South Station,42.352,-71.055,America/New_York\n\
+PVD,Providence Station,41.829,-71.413,America/New_York\n"),
+            ("routes.txt", "route_id,agency_id,route_short_name,route_long_name,route_type\n42974,51,,Northeast Regional,2\n"),
+            ("trips.txt", "route_id,service_id,trip_id,trip_short_name\n42974,svc,t167,167\n"),
+            ("stop_times.txt", "trip_id,arrival_time,departure_time,stop_id,stop_sequence\n\
+t167,16:20:00,16:20:00,BOS,1\nt167,17:06:00,17:08:00,PVD,2\n"),
+            ("calendar_dates.txt", "service_id,date,exception_type\nsvc,20261017,1\n"),
+            ("feed_info.txt", "feed_publisher_name,feed_publisher_url,feed_lang,feed_version\nAmtrak,http://www.amtrak.com,en,20261017\n"),
+        ];
+        for (name, contents) in files {
+            archive
+                .start_file(name, zip::write::SimpleFileOptions::default())
+                .unwrap();
+            archive.write_all(contents.as_bytes()).unwrap();
+        }
+        archive.finish().unwrap().into_inner()
+    }
+
+    #[tokio::test]
+    async fn an_amtrak_track_at_an_unseeded_station_reaches_static_and_trip_updates() {
+        use gtfs_realtime::trip_update::{StopTimeEvent, StopTimeUpdate};
+        use gtfs_realtime::{FeedEntity, FeedMessage, TripDescriptor, TripUpdate};
+        use prost::Message;
+
+        let base = serve(Router::new().route(
+            "/tracks.json",
+            get(|| async { include_str!("../../../fixtures/tracks/amtrak_status.json") }),
+        ))
+        .await;
+        let store = AssignmentStore::new();
+        let mut config = config(format!("{base}/board"));
+        config.hartford_url = None;
+        config.amtrak_url = Some(format!("{base}/tracks.json"));
+        let http = board_client(&config);
+        let mut raildata =
+            RailDataClient::new(http.clone(), &config.raildata_base, None, "unused".into());
+        let platforms = platforms();
+        refresh_once(
+            &store,
+            &config,
+            &mut raildata,
+            &http,
+            &mut HashSet::new(),
+            &platforms,
+        )
+        .await;
+
+        // The observed track becomes a platform stop in the published static feed.
+        let table = platforms.snapshot();
+        let augmented =
+            crate::static_augment::augment_static(&northeast_regional_zip(), &table).unwrap();
+        let gtfs = gtfs_structures::Gtfs::from_reader(std::io::Cursor::new(augmented)).unwrap();
+        let platform = &gtfs.stops["PVD:track:1"];
+        assert_eq!(platform.platform_code.as_deref(), Some("1"));
+        assert!(platform.parent_station.is_some());
+
+        // A trip update for train 167 at Providence is pointed at that platform stop.
+        let now = SystemTime::now();
+        let departure = now.duration_since(std::time::UNIX_EPOCH).unwrap().as_secs() as i64 + 600;
+        let mut batch = crate::sources::RtBatch {
+            trip_updates: FeedMessage {
+                entity: vec![FeedEntity {
+                    id: "167".into(),
+                    trip_update: Some(TripUpdate {
+                        trip: TripDescriptor {
+                            trip_id: Some("t167".into()),
+                            ..Default::default()
+                        },
+                        stop_time_update: vec![StopTimeUpdate {
+                            stop_id: Some("PVD".into()),
+                            departure: Some(StopTimeEvent {
+                                time: Some(departure),
+                                ..Default::default()
+                            }),
+                            ..Default::default()
+                        }],
+                        ..Default::default()
+                    }),
+                    ..Default::default()
+                }],
+                ..Default::default()
+            },
+            ..crate::sources::RtBatch::empty()
+        };
+        super::super::apply_track_assignments(
+            &mut batch,
+            &gtfs,
+            &store.fresh_board(now, Duration::from_secs(300)),
+            &table,
+            now,
+            &std::sync::Mutex::default(),
+        );
+        let wire = batch.trip_updates.encode_to_vec();
+        let decoded = FeedMessage::decode(wire.as_slice()).unwrap();
+        let stop_time = &decoded.entity[0]
+            .trip_update
+            .as_ref()
+            .unwrap()
+            .stop_time_update[0];
+        assert_eq!(
+            stop_time
+                .stop_time_properties
+                .as_ref()
+                .and_then(|properties| properties.assigned_stop_id.as_deref()),
+            Some("PVD:track:1")
+        );
+        assert_eq!(stop_time.stop_sequence, Some(2));
+    }
+
     #[tokio::test]
     async fn a_rail_data_track_outside_the_seeded_list_becomes_a_platform_stop() {
         let app = Router::new()

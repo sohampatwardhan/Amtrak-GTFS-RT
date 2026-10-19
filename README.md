@@ -128,7 +128,29 @@ cargo run
 ```
 
 On startup the service recovers a retained last-good generation, validates a newly fetched static
-schedule when needed, and begins polling. Query the manifest rather than a mutable feed URL:
+schedule when needed, and begins polling. Once it is listening it prints its endpoints and which
+optional sources are on, then prints the file URLs of the first generation it publishes:
+
+```text
+amtrak-gtfs-rt listening on 127.0.0.1:8080
+  Feed set (start here)  http://127.0.0.1:8080/v1/feed-set.json
+  Generation files       http://127.0.0.1:8080/v1/generations/{id}/{static.zip,trip-updates.pb,vehicle-positions.pb,alerts.pb}
+  Readiness              http://127.0.0.1:8080/readyz
+  Liveness               http://127.0.0.1:8080/livez
+  Access                 loopback clients only
+  Advisories             off
+  Tracks                 off
+First generation 1792384949000000000-0 published:
+  Vehicle positions      http://127.0.0.1:8080/v1/generations/1792384949000000000-0/vehicle-positions.pb
+  Trip updates           http://127.0.0.1:8080/v1/generations/1792384949000000000-0/trip-updates.pb
+  Alerts                 http://127.0.0.1:8080/v1/generations/1792384949000000000-0/alerts.pb
+  Static schedule        http://127.0.0.1:8080/v1/generations/1792384949000000000-0/static.zip
+  Generation URLs change on every refresh; read the feed set for the current ones.
+```
+
+With tracks on, the banner lists each track source (Amtrak status, NJ Transit RailData, the
+Hartford Line board) and why any of them is off. The printed URLs are the first generation's
+only. Query the manifest rather than a mutable feed URL:
 
 ```bash
 manifest=$(curl -fsS http://127.0.0.1:8080/v1/feed-set.json)
@@ -388,6 +410,7 @@ Restart=on-failure
 | `AMTRAK_FILTER_CAPITAL_CORRIDOR` | `false` | Drop Capital Corridor (route 84); a better feed exists via 511.org |
 | `AMTRAK_BIND_ADDR` | `127.0.0.1:8080` | HTTP bind address; non-loopback requires an allowlist |
 | `AMTRAK_ALLOWED_PEER_IPS` | empty | Comma-separated exact peer IPs; empty admits loopback only |
+| `AMTRAK_PUBLIC_URL` | empty | Base URL the startup banner prints, for a listener reached through a published port (Compose sets `http://127.0.0.1:8090`). Display only. Empty prints the bind address, with `0.0.0.0` shown as `127.0.0.1` |
 | `AMTRAK_GTFS_VALIDATOR_JAR` | `./tools/gtfs-validator-v8.0.1-cli.jar` | Readable, approved MobilityData validator 8.0.1 CLI JAR (official host artifact or repository-hardened container build) |
 | `AMTRAK_GENERATION_BUDGET_BYTES` | `268435456` (256 MiB) | Unique on-disk bytes kept for generations. The current feed set is never deleted. `0` disables the cap |
 | `AMTRAK_GENERATION_RETAIN_SECS` | `600` | Seconds a superseded generation stays addressable, measured from the newer generation's write time on disk. `0` deletes it as soon as it is superseded |
@@ -408,7 +431,7 @@ Restart=on-failure
 | `AMTRAK_TRACKS_STATION_MAP` | `NY=NYP,NP=NWK,NA=EWR,MP=MET,NB=NBK,PJ=PJC,TR=TRE,PH=PHL` | RailData code to Amtrak GTFS `stop_id`. Overrides or extends the default |
 | `AMTRAK_TRACKS_HARTFORD_URL` | `https://hartfordline.com/connecting-train-status/` | New Haven board. Set empty to skip it |
 | `AMTRAK_TRACKS_HARTFORD_STOP` | `NHV` | Amtrak `stop_id` for that board |
-| `AMTRAK_TRACKS_AMTRAK_URL` | empty | Sidecar URL for Amtrak's own status JSON. Empty skips that source. This is not `www.amtrak.com`; that host blocks plain HTTP |
+| `AMTRAK_TRACKS_AMTRAK_URL` | empty (Compose: `http://track-fetcher:8081/tracks.json`) | Sidecar URL for Amtrak's own status JSON. Empty skips that source and logs a warning at startup when tracks are on. This is not `www.amtrak.com`; that host blocks plain HTTP |
 | `AMTRAK_TRACKS_RETAIN_GRACE_SECS` | `900` | How long an Amtrak track stays published after the stop's latest time |
 
 > [!CAUTION]
@@ -448,9 +471,24 @@ That stack sets:
 ```text
 AMTRAK_ADVISORIES=on
 AMTRAK_ADVISORIES_URL=http://advisory-fetcher:8080/service-alerts-and-notices
+AMTRAK_TRACKS_AMTRAK_URL=http://track-fetcher:8081/tracks.json   # read only while tracks are on
 AMTRAK_BIND_ADDR=0.0.0.0:8080
 AMTRAK_ALLOWED_PEER_IPS=172.31.240.1
+AMTRAK_PUBLIC_URL=http://127.0.0.1:8090
 ```
+
+To turn tracks on, set `AMTRAK_TRACKS=on` and enable the `tracks` profile together, on the
+command line or in the `.env` file next to `docker-compose.yml`, which Compose reads:
+
+```text
+AMTRAK_TRACKS=on
+COMPOSE_PROFILES=tracks
+```
+
+Without the profile, tracks still come from NJ Transit and the Hartford board, but Amtrak's own
+track numbers do not: every refresh logs `status fetch failed` for `source=amtrak`. Leaving tracks
+off and the profile unset keeps the sidecar's Chromium from running at all. Set
+`AMTRAK_TRACKS_AMTRAK_URL=` (empty) to keep the other boards without Amtrak's.
 
 The feed is published on host loopback port 8090 (`http://127.0.0.1:8090`), leaving host port 8080
 free for other services. The allowlist is the gateway of the Compose network, which is the peer
@@ -626,9 +664,14 @@ flowchart TD
 #### Amtrak's train-status API
 
 Amtrak's own status covers every station where Amtrak posts a track. The service does not call
-`www.amtrak.com` itself: set `AMTRAK_TRACKS_AMTRAK_URL` to the
-[`track-fetcher`](track-fetcher/README.md) sidecar, which serves `GET /tracks.json`. An empty URL
-leaves this source off.
+`www.amtrak.com` itself: it reads the [`track-fetcher`](track-fetcher/README.md) sidecar, which
+serves `GET /tracks.json`, at `AMTRAK_TRACKS_AMTRAK_URL`. The Compose stack points that at the
+sidecar by default, so enabling the `tracks` profile is enough. Run directly, the URL defaults to
+empty, which leaves this source off; the startup banner and a warning say so.
+
+A track Amtrak shows at a station outside `AMTRAK_TRACKS_PLATFORMS` (Providence, for example) is
+recorded as an observed platform, the static feed is rebuilt with `PVD:track:1`, and from then on
+matching stop times carry `assigned_stop_id=PVD:track:1`.
 
 On 2026-10-17 the app showed track 1 at Providence for train 167 about ten minutes before arrival
 (`arrival.track.number` `1`, `asOf` 16:57, scheduled 17:06). Some stations publish hours earlier,
@@ -684,9 +727,7 @@ port. The image uses the same headless-shell build the advisory sidecar's on-dev
 Raspberry Pi 5 (`linux/arm64`).
 
 ```bash
-AMTRAK_TRACKS=on \
-AMTRAK_TRACKS_AMTRAK_URL=http://track-fetcher:8081/tracks.json \
-  docker compose --profile tracks up -d --build
+AMTRAK_TRACKS=on docker compose --profile tracks up -d --build
 ```
 
 > [!WARNING]

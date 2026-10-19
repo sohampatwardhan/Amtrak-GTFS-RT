@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **The service prints where its feed is.** Once listening it prints the feed-set, generation,
+  readiness, and liveness URLs, who may read them, and whether advisories and each track source
+  (Amtrak status, NJ Transit RailData, Hartford Line board) are on, then prints the
+  vehicle-positions, trip-updates, alerts, and static URLs of the first generation it publishes.
+  `AMTRAK_PUBLIC_URL` sets the base URL shown for a published port; Compose sets
+  `http://127.0.0.1:8090`. `cargo run` now starts the service without `--bin`.
+
+### Changed
+
+- **Amtrak's own track numbers are on whenever tracks are on in Compose.** The stack now points
+  `AMTRAK_TRACKS_AMTRAK_URL` at the `track-fetcher` sidecar by default, so `AMTRAK_TRACKS=on` with
+  the `tracks` profile (`COMPOSE_PROFILES=tracks`) publishes Amtrak's tracks, including at stations
+  outside `AMTRAK_TRACKS_PLATFORMS`, as `assigned_stop_id` platform stops. Before, the URL was
+  empty unless set by hand, so only NJ Transit and Hartford tracks were published. The sidecar
+  still starts only with the profile, and the service warns at startup when tracks are on without
+  an Amtrak URL.
+
 ## [0.6.2] - 2026-10-19
 
 ### Fixed

@@ -1,4 +1,5 @@
 mod config;
+mod endpoints;
 mod orchestrator;
 mod serve;
 mod sources;
@@ -8,6 +9,7 @@ mod static_repair;
 mod writer;
 
 use crate::config::Config;
+use crate::endpoints::AnnounceFirstGeneration;
 use crate::orchestrator::{GenerationCommitter, StoreGenerationCommitter};
 use crate::sources::advisories::WithAdvisories;
 use crate::sources::amtrak::AmtrakSource;
@@ -279,7 +281,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // best-effort advisory scraper and the track board. Both wrappers are fail-open and stay off
     // unless their env flags are set, so enabling either never risks generation publication.
     let advisory_config = crate::config::AdvisoryConfig::from_env()?;
+    let advisories_on = advisory_config.enabled;
     let advisories = advisory_config.enabled.then_some(advisory_config);
+    if track_config.enabled && track_config.amtrak_url.is_none() {
+        tracing::warn!(
+            source = "amtrak",
+            "AMTRAK_TRACKS_AMTRAK_URL is empty; Amtrak's own track numbers are not published"
+        );
+    }
     // With tracks on, the board refresher runs as its own task and generation only reads the
     // store it fills, so a slow board never delays a feed. Its RailData token cache lives beside,
     // not inside, the generation directory that the API serves from.
@@ -308,10 +317,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         realtime_source(AmtrakSource::new(), advisories, tracks)
     };
     let sources: Arc<Vec<Box<dyn RtSource>>> = Arc::new(vec![source]);
-    let committer: Arc<dyn GenerationCommitter> = Arc::new(StoreGenerationCommitter::new(
-        config.output_dir.clone(),
-        store.clone(),
+    let base_url = endpoints::base_url(config.bind_addr, config.public_url.as_deref());
+    let committer: Arc<dyn GenerationCommitter> = Arc::new(AnnounceFirstGeneration::new(
+        StoreGenerationCommitter::new(config.output_dir.clone(), store.clone()),
+        base_url.clone(),
     ));
+    let banner = endpoints::startup_banner(
+        &base_url,
+        config.bind_addr,
+        &config.access_policy,
+        advisories_on,
+        track_config.enabled.then_some(&track_config),
+    );
     let app = serve::router(serve::AppState::new(
         store,
         config.access_policy,
@@ -319,6 +336,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         Arc::new(serve::SystemClock),
     ));
     let listener = tokio::net::TcpListener::bind(config.bind_addr).await?;
+    println!("{banner}");
 
     let poller_snapshots = snapshots.clone();
     let refresh_snapshots = snapshots;
