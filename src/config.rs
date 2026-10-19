@@ -314,6 +314,28 @@ fn positive_secs<F: Fn(&str) -> Option<String>>(
     Ok(Duration::from_secs(secs))
 }
 
+/// An `http://` or `https://` base URL without a trailing slash; empty means unset.
+fn parse_public_url(raw: Option<String>) -> Result<Option<String>, ConfigError> {
+    let Some(raw) = raw.map(|value| value.trim().to_string()) else {
+        return Ok(None);
+    };
+    if raw.is_empty() {
+        return Ok(None);
+    }
+    let rest = raw
+        .strip_prefix("http://")
+        .or_else(|| raw.strip_prefix("https://"));
+    if rest.is_none_or(|rest| {
+        rest.trim_end_matches('/').is_empty() || rest.contains(char::is_whitespace)
+    }) {
+        return Err(ConfigError::new(
+            "AMTRAK_PUBLIC_URL",
+            "must be an http:// or https:// base URL",
+        ));
+    }
+    Ok(Some(raw.trim_end_matches('/').to_string()))
+}
+
 fn parse_flag<F: Fn(&str) -> Option<String>>(
     get: &F,
     field: &'static str,
@@ -442,6 +464,9 @@ pub struct Config {
     /// When set, a static ZIP whose SHA-256 already passed the validator is not
     /// sent through the Java CLI again.
     pub validator_cache: bool,
+    /// Base URL printed in the startup banner, for a listener reached through a published port.
+    /// Env `AMTRAK_PUBLIC_URL`; display only, never used for routing or access.
+    pub public_url: Option<String>,
 }
 
 /// Configuration proven safe enough to construct the service.
@@ -462,6 +487,7 @@ pub struct ValidatedConfig {
     pub access_policy: AccessPolicy,
     pub generation_retention: GenerationRetention,
     pub validator_cache: bool,
+    pub public_url: Option<String>,
 }
 
 /// Exact transport-peer policy for protected HTTP routes.
@@ -474,6 +500,19 @@ pub struct AccessPolicy {
 }
 
 impl AccessPolicy {
+    /// Who may read the protected routes, for the startup banner.
+    pub fn describe(&self) -> String {
+        if self.allowed_peer_ips.is_empty() {
+            return "loopback clients only".to_string();
+        }
+        let peers: Vec<String> = self
+            .allowed_peer_ips
+            .iter()
+            .map(ToString::to_string)
+            .collect();
+        format!("only {}", peers.join(", "))
+    }
+
     #[cfg(test)]
     pub(crate) fn from_allowed_ips_for_test(allowed_peer_ips: BTreeSet<IpAddr>) -> Self {
         Self { allowed_peer_ips }
@@ -586,6 +625,7 @@ impl Config {
         let generation_max =
             parse_u64(&get, "AMTRAK_GENERATION_MAX", DEFAULT_GENERATION_MAX as u64)?;
         let validator_cache = parse_flag(&get, "AMTRAK_VALIDATOR_CACHE", true)?;
+        let public_url = parse_public_url(get("AMTRAK_PUBLIC_URL"))?;
         Ok(Config {
             static_url,
             output_dir,
@@ -600,6 +640,7 @@ impl Config {
             generation_retain_secs,
             generation_max,
             validator_cache,
+            public_url,
         })
     }
 
@@ -674,6 +715,7 @@ impl Config {
                 max_generations,
             },
             validator_cache: self.validator_cache,
+            public_url: self.public_url,
         })
     }
 }
@@ -1049,6 +1091,28 @@ mod tests {
             DEFAULT_GENERATION_BUDGET_BYTES
         );
         assert!(config.validator_cache);
+    }
+
+    #[test]
+    fn public_url_is_an_optional_http_base() {
+        assert_eq!(Config::from_map(map(&[])).unwrap().public_url, None);
+        assert_eq!(
+            Config::from_map(map(&[("AMTRAK_PUBLIC_URL", " ")]))
+                .unwrap()
+                .public_url,
+            None
+        );
+        assert_eq!(
+            Config::from_map(map(&[("AMTRAK_PUBLIC_URL", "http://127.0.0.1:8090/")]))
+                .unwrap()
+                .public_url
+                .as_deref(),
+            Some("http://127.0.0.1:8090")
+        );
+        for bad in ["127.0.0.1:8090", "ftp://host", "http://", "http://a b"] {
+            let error = Config::from_map(map(&[("AMTRAK_PUBLIC_URL", bad)])).unwrap_err();
+            assert_eq!(error.field(), "AMTRAK_PUBLIC_URL", "{bad}");
+        }
     }
 
     #[test]

@@ -4,6 +4,8 @@ version = "0.6.0"
 edition = "2021"
 license = "AGPL-3.0-only"
 description = "Serves live GTFS-Realtime feeds for Amtrak"
+# `cargo run` starts the service; the optional `amtrak-status` CLI needs `--bin amtrak-status`.
+default-run = "amtrak-gtfs-rt-service"
 
 [features]
 # Opt-in consumer tooling. The shipped service (`cargo build --locked --release`) does not enable
