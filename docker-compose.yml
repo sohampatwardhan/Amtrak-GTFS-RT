@@ -2,16 +2,13 @@
 #
 # Chromium stays in the advisory-fetcher image. The service build is the root
 # Dockerfile `runtime` stage (scratch). Advisories are on in this stack and
-# fail open if the fetcher is down. Track assignments stay off unless
-# `AMTRAK_TRACKS=on` is set in the environment. Amtrak's own track numbers come
-# from the track sidecar, which is the Compose profile `tracks`: it is not
-# started by a plain `docker compose up`, so the Chromium it runs costs nothing
-# while tracks are off. Turn both on together, on the command line or in `.env`:
+# fail open if the fetcher is down. Track and gate assignments are on too:
+# Amtrak's own track numbers and boarding gates come from the track-fetcher
+# sidecar, which starts with the stack, and NJ Transit's come from RailData when
+# its credentials are set. Tracks change the published static feed; see the
+# README. To run without them (and without the sidecar's Chromium):
 #
-#   AMTRAK_TRACKS=on
-#   COMPOSE_PROFILES=tracks
-#
-# Enabling tracks changes the published static feed; see the README.
+#   AMTRAK_TRACKS=off docker compose up -d --build --scale track-fetcher=0
 #
 #   docker compose up -d --build
 #
@@ -52,7 +49,6 @@ services:
     networks: [amtrak]
 
   track-fetcher:
-    profiles: ["tracks"]
     build:
       context: ./track-fetcher
       dockerfile: Dockerfile
@@ -91,10 +87,10 @@ services:
     environment:
       AMTRAK_ADVISORIES: "on"
       AMTRAK_ADVISORIES_URL: http://advisory-fetcher:8080/service-alerts-and-notices
-      # Empty unless the operator sets it. Empty leaves track assignments off.
-      AMTRAK_TRACKS: ${AMTRAK_TRACKS:-}
-      # Amtrak's own track numbers, from the `tracks` profile's sidecar. Read only while tracks
-      # are on. Set it explicitly empty to skip Amtrak's status and use only the other boards.
+      # On unless the operator sets `off`.
+      AMTRAK_TRACKS: ${AMTRAK_TRACKS:-on}
+      # Amtrak's own track numbers and gates, from the track-fetcher sidecar. Read only while
+      # tracks are on. Set it explicitly empty to skip Amtrak's status and use only the other boards.
       AMTRAK_TRACKS_AMTRAK_URL: ${AMTRAK_TRACKS_AMTRAK_URL-http://track-fetcher:8081/tracks.json}
       # Published on host loopback port 8090 (8080 is often taken on the host).
       # The container sees that traffic from the bridge gateway of the pinned

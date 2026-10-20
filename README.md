@@ -20,8 +20,9 @@ open, so turning them on never stops trip updates or vehicle positions from publ
 
 - **[Service Alerts & Notices](#service-alerts--notices)** (`AMTRAK_ADVISORIES`): station and
   passenger advisories in `alerts.pb`.
-- **[Platform and track assignments](#platform-and-track-assignments)** (`AMTRAK_TRACKS`): the live
-  track a train will use, from Amtrak, NJ Transit, and the Hartford Line.
+- **[Platform and track assignments](#platform-and-track-assignments)** (`AMTRAK_TRACKS`, on by
+  default): the live track a train will use, and the boarding gate where Amtrak posts one, from
+  Amtrak, NJ Transit, and the Hartford Line.
 
 ```mermaid
 flowchart LR
@@ -56,7 +57,8 @@ flowchart LR
 - **Source:** `main` contains the Rust service, the Playwright `advisory-fetcher` (with advisory
   detail text in `alerts.pb`), the `track-fetcher` sidecar for Amtrak's own track numbers, the
   `amtrak-status` station and train CLI, root-level Compose and Bake packaging, and live track and
-  platform assignments (default-off via `AMTRAK_TRACKS`). Changes merged after a release are
+  platform assignments, with Amtrak's boarding gates (on by default; `AMTRAK_TRACKS=off` turns
+  them off). Changes merged after a release are
   listed under **Unreleased** in [CHANGELOG.md](CHANGELOG.md).
 - **Releases:** `v0.6.2` (2026-10-19) is the current release. A release is complete when its
   GitHub Release carries `image-release.txt` with the tag, revisions, manifest digest, and both
@@ -419,8 +421,8 @@ Restart=on-failure
 | `AMTRAK_ADVISORIES` | off | Set to `on`, `true`, or `1` to merge Service Alerts & Notices into `alerts.pb`. Default off; fail-open |
 | `AMTRAK_ADVISORIES_URL` | `https://www.amtrak.com/service-alerts-and-notices` | HTML snapshot URL. Point this at the advisory-fetcher sidecar; plain HTTP to `www.amtrak.com` is Akamai-blocked |
 | `AMTRAK_ADVISORIES_TTL_SECS` | `900` | Minimum seconds between advisory page fetches |
-| `AMTRAK_TRACKS` | off | Set to `on`, `true`, or `1` to publish live platform/track assignments. Default off; fail-open |
-| `AMTRAK_TRACKS_PLATFORMS` | `NYP=1-21;NWK=A,1-5;NHV=1-4,8,10,12,14` | Covered stations and their real tracks (`STOP=labels`, ranges allowed). Each becomes a platform stop |
+| `AMTRAK_TRACKS` | on | Publishes live platform/track and gate assignments. Set `off`, `false`, `0`, or `no` to turn them off; any other value is a startup error. Fail-open |
+| `AMTRAK_TRACKS_PLATFORMS` | `NYP=1-21;NWK=A,1-5;NHV=1-4,8,10,12,14` | Covered stations and their real tracks (`STOP=labels`, ranges allowed, `track@gate` for a gated track). Each becomes a platform stop |
 | `AMTRAK_TRACKS_REFRESH_SECS` | `60` | Seconds between background board refreshes |
 | `AMTRAK_TRACKS_MAX_AGE_SECS` | `300` | Oldest board reading that may still be published |
 | `AMTRAK_TRACKS_REQUEST_TIMEOUT_SECS` | `10` | Timeout for each board request |
@@ -445,8 +447,7 @@ The browser sidecars have their own settings, documented in
 ## Compose stack
 
 From the repository root, one Compose file builds and runs the scratch service with the advisory
-sidecar, advisories on. The track sidecar is the `tracks` profile and is not started by a plain
-`docker compose up`:
+and track sidecars, with advisories and tracks on:
 
 ```bash
 docker compose up -d --build
@@ -458,7 +459,7 @@ flowchart LR
   subgraph net["Compose network amtrak 172.31.240.0/24"]
     svc
     adv["advisory-fetcher :8080"]
-    trk["track-fetcher :8081, profile tracks"]
+    trk["track-fetcher :8081"]
   end
   svc -->|"AMTRAK_ADVISORIES_URL"| adv
   svc -->|"AMTRAK_TRACKS_AMTRAK_URL"| trk
@@ -471,24 +472,21 @@ That stack sets:
 ```text
 AMTRAK_ADVISORIES=on
 AMTRAK_ADVISORIES_URL=http://advisory-fetcher:8080/service-alerts-and-notices
-AMTRAK_TRACKS_AMTRAK_URL=http://track-fetcher:8081/tracks.json   # read only while tracks are on
+AMTRAK_TRACKS=on
+AMTRAK_TRACKS_AMTRAK_URL=http://track-fetcher:8081/tracks.json
 AMTRAK_BIND_ADDR=0.0.0.0:8080
 AMTRAK_ALLOWED_PEER_IPS=172.31.240.1
 AMTRAK_PUBLIC_URL=http://127.0.0.1:8090
 ```
 
-To turn tracks on, set `AMTRAK_TRACKS=on` and enable the `tracks` profile together, on the
-command line or in the `.env` file next to `docker-compose.yml`, which Compose reads:
+NJ Transit's tracks also need `NJT_RAILDATA_USERNAME` and `NJT_RAILDATA_PASSWORD`, for example in
+the `.env` file next to `docker-compose.yml`, which Compose reads; without them that board is
+skipped. Set `AMTRAK_TRACKS_AMTRAK_URL=` (empty) to keep the other boards without Amtrak's. To run
+with no tracks at all, and without the sidecar's Chromium:
 
-```text
-AMTRAK_TRACKS=on
-COMPOSE_PROFILES=tracks
+```bash
+AMTRAK_TRACKS=off docker compose up -d --build --scale track-fetcher=0
 ```
-
-Without the profile, tracks still come from NJ Transit and the Hartford board, but Amtrak's own
-track numbers do not: every refresh logs `status fetch failed` for `source=amtrak`. Leaving tracks
-off and the profile unset keeps the sidecar's Chromium from running at all. Set
-`AMTRAK_TRACKS_AMTRAK_URL=` (empty) to keep the other boards without Amtrak's.
 
 The feed is published on host loopback port 8090 (`http://127.0.0.1:8090`), leaving host port 8080
 free for other services. The allowlist is the gateway of the Compose network, which is the peer
@@ -553,12 +551,14 @@ flowchart TD
 
 ## Platform and track assignments
 
-With `AMTRAK_TRACKS=on`, trip updates carry the live track at stations whose boards publish it, in
-the form the GTFS-Realtime reference defines: `stop_time_properties.assigned_stop_id` names a
-platform stop that exists in the published static feed.
+Trip updates carry the live track at stations whose boards publish it, and the boarding gate where
+Amtrak posts one, in the form the GTFS-Realtime reference defines:
+`stop_time_properties.assigned_stop_id` names a platform stop that exists in the published static
+feed, and that stop's `platform_code` is what riders see (`24`, or `24 (Gate H)`). This is on by
+default; `AMTRAK_TRACKS=off` publishes Amtrak's feeds without it.
 
 > [!IMPORTANT]
-> Turning tracks on changes the published **static** feed as well as trip updates. Consumers that
+> Tracks change the published **static** feed as well as trip updates. Consumers that
 > list every row of `stops.txt` should filter by `location_type` or `parent_station`, so parent
 > stations and platforms do not show up as separate places. Consumers that match stop times by
 > `stop_id` should fall back to `stop_sequence` when `stop_id` is absent.
@@ -570,7 +570,9 @@ the service adds structure for each station in `AMTRAK_TRACKS_PLATFORMS`:
 
 - a parent station `{stop}:station` (`location_type=1`);
 - `parent_station={stop}:station` on the original stop, whose id and trips are unchanged;
-- one platform stop per track, `{stop}:track:{label}` (`location_type=0`, `platform_code` = track).
+- one platform stop per track, `{stop}:track:{label}` (`location_type=0`, `platform_code` = track);
+- one more per track and gate Amtrak has posted together, `{stop}:track:{track}:gate:{gate}`
+  (`platform_code` = `24 (Gate H)`, `stop_name` = `Washington Union Station Track 24 Gate H`).
 
 ```mermaid
 flowchart TD
@@ -578,6 +580,7 @@ flowchart TD
   parent --> t1["NYP:track:1 (platform_code 1)"]
   parent --> t2["NYP:track:2 (platform_code 2)"]
   parent --> tn["... one platform stop per track"]
+  parent --> tg["NYP:track:12:gate:W (platform_code 12 (Gate W))"]
   stop -.->|"trip update assigned_stop_id"| t1
 ```
 
@@ -608,14 +611,18 @@ The track is stamped only once that platform stop is in the published snapshot.
 - If the static validator rejects the feed with the observed platforms, it is rebuilt with the
   configured platforms alone, so one bad observation cannot remove every platform stop.
 
-Labels are platform tokens such as `4`, `14`, `2A`, `A`, or the named track `MAIN` (Buffalo).
-Anything else, such as `TBD`, is ignored. A station that is not in the static feed at all is
+Labels are platform tokens such as `4`, `14`, `2A`, `A`, or the named track `MAIN` (Buffalo). A
+track Amtrak posts with a boarding gate is recorded as `track@gate`, such as `24@H` at Washington
+(`WAS=24@H` in the file); a gate is one to three uppercase letters or digits. Anything else, such
+as `TBD`, is ignored, and a placeholder gate leaves the plain track. A station that is not in the static feed at all is
 skipped.
 
 ### Trip updates
 
-A matching stop time gets `assigned_stop_id={stop}:track:{label}` and its `stop_sequence`, and its
-`stop_id` is removed, as the reference prefers. A stop time is stamped only when it is not skipped,
+A matching stop time gets `assigned_stop_id={stop}:track:{label}` (or
+`{stop}:track:{track}:gate:{gate}` for a gated track) and its `stop_sequence`, and its `stop_id` is
+removed, as the reference prefers. GTFS-Realtime has no gate field, so the gate travels in the
+assigned platform stop, which every consumer that reads `assigned_stop_id` already resolves. A stop time is stamped only when it is not skipped,
 has a predicted time between one hour before and twelve hours after the generation, and visits its
 station exactly once in the trip. Vehicle positions are unchanged.
 
@@ -665,9 +672,16 @@ flowchart TD
 
 Amtrak's own status covers every station where Amtrak posts a track. The service does not call
 `www.amtrak.com` itself: it reads the [`track-fetcher`](track-fetcher/README.md) sidecar, which
-serves `GET /tracks.json`, at `AMTRAK_TRACKS_AMTRAK_URL`. The Compose stack points that at the
-sidecar by default, so enabling the `tracks` profile is enough. Run directly, the URL defaults to
-empty, which leaves this source off; the startup banner and a warning say so.
+serves `GET /tracks.json`, at `AMTRAK_TRACKS_AMTRAK_URL`. The Compose stack starts the sidecar and
+points that URL at it by default. Run directly, the URL defaults to empty, which leaves this source
+off; the startup banner and a warning say so.
+
+Where Amtrak posts a boarding gate beside the track (`departure.gate.number`), the gate from that
+same arrival or departure is kept with the track. On 2026-10-19 train 66 left Washington from track
+24, gate `H`; its trip update gets `assigned_stop_id=WAS:track:24:gate:H`, a platform stop
+whose `platform_code` is `24 (Gate H)`. Gates also appeared at New Carrollton, Minot, and Cary
+(gate `A`). [`python -m fetcher.dump`](track-fetcher/README.md#one-shot-track-dump) prints what
+Amtrak posts for any train.
 
 A track Amtrak shows at a station outside `AMTRAK_TRACKS_PLATFORMS` (Providence, for example) is
 recorded as an observed platform, the static feed is rebuilt with `PVD:track:1`, and from then on
@@ -727,7 +741,7 @@ port. The image uses the same headless-shell build the advisory sidecar's on-dev
 Raspberry Pi 5 (`linux/arm64`).
 
 ```bash
-AMTRAK_TRACKS=on docker compose --profile tracks up -d --build
+docker compose up -d --build
 ```
 
 > [!WARNING]
@@ -771,9 +785,9 @@ unknown username, or a network failure) pauses NJ Transit requests for an hour, 
 costs one request.
 
 ```bash
-AMTRAK_TRACKS=on NJT_RAILDATA_USERNAME=... NJT_RAILDATA_PASSWORD=... \
+NJT_RAILDATA_USERNAME=... NJT_RAILDATA_PASSWORD=... \
   docker run --rm --network host -v amtrak-data:/data \
-  -e AMTRAK_TRACKS -e NJT_RAILDATA_USERNAME -e NJT_RAILDATA_PASSWORD amtrak-gtfs-rt:local
+  -e NJT_RAILDATA_USERNAME -e NJT_RAILDATA_PASSWORD amtrak-gtfs-rt:local
 ```
 
 > [!NOTE]

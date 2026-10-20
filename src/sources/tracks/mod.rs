@@ -89,8 +89,9 @@ const EVENT_WINDOW_AFTER: u64 = 12 * 3600;
 
 /// Points matching stop times at the reported platform stop, as GTFS-Realtime requires.
 ///
-/// A stamped stop time gets `assigned_stop_id = {stop}:track:{label}`, which is a real stop in the
-/// augmented static feed and a sibling of the scheduled stop under one parent station. The
+/// A stamped stop time gets `assigned_stop_id = {stop}:track:{label}` (or
+/// `{stop}:track:{track}:gate:{gate}` when Amtrak names the boarding gate), which is a real stop in
+/// the augmented static feed and a sibling of the scheduled stop under one parent station. The
 /// reference requires `stop_sequence` whenever `assigned_stop_id` is set and prefers `stop_id` to be
 /// omitted (it must otherwise equal the assigned stop), so `stop_sequence` is filled from the
 /// static trip and `stop_id` is cleared. A stop time is stamped only when it is not skipped, has a
@@ -269,6 +270,46 @@ pub fn is_track_label(track: &str) -> bool {
         && digits.len() <= 3
 }
 
+/// Separates a track from its boarding gate in a platform label (`24@H`). It never appears in a
+/// generated stop id; see [`crate::static_augment::platform_stop_id`].
+pub const GATE_SEPARATOR: char = '@';
+
+/// Placeholder words a gate column may carry instead of a gate.
+const GATE_PLACEHOLDERS: &[&str] = &["TBD", "NA"];
+
+/// Boarding gate token: one to three uppercase letters or digits, such as `H`, `A`, or `B12`.
+pub fn is_gate_label(gate: &str) -> bool {
+    (1..=3).contains(&gate.len())
+        && gate
+            .bytes()
+            .all(|byte| byte.is_ascii_uppercase() || byte.is_ascii_digit())
+        && !GATE_PLACEHOLDERS.contains(&gate)
+}
+
+/// Platform label: a track (`24`), or a track and the gate that boards it (`24@H`).
+pub fn is_platform_label(label: &str) -> bool {
+    match split_platform_label(label) {
+        (track, None) => is_track_label(track),
+        (track, Some(gate)) => is_track_label(track) && is_gate_label(gate),
+    }
+}
+
+/// The track and, for a gated label, its gate.
+pub fn split_platform_label(label: &str) -> (&str, Option<&str>) {
+    match label.split_once(GATE_SEPARATOR) {
+        Some((track, gate)) => (track, Some(gate)),
+        None => (label, None),
+    }
+}
+
+/// Platform label for `track`, boarded through `gate` when Amtrak names one.
+pub fn platform_label(track: &str, gate: Option<&str>) -> String {
+    match gate {
+        Some(gate) => format!("{track}{GATE_SEPARATOR}{gate}"),
+        None => track.to_string(),
+    }
+}
+
 /// Normalizes an Amtrak train number. A single leading `A` is removed when the rest is numeric
 /// (NJT's Amtrak prefix). Leading zeros are removed (`A067` and `066` both become `67`).
 pub fn normalize_train_number(raw: &str) -> Option<String> {
@@ -329,6 +370,16 @@ mod tests {
         assert!(!is_track_label("GATE"));
         assert!(!is_track_label("main"));
         assert!(!is_track_label("12AB"));
+        assert!(is_platform_label("24@H"));
+        assert!(is_platform_label("MAIN@B12"));
+        assert!(!is_platform_label("24@"));
+        assert!(!is_platform_label("@H"));
+        assert!(!is_platform_label("24@TBD"));
+        assert!(!is_platform_label("24@h"));
+        assert!(!is_platform_label("TBD@H"));
+        assert_eq!(platform_label("24", Some("H")), "24@H");
+        assert_eq!(split_platform_label("24@H"), ("24", Some("H")));
+        assert_eq!(split_platform_label("24"), ("24", None));
     }
 
     const NOW: u64 = 1_800_000_000;
@@ -342,7 +393,8 @@ mod tests {
         })
     }
 
-    /// NWK (child of NWK:station) with platforms 1 and 4; trip 67 calls at NWK then NYP; trip 99
+    /// NWK (child of NWK:station) with platforms 1, 4, and 4 boarded through gate H; trip 67 calls
+    /// at NWK then NYP; trip 99
     /// calls at NWK twice.
     fn sample_gtfs() -> Gtfs {
         let mut gtfs = Gtfs::default();
@@ -354,6 +406,7 @@ mod tests {
             stop("NWK:station", None),
             stop("NWK:track:1", Some("NWK:station")),
             stop("NWK:track:4", Some("NWK:station")),
+            stop("NWK:track:4:gate:H", Some("NWK:station")),
         ] {
             gtfs.stops.insert(stop.id.clone(), stop);
         }
@@ -432,7 +485,7 @@ mod tests {
     }
 
     fn table() -> SharedPlatforms {
-        SharedPlatforms::new(PlatformTable::parse("NWK=1,4,5").unwrap(), None)
+        SharedPlatforms::new(PlatformTable::parse("NWK=1,4,5,4@H").unwrap(), None)
     }
 
     fn stamp(batch: &mut RtBatch, board: &TrackBoard) {
@@ -469,6 +522,20 @@ mod tests {
         assert_eq!(assignment_of(stu), Some("NWK:track:4"));
         assert_eq!(stu.stop_sequence, Some(3));
         assert_eq!(stu.stop_id, None);
+    }
+
+    #[test]
+    fn a_gated_track_points_at_its_gate_platform() {
+        let mut batch = update("trip-67", vec![at(Some("NWK"), None, NOW as i64 + 600)]);
+        stamp(&mut batch, &board("67", "NWK", "4@H"));
+        assert_eq!(
+            assignment_of(assigned(&batch, 0)),
+            Some("NWK:track:4:gate:H")
+        );
+        // A gate the static snapshot does not publish yet is not stamped as the bare track.
+        let mut batch = update("trip-67", vec![at(Some("NWK"), None, NOW as i64 + 600)]);
+        stamp(&mut batch, &board("67", "NWK", "4@J"));
+        assert_eq!(assignment_of(assigned(&batch, 0)), None);
     }
 
     #[test]

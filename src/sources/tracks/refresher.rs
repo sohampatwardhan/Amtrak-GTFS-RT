@@ -357,13 +357,35 @@ t167,16:20:00,16:20:00,BOS,1\nt167,17:06:00,17:08:00,PVD,2\n"),
 
     #[tokio::test]
     async fn an_amtrak_track_at_an_unseeded_station_reaches_static_and_trip_updates() {
+        let body = include_str!("../../../fixtures/tracks/amtrak_status.json");
+        amtrak_status_reaches_trip_updates(body.to_string(), "PVD:track:1", "1").await;
+    }
+
+    #[tokio::test]
+    async fn an_amtrak_gate_reaches_static_and_trip_updates() {
+        // The same document with gate B posted beside Providence's arrival track.
+        let body = include_str!("../../../fixtures/tracks/amtrak_status.json").replacen(
+            r#""track": { "number": "1","#,
+            r#""gate": { "number": "B" }, "track": { "number": "1","#,
+            1,
+        );
+        assert!(body.contains(r#""number": "B""#), "fixture layout changed");
+        amtrak_status_reaches_trip_updates(body, "PVD:track:1:gate:B", "1 (Gate B)").await;
+    }
+
+    /// Serves `body` as the sidecar, refreshes once, augments static with what was observed, and
+    /// checks that train 167's Providence stop time is assigned `platform` with `platform_code`.
+    async fn amtrak_status_reaches_trip_updates(body: String, platform: &str, code: &str) {
         use gtfs_realtime::trip_update::{StopTimeEvent, StopTimeUpdate};
         use gtfs_realtime::{FeedEntity, FeedMessage, TripDescriptor, TripUpdate};
         use prost::Message;
 
         let base = serve(Router::new().route(
             "/tracks.json",
-            get(|| async { include_str!("../../../fixtures/tracks/amtrak_status.json") }),
+            get(move || {
+                let body = body.clone();
+                async move { body }
+            }),
         ))
         .await;
         let store = AssignmentStore::new();
@@ -389,9 +411,9 @@ t167,16:20:00,16:20:00,BOS,1\nt167,17:06:00,17:08:00,PVD,2\n"),
         let augmented =
             crate::static_augment::augment_static(&northeast_regional_zip(), &table).unwrap();
         let gtfs = gtfs_structures::Gtfs::from_reader(std::io::Cursor::new(augmented)).unwrap();
-        let platform = &gtfs.stops["PVD:track:1"];
-        assert_eq!(platform.platform_code.as_deref(), Some("1"));
-        assert!(platform.parent_station.is_some());
+        let stop = &gtfs.stops[platform];
+        assert_eq!(stop.platform_code.as_deref(), Some(code));
+        assert!(stop.parent_station.is_some());
 
         // A trip update for train 167 at Providence is pointed at that platform stop.
         let now = SystemTime::now();
@@ -441,7 +463,7 @@ t167,16:20:00,16:20:00,BOS,1\nt167,17:06:00,17:08:00,PVD,2\n"),
                 .stop_time_properties
                 .as_ref()
                 .and_then(|properties| properties.assigned_stop_id.as_deref()),
-            Some("PVD:track:1")
+            Some(platform)
         );
         assert_eq!(stop_time.stop_sequence, Some(2));
     }

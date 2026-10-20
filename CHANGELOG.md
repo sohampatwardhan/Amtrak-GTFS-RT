@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Amtrak's boarding gates in GTFS-Realtime.** Where Amtrak posts a gate beside the track
+  (Washington's `24` with gate `H`, for example), the stop time's `assigned_stop_id` names a
+  platform stop for that track and gate, `WAS:track:24:gate:H`, whose `platform_code` is
+  `24 (Gate H)`. GTFS-Realtime has no gate field, so the gate travels in the platform stop that
+  consumers already resolve for the track. Gated platforms are observed and added to the static
+  feed like new tracks, and `AMTRAK_TRACKS_PLATFORMS` accepts `track@gate` (`WAS=24@H`).
 - **One-shot Amtrak track dump.** `python -m fetcher.dump 66 2150 --date 2026-10-19`, run from
   `track-fetcher/` or inside its image, prints every track Amtrak has posted for those trains:
   station, arrival or departure, track, gate, scheduled time, and when Amtrak posted it. It loads
@@ -23,13 +29,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- **Amtrak's own track numbers are on whenever tracks are on in Compose.** The stack now points
-  `AMTRAK_TRACKS_AMTRAK_URL` at the `track-fetcher` sidecar by default, so `AMTRAK_TRACKS=on` with
-  the `tracks` profile (`COMPOSE_PROFILES=tracks`) publishes Amtrak's tracks, including at stations
-  outside `AMTRAK_TRACKS_PLATFORMS`, as `assigned_stop_id` platform stops. Before, the URL was
-  empty unless set by hand, so only NJ Transit and Hartford tracks were published. The sidecar
-  still starts only with the profile, and the service warns at startup when tracks are on without
-  an Amtrak URL.
+- **Tracks are on by default.** `AMTRAK_TRACKS` now defaults to on; set `off`, `false`, `0`, or
+  `no` to publish Amtrak's feeds without platform stops. Any other value is a startup error
+  instead of silently meaning off. This changes the published static feed for deployments that did
+  not set it: covered stations gain a parent station and platform stops, and the static version
+  gains a `+tracks.{digest}` suffix.
+- **The Compose stack runs the track sidecar and reads Amtrak's tracks and gates.** `track-fetcher`
+  is no longer behind the `tracks` profile, and `AMTRAK_TRACKS_AMTRAK_URL` points at it by default,
+  so `docker compose up` publishes Amtrak's tracks, including at stations outside
+  `AMTRAK_TRACKS_PLATFORMS`. `AMTRAK_TRACKS=off docker compose up -d --scale track-fetcher=0` runs
+  without tracks or the sidecar's Chromium. Run outside Compose, the Amtrak URL is still empty by
+  default, and the service warns at startup that Amtrak's own tracks are off.
 
 ## [0.6.2] - 2026-10-19
 

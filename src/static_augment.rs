@@ -5,7 +5,9 @@
 //! stop is referenced directly by `stop_times.txt`, so it cannot itself become a parent station.
 //! For each covered station this module therefore adds a new parent station (`{stop}:station`),
 //! re-parents the original stop under it, and adds one platform stop per configured track
-//! (`{stop}:track:{label}`, with `platform_code`). The platform and the scheduled stop are then
+//! (`{stop}:track:{label}`, with `platform_code`). A track Amtrak reports with a boarding gate gets
+//! its own platform stop, `{stop}:track:{track}:gate:{gate}` with `platform_code` `24 (Gate H)`, so
+//! the gate reaches GTFS-Realtime through the same `assigned_stop_id` as the track. The platform and the scheduled stop are then
 //! siblings of one station, which is the relationship the reference describes for platform
 //! assignments. Nothing else in the upstream feed changes.
 //!
@@ -14,7 +16,7 @@
 //! produce the same output. Any failure returns [`AugmentError`] and the caller publishes the
 //! upstream bytes instead.
 
-use crate::sources::tracks::is_track_label;
+use crate::sources::tracks::{is_platform_label, split_platform_label};
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, HashSet};
 use std::io::{Cursor, Read, Write};
@@ -34,8 +36,8 @@ pub struct PlatformTable {
 }
 
 impl PlatformTable {
-    /// Parses `STOP=labels;STOP=labels`, where labels are comma-separated platform tokens or
-    /// numeric ranges (`NWK=A,1-5`). Stop ids are uppercased; duplicate labels are dropped.
+    /// Parses `STOP=labels;STOP=labels`, where labels are comma-separated platform tokens, numeric
+    /// ranges, or a track and its boarding gate (`NWK=A,1-5;WAS=24@H`). Stop ids are uppercased; duplicate labels are dropped.
     ///
     /// # Errors
     ///
@@ -86,8 +88,8 @@ impl PlatformTable {
 
     /// Adds one platform. Returns whether the table changed.
     ///
-    /// Stop ids are uppercased. A label that is not a platform token, or a stop id that contains
-    /// `:`, is ignored. Duplicate labels are ignored.
+    /// Stop ids are uppercased. A label that is not a platform label (a track, or `track@gate`), or
+    /// a stop id that contains `:`, is ignored. Duplicate labels are ignored.
     pub fn insert_track(&mut self, stop_id: &str, label: &str) -> bool {
         let stop = stop_id.trim().to_uppercase();
         let label = label.trim().to_uppercase();
@@ -97,7 +99,7 @@ impl PlatformTable {
             || !stop
                 .chars()
                 .all(|character| character.is_ascii_alphanumeric())
-            || !is_track_label(&label)
+            || !is_platform_label(&label)
         {
             return false;
         }
@@ -164,7 +166,7 @@ fn expand(part: &str) -> Result<Vec<String>, String> {
         }
         return Ok((start..=end).map(|number| number.to_string()).collect());
     }
-    if !is_track_label(&upper) {
+    if !is_platform_label(&upper) {
         return Err(format!("{part:?} is not a platform track label"));
     }
     Ok(vec![upper])
@@ -397,9 +399,29 @@ pub fn parent_station_id(stop_id: &str) -> String {
     format!("{stop_id}:station")
 }
 
-/// Platform stop id for track `label` at covered stop `stop_id`.
+/// Platform stop id for platform `label` at covered stop `stop_id`: `NYP:track:12`, or
+/// `WAS:track:24:gate:H` for a track boarded through a named gate.
 pub fn platform_stop_id(stop_id: &str, label: &str) -> String {
-    format!("{stop_id}:track:{label}")
+    match split_platform_label(label) {
+        (track, Some(gate)) => format!("{stop_id}:track:{track}:gate:{gate}"),
+        (track, None) => format!("{stop_id}:track:{track}"),
+    }
+}
+
+/// `platform_code` riders see for platform `label`: `12`, or `24 (Gate H)`.
+pub fn platform_code(label: &str) -> String {
+    match split_platform_label(label) {
+        (track, Some(gate)) => format!("{track} (Gate {gate})"),
+        (track, None) => track.to_string(),
+    }
+}
+
+/// Suffix of the generated platform's `stop_name`: `Track 12`, or `Track 24 Gate H`.
+fn platform_name(label: &str) -> String {
+    match split_platform_label(label) {
+        (track, Some(gate)) => format!("Track {track} Gate {gate}"),
+        (track, None) => format!("Track {track}"),
+    }
 }
 
 /// Why augmentation could not produce a feed; the caller falls back to upstream bytes.
@@ -567,11 +589,11 @@ fn augment_stops(raw: &[u8], table: &PlatformTable) -> Result<Vec<u8>, AugmentEr
             );
             row[id] = platform_stop_id(stop, label);
             if let Some(name) = name {
-                row[name] = format!("{} Track {label}", template[name]);
+                row[name] = format!("{} {}", template[name], platform_name(label));
             }
             row[location] = "0".into();
             row[parent].clone_from(&station_id);
-            row[platform].clone_from(label);
+            row[platform] = platform_code(label);
             added.push(row);
         }
     }
@@ -641,6 +663,33 @@ NYP,NYP,\"Ny Moynihan Train Hall At Penn Station\",https://www.amtrak.com/statio
                 (entry.name().to_string(), bytes)
             })
             .collect()
+    }
+
+    #[test]
+    fn a_gated_track_is_its_own_platform_stop() {
+        let table = PlatformTable::parse("NWK=1,1@h;NYP=5").unwrap();
+        assert_eq!(table.canonical(), "NWK=1,1@H;NYP=5");
+        assert!(table.contains("NWK", "1@H"));
+        assert!(PlatformTable::parse("NWK=1@TBD").is_err());
+        assert!(PlatformTable::parse("NWK=1@").is_err());
+        assert!(PlatformTable::parse("NWK=@H").is_err());
+        let mut observed = PlatformTable::default();
+        assert!(observed.insert_track("WAS", "24@H"));
+        assert!(!observed.insert_track("WAS", "24@GATE"));
+
+        let augmented = augment_static(&fixture_zip(STOPS.as_bytes()), &table).unwrap();
+        let gtfs = Gtfs::from_reader(Cursor::new(augmented)).unwrap();
+        let gated = &gtfs.stops["NWK:track:1:gate:H"];
+        assert_eq!(platform_stop_id("NWK", "1@H"), "NWK:track:1:gate:H");
+        assert_eq!(gated.platform_code.as_deref(), Some("1 (Gate H)"));
+        assert_eq!(gated.name.as_deref(), Some("Newark Track 1 Gate H"));
+        assert_eq!(gated.parent_station.as_deref(), Some("NWK:station"));
+        assert_eq!(gated.location_type, LocationType::StopPoint);
+        assert_eq!(
+            gtfs.stops["NWK:track:1"].platform_code.as_deref(),
+            Some("1")
+        );
+        assert!(!gtfs.stops.keys().any(|id| id.contains('@')));
     }
 
     #[test]

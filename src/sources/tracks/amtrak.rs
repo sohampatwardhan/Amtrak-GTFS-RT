@@ -2,7 +2,9 @@
 //!
 //! The Amtrak site and app load
 //! `GET /dotcom/travel-service/statuses/{train}?service-date={YYYY-MM-DD}` and read
-//! `stops[].departure.track.number`, falling back to `stops[].arrival.track.number`. That host
+//! `stops[].departure.track.number`, falling back to `stops[].arrival.track.number`, with the
+//! boarding gate beside it (`stops[].departure.gate.number`) at stations that post one, such as
+//! Washington Union Station. A gated track becomes the platform label `24@H`. That host
 //! resets non-browser clients, so the service does not call it itself. A sidecar browser fetches
 //! the trains that are near a stop and serves the JSON here. A track is kept until the stop's
 //! latest predicted time plus the configured grace, including when a later document omits it.
@@ -12,7 +14,7 @@
 //! document the sidecar keeps re-serving after Amtrak stops answering does not look new.
 
 use super::store::Assignment;
-use super::{is_track_label, normalize_train_number};
+use super::{is_gate_label, is_track_label, normalize_train_number, platform_label};
 use serde_json::Value;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -107,11 +109,29 @@ fn group_from_train(train: &Value, grace: Duration, now: SystemTime) -> Option<S
     })
 }
 
-/// Departure track when it is a platform token, otherwise the arrival track.
+/// Departure track when it is a platform token, otherwise the arrival track, as a platform label
+/// that carries the gate posted on that same side.
 fn chosen_track(stop: &Value) -> Option<String> {
-    stop.get("departure")
-        .and_then(track_number)
-        .or_else(|| stop.get("arrival").and_then(track_number))
+    ["departure", "arrival"]
+        .into_iter()
+        .filter_map(|side| stop.get(side))
+        .find_map(|side| {
+            let track = track_number(side)?;
+            Some(platform_label(&track, gate_number(side).as_deref()))
+        })
+}
+
+/// The side's boarding gate, read from `gate.number` beside the track (or inside it).
+fn gate_number(side: &Value) -> Option<String> {
+    let gate = side
+        .pointer("/gate/number")
+        .or_else(|| side.pointer("/track/gate/number"))?;
+    let text = match gate {
+        Value::String(text) => text.trim().to_uppercase(),
+        Value::Number(number) => number.to_string(),
+        _ => return None,
+    };
+    is_gate_label(&text).then_some(text)
 }
 
 fn track_number(side: &Value) -> Option<String> {
@@ -244,6 +264,36 @@ mod tests {
         // Departure 2099-01-01T17:08:00-05:00 is 22:08:00Z, plus the 900s grace.
         let expected = parse_rfc3339("2099-01-01T22:08:00Z").unwrap() + Duration::from_secs(900);
         assert_eq!(pvd.retain_until, Some(expected));
+    }
+
+    #[test]
+    fn a_posted_gate_joins_the_track_on_the_same_side() {
+        // Amtrak's 20261019 shape for train 66 at Washington (track 24, gate H) and train 67 at
+        // New Carrollton (gate A on the departure only), plus a placeholder gate.
+        let body = r#"{"data":[{"travelService":{"number":"66","date":"2099-01-02"},"stops":[
+            {"station":{"code":"WAS"},"departure":{"track":{"number":"24"},"gate":{"number":"h"}}},
+            {"station":{"code":"NCR"},"arrival":{"track":{"number":"3"}},
+             "departure":{"track":{"number":"3"},"gate":{"number":"A","asOf":"2099-01-01T18:35:12-04:00"}}},
+            {"station":{"code":"MOT"},"arrival":{"track":{"number":"1"},"gate":{"number":"A"}}},
+            {"station":{"code":"BAL"},"departure":{"track":{"number":"6"},"gate":{"number":"TBD"}}},
+            {"station":{"code":"SEA"},"arrival":{"track":{"number":"T5"}},"departure":{"gate":{"number":"B"}}}
+        ]}]}"#;
+        let now = UNIX_EPOCH + Duration::from_secs(1_000);
+        let groups = groups_from_status(body, Duration::from_secs(900), now).unwrap();
+        let tracks: Vec<(&str, &str)> = groups[0]
+            .rows
+            .iter()
+            .map(|row| (row.stop_id.as_str(), row.track.as_str()))
+            .collect();
+        assert_eq!(
+            tracks,
+            [
+                ("WAS", "24@H"),
+                ("NCR", "3@A"),
+                ("MOT", "1@A"),
+                ("BAL", "6")
+            ]
+        );
     }
 
     #[test]
