@@ -117,6 +117,36 @@ AMTRAK_TRACKS_AMTRAK_URL=http://track-fetcher:8081/tracks.json \
   docker compose --profile tracks up -d --build
 ```
 
+## One-shot track dump
+
+`python -m fetcher.dump` prints every track Amtrak has posted for the trains you name, then exits.
+It opens the train-status page once in headless Chromium, the same way the sidecar does, then
+fetches one status document per train and service date from inside that page. It waits
+`--delay` seconds between requests (default 1.5), blocks the same page weight and third-party
+hosts, and refuses more than `--max-requests` train-days (default 40). A service date is the day
+the train left its origin, so pass yesterday's date too for overnight trains still running.
+
+```bash
+python -m fetcher.dump 66 67 49 2150 --date 2026-10-19 --date 2026-10-20
+```
+
+```text
+Train  Service date  Station  Side       Track  Gate  Scheduled                  As of                      Station name
+66     2026-10-19    WAS      departure  24     H     2026-10-19T22:00:00-04:00  2026-10-19T21:38:18-04:00  Washington, DC
+66     2026-10-19    BWI      arrival    1            2026-10-19T22:33:00-04:00  2026-10-19T10:33:01-04:00  BWI Marshall Airport, MD
+67     2026-10-19    NYP      arrival    10           2026-10-19T23:05:00-04:00  2026-10-19T23:32:09-04:00  New York, NY
+49     2026-10-19    BUF      arrival    MAIN         2026-10-20T00:29:00-04:00  2026-10-19T12:29:06-04:00  Buffalo, NY
+```
+
+`--json` prints one object per track instead. Locally it needs Playwright and its headless shell
+(`python -m pip install playwright==1.61.0`, then `python -m playwright install --only-shell
+chromium`). The image already has both:
+
+```bash
+docker run --rm --read-only --tmpfs /tmp --shm-size 64m \
+  --entrypoint python track-fetcher:local -m fetcher.dump 66 2150
+```
+
 Offline tests (no browser, no network):
 
 ```bash

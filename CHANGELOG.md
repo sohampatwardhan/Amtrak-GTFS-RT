@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **One-shot Amtrak track dump.** `python -m fetcher.dump 66 2150 --date 2026-10-19`, run from
+  `track-fetcher/` or inside its image, prints every track Amtrak has posted for those trains:
+  station, arrival or departure, track, gate, scheduled time, and when Amtrak posted it. It loads
+  amtrak.com once in headless Chromium, like the sidecar, then makes one paced status request per
+  train-day, capped at 40 by default.
 - **The service prints where its feed is.** Once listening it prints the feed-set, generation,
   readiness, and liveness URLs, who may read them, and whether advisories and each track source
   (Amtrak status, NJ Transit RailData, Hartford Line board) are on, then prints the
