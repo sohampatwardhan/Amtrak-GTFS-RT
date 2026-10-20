@@ -137,6 +137,5 @@ jobs:
       - name: Validate root compose and bake targets
         run: |
           docker compose -f docker-compose.yml config >/dev/null
-          docker compose -f docker-compose.yml --profile tracks config >/dev/null
           docker compose -f advisory-fetcher/docker-compose.yml config >/dev/null
           docker buildx bake --print >/dev/null

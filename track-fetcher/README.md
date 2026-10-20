@@ -88,7 +88,7 @@ outside `amtrak.com`. If 403s continue, rebuild with full Chromium and Xvfb and 
 
 ```bash
 FETCHER_BROWSER_BUNDLE=full FETCHER_BROWSER_MODE=xvfb-headful \
-  docker compose --profile tracks up -d --build
+  docker compose up -d --build
 ```
 
 The full image is larger and headful Chromium uses more memory; check it stays under the
@@ -108,13 +108,12 @@ terms of use before running it.
 
 ## Run
 
-The root Compose file starts this image only with the `tracks` profile. Point the service at it
-explicitly; an empty `AMTRAK_TRACKS_AMTRAK_URL` leaves the source off:
+The root Compose file starts this image with the stack and points the service at it, so tracks and
+gates from Amtrak's status are on by default. An empty `AMTRAK_TRACKS_AMTRAK_URL` leaves this source
+off; `AMTRAK_TRACKS=off` with `--scale track-fetcher=0` runs the stack without tracks or Chromium:
 
 ```bash
-AMTRAK_TRACKS=on \
-AMTRAK_TRACKS_AMTRAK_URL=http://track-fetcher:8081/tracks.json \
-  docker compose --profile tracks up -d --build
+docker compose up -d --build
 ```
 
 ## One-shot track dump

@@ -128,14 +128,14 @@ const DEFAULT_NJT_STATIONS: &str = "NY,NP,NA,MP,NB,PJ,TR,PH";
 /// published inventory, so a track RailData or the Hartford board reports is added when it is seen.
 const DEFAULT_TRACK_PLATFORMS: &str = "NYP=1-21;NWK=A,1-5;NHV=1-4,8,10,12,14";
 
-/// Live platform/track enrichment. Default **off** and fail-open: a board failure never fails a
-/// generation.
+/// Live platform/track enrichment. Default **on** and fail-open: a board failure never fails a
+/// generation, and a source without its credentials or URL is simply skipped.
 ///
 /// NJ Transit data is read only through the operator's registered RailData account, so the
 /// credentials are the one secret here. `Debug` reports only whether they are set.
 #[derive(Clone)]
 pub struct TrackConfig {
-    /// Env `AMTRAK_TRACKS` (`1` / `true` / `on`). Default off.
+    /// Env `AMTRAK_TRACKS` (`0` / `false` / `off` / `no` to turn off). Default on.
     pub enabled: bool,
     /// Interval between background board refreshes. Env `AMTRAK_TRACKS_REFRESH_SECS` (default 60).
     pub refresh_interval: Duration,
@@ -208,7 +208,7 @@ impl TrackConfig {
     ///
     /// Returns a [`ConfigError`] naming the malformed environment field.
     pub fn from_map<F: Fn(&str) -> Option<String>>(get: F) -> Result<TrackConfig, ConfigError> {
-        let enabled = flag_enabled(get("AMTRAK_TRACKS"));
+        let enabled = parse_flag(&get, "AMTRAK_TRACKS", true)?;
         let refresh_interval = positive_secs(
             &get,
             "AMTRAK_TRACKS_REFRESH_SECS",
@@ -365,14 +365,6 @@ fn parse_flag<F: Fn(&str) -> Option<String>>(
             format!("must be true or false, got {value:?}"),
         )),
     }
-}
-
-fn flag_enabled(value: Option<String>) -> bool {
-    value
-        .map(|value| {
-            value == "1" || value.eq_ignore_ascii_case("true") || value.eq_ignore_ascii_case("on")
-        })
-        .unwrap_or(false)
 }
 
 fn nonempty(value: Option<String>) -> Option<String> {
@@ -957,9 +949,19 @@ mod tests {
     }
 
     #[test]
-    fn track_config_defaults_off_and_maps_shared_stations() {
+    fn track_config_defaults_on_and_maps_shared_stations() {
         let defaults = TrackConfig::from_map(|_| None).unwrap();
-        assert!(!defaults.enabled);
+        assert!(defaults.enabled);
+        for (raw, enabled) in [("", true), ("on", true), ("off", false), ("0", false)] {
+            let config =
+                TrackConfig::from_map(|key| (key == "AMTRAK_TRACKS").then(|| raw.to_string()))
+                    .unwrap();
+            assert_eq!(config.enabled, enabled, "{raw:?}");
+        }
+        let error = TrackConfig::from_map(|key| (key == "AMTRAK_TRACKS").then(|| "maybe".into()))
+            .err()
+            .unwrap();
+        assert_eq!(error.field(), "AMTRAK_TRACKS");
         assert_eq!(defaults.refresh_interval, Duration::from_secs(60));
         assert_eq!(defaults.max_age, Duration::from_secs(300));
         assert_eq!(defaults.request_timeout, Duration::from_secs(10));
