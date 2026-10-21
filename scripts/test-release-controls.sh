@@ -7,6 +7,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CONTEXT="$ROOT/scripts/release-context.sh"
 POLICY="$ROOT/scripts/release-vulnerability-policy.sh"
+ASSEMBLE="$ROOT/scripts/assemble-release-manifest.sh"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 
@@ -107,5 +108,164 @@ assert_line "$digest_file" "$digest"
 test "$(wc -l <"$digest_file" | tr -d ' ')" = 1 || fail 'digest record must have one line'
 expect_fail "$POLICY" write-digest "${digest%A}A" "$digest_file"
 expect_fail "$POLICY" write-digest sha256:abc "$digest_file"
+
+# assemble-release-manifest.sh: retry a silent inspect failure, create only when
+# the version tag is absent, and accept an existing tag whose digests match.
+export RELEASE_MANIFEST_INSPECT_SLEEP=0
+AMD64="sha256:$(printf '1%.0s' {1..64})"
+ARM64="sha256:$(printf '2%.0s' {1..64})"
+INDEX="sha256:$(printf '3%.0s' {1..64})"
+OTHER="sha256:$(printf '4%.0s' {1..64})"
+printf '%s\n' "$AMD64" >"$TMP/amd64"
+printf '%s\n' "$ARM64" >"$TMP/arm64"
+mkdir -p "$TMP/bin" "$TMP/docker-state"
+export DOCKER_LOG="$TMP/docker.log"
+export DOCKER_STATE="$TMP/docker-state"
+export PATH="$TMP/bin:$PATH"
+cat >"$TMP/bin/docker" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+printf '%s\n' "$*" >>"$DOCKER_LOG"
+if [ "$1 $2 $3" = "buildx imagetools create" ]; then
+  printf 'create\n' >>"$DOCKER_STATE/events"
+  exit 0
+fi
+if [ "$1 $2 $3" != "buildx imagetools inspect" ]; then
+  printf 'unexpected docker command: %s\n' "$*" >&2
+  exit 99
+fi
+ref="$4"
+raw=0
+if [ "${5:-}" = --raw ]; then
+  raw=1
+fi
+n=0
+if [ -f "$DOCKER_STATE/inspects" ]; then
+  n="$(wc -l <"$DOCKER_STATE/inspects" | tr -d ' ')"
+fi
+printf '%s %s\n' "$ref" "$raw" >>"$DOCKER_STATE/inspects"
+mode="$(cat "$DOCKER_STATE/mode")"
+case "$mode" in
+  retry255)
+    [ "$n" -ge 2 ] || exit 255
+    ;;
+  always255) exit 255 ;;
+  absent-then-ok)
+    if [ "$n" -lt 1 ]; then
+      printf 'manifest unknown\n' >&2
+      exit 1
+    fi
+    ;;
+  absent-then-255)
+    if [ "$n" -lt 1 ]; then
+      printf 'manifest unknown\n' >&2
+      exit 1
+    fi
+    [ "$n" -ge 3 ] || exit 255
+    ;;
+  denied-then-ok)
+    if [ "$n" -lt 2 ]; then
+      printf 'requested access to the resource is denied\n' >&2
+      exit 1
+    fi
+    ;;
+  mismatch | latest-drift) ;;
+  *)
+    printf 'bad mode %s\n' "$mode" >&2
+    exit 99
+    ;;
+esac
+if [ "$raw" -eq 1 ]; then
+  if [ "$mode" = mismatch ]; then
+    cat "$DOCKER_STATE/bad.json"
+  else
+    cat "$DOCKER_STATE/good.json"
+  fi
+  exit 0
+fi
+digest="$(cat "$DOCKER_STATE/index")"
+if [ "$mode" = latest-drift ] && [[ "$ref" == *:latest ]]; then
+  digest="$(cat "$DOCKER_STATE/other")"
+fi
+printf 'Digest: %s\n' "$digest"
+EOF
+chmod +x "$TMP/bin/docker"
+printf '{"manifests":[{"digest":"%s","platform":{"os":"linux","architecture":"amd64"}},{"digest":"%s","platform":{"os":"linux","architecture":"arm64"}}]}\n' \
+  "$AMD64" "$ARM64" >"$DOCKER_STATE/good.json"
+printf '{"manifests":[{"digest":"%s","platform":{"os":"linux","architecture":"amd64"}},{"digest":"%s","platform":{"os":"linux","architecture":"arm64"}}]}\n' \
+  "$OTHER" "$ARM64" >"$DOCKER_STATE/bad.json"
+printf '%s\n' "$INDEX" >"$DOCKER_STATE/index"
+printf '%s\n' "$OTHER" >"$DOCKER_STATE/other"
+
+reset_docker() {
+  : >"$DOCKER_LOG"
+  : >"$DOCKER_STATE/events"
+  rm -f "$DOCKER_STATE/inspects"
+  printf '%s\n' "$1" >"$DOCKER_STATE/mode"
+}
+
+create_count() {
+  if [ -s "$DOCKER_STATE/events" ]; then
+    grep -c '^create$' "$DOCKER_STATE/events" || true
+  else
+    printf '0\n'
+  fi
+}
+
+run_assemble() {
+  : >"$TMP/github-output"
+  : >"$TMP/assemble.out"
+  : >"$TMP/assemble.err"
+  GITHUB_OUTPUT="$TMP/github-output" "$ASSEMBLE" "ghcr.io/example/app" 1.2.3 "$TMP/amd64" "$TMP/arm64" digest \
+    >"$TMP/assemble.out" 2>"$TMP/assemble.err"
+}
+
+reset_docker retry255
+run_assemble
+assert_line "$TMP/github-output" "digest=$INDEX"
+test "$(create_count)" = 0 || fail 'retry of a matching tag must not create'
+grep -q 'with no message' "$TMP/assemble.err" || fail 'silent inspect failure was not reported'
+
+reset_docker absent-then-ok
+run_assemble
+assert_line "$TMP/github-output" "digest=$INDEX"
+test "$(create_count)" = 1 || fail 'absent tag was not created once'
+
+reset_docker absent-then-255
+run_assemble
+assert_line "$TMP/github-output" "digest=$INDEX"
+test "$(create_count)" = 1 || fail 'post-create inspect retries must not create again'
+
+reset_docker denied-then-ok
+run_assemble
+assert_line "$TMP/github-output" "digest=$INDEX"
+test "$(create_count)" = 0 || fail 'denied must be retried, not treated as absent'
+
+reset_docker mismatch
+set +e
+run_assemble
+mismatch_status=$?
+set -e
+test "$mismatch_status" -ne 0 || fail 'mismatch must fail'
+grep -q 'refusing to overwrite it' "$TMP/assemble.err" || fail 'mismatch must refuse'
+test "$(create_count)" = 0 || fail 'mismatch must not create'
+
+reset_docker latest-drift
+set +e
+run_assemble
+drift_status=$?
+set -e
+test "$drift_status" -ne 0 || fail 'latest drift must fail'
+grep -q ':latest resolved to' "$TMP/assemble.err" || fail 'drifting latest tag must fail'
+test "$(create_count)" = 0 || fail 'latest drift must not create'
+
+reset_docker always255
+set +e
+run_assemble
+always_status=$?
+set -e
+test "$always_status" -eq 255 || fail "persistent silent inspect should exit 255, got $always_status"
+grep -q 'with no message' "$TMP/assemble.err" || fail 'persistent silent inspect should say it had no message'
+test "$(create_count)" = 0 || fail 'unreadable tag must not be created'
 
 printf 'release-control tests passed\n'
