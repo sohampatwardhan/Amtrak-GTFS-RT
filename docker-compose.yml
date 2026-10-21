@@ -45,7 +45,7 @@ services:
       dockerfile: Dockerfile
       args:
         BROWSER_BUNDLE: ${FETCHER_BROWSER_BUNDLE:-headless-shell}
-    image: ghcr.io/sohampatwardhan/amtrak-gtfs-rt-advisory-fetcher:${AMTRAK_IMAGE_TAG:-0.7.0}
+    image: ghcr.io/sohampatwardhan/amtrak-gtfs-rt-advisory-fetcher:${AMTRAK_IMAGE_TAG:-0.7.1}
     restart: unless-stopped
     # Chromium is launched with --disable-dev-shm-usage, so it does not need a 1 GB /dev/shm.
     shm_size: "64mb"
@@ -63,7 +63,7 @@ services:
       dockerfile: Dockerfile
       args:
         BROWSER_BUNDLE: ${FETCHER_BROWSER_BUNDLE:-headless-shell}
-    image: ghcr.io/sohampatwardhan/amtrak-gtfs-rt-track-fetcher:${AMTRAK_IMAGE_TAG:-0.7.0}
+    image: ghcr.io/sohampatwardhan/amtrak-gtfs-rt-track-fetcher:${AMTRAK_IMAGE_TAG:-0.7.1}
     restart: unless-stopped
     shm_size: "64mb"
     # Chromium runs Amtrak's page scripts without its own sandbox, so the container is the
@@ -90,7 +90,7 @@ services:
       context: .
       dockerfile: Dockerfile
       target: runtime
-    image: ghcr.io/sohampatwardhan/amtrak-gtfs-rt:${AMTRAK_IMAGE_TAG:-0.7.0}
+    image: ghcr.io/sohampatwardhan/amtrak-gtfs-rt:${AMTRAK_IMAGE_TAG:-0.7.1}
     restart: unless-stopped
     depends_on: [advisory-fetcher]
     environment:

@@ -121,7 +121,7 @@ rather than built:
 ```bash
 docker compose pull && docker compose up -d       # released images
 AMTRAK_IMAGE_TAG=local docker compose up -d --build  # build from this checkout
-docker pull ghcr.io/sohampatwardhan/amtrak-gtfs-rt-track-fetcher:0.7.0  # this image alone
+docker pull ghcr.io/sohampatwardhan/amtrak-gtfs-rt-track-fetcher:0.7.1  # this image alone
 ```
 
 ## One-shot track dump
