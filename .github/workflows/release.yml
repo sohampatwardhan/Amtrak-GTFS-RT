@@ -37,6 +37,8 @@ jobs:
       manifest_state: ${{ steps.manifest.outputs.state }}
       amd64_digest: ${{ steps.manifest.outputs.amd64_digest }}
       arm64_digest: ${{ steps.manifest.outputs.arm64_digest }}
+      sidecars: ${{ steps.sidecars.outputs.enabled }}
+      sidecar_manifests: ${{ steps.sidecar_manifests.outputs.json || '{}' }}
     steps:
       # Manual recovery executes corrected controls from main while all payload,
       # metadata, licenses, and build inputs come from the immutable tag checkout.
@@ -121,6 +123,57 @@ jobs:
           arm64="$(jq -er '.manifests[] | select(.platform.os == "linux" and .platform.architecture == "arm64") | .digest' "$RUNNER_TEMP/manifest.json")"
           test "$amd64" != "$arm64"
           printf 'state=exact\namd64_digest=%s\narm64_digest=%s\n' "$amd64" "$arm64" >>"$GITHUB_OUTPUT"
+
+      # Releases tagged before the sidecars were published (v0.6.2 and earlier) have no sidecar
+      # smoke harness. Recovering one of them publishes the service image alone, as it was.
+      - name: Decide whether the release source ships the browser sidecars
+        id: sidecars
+        shell: bash
+        run: |
+          if [ -x source/scripts/test-fetcher-image.sh ]; then
+            printf 'enabled=true\n' >>"$GITHUB_OUTPUT"
+          else
+            printf 'enabled=false\n' >>"$GITHUB_OUTPUT"
+          fi
+
+      - name: Resolve each sidecar's existing-manifest state
+        id: sidecar_manifests
+        if: steps.sidecars.outputs.enabled == 'true'
+        env:
+          VERSION: ${{ steps.select.outputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          states='{}'
+          for sidecar in track-fetcher advisory-fetcher; do
+            sidecar_image="$IMAGE-$sidecar"
+            raw="$RUNNER_TEMP/$sidecar-manifest.json"
+            error_file="$RUNNER_TEMP/$sidecar-manifest-inspect.err"
+            if ! docker buildx imagetools inspect "$sidecar_image:$VERSION" --raw \
+              >"$raw" 2>"$error_file"; then
+              # A package that was never published can answer `denied` rather than `not found`.
+              # Treating that as absent cannot overwrite anything: the push would be denied too.
+              if grep -Eqi 'manifest unknown|not found|denied' "$error_file"; then
+                states="$(jq -c --arg s "$sidecar" '.[$s] = {state: "absent"}' <<<"$states")"
+                continue
+              fi
+              cat "$error_file" >&2
+              exit 1
+            fi
+
+            jq -e '
+              (.manifests | type == "array" and length == 2) and
+              ([.manifests[] | .platform.os + "/" + .platform.architecture] | sort
+                == ["linux/amd64", "linux/arm64"]) and
+              all(.manifests[]; (.digest | test("^sha256:[0-9a-f]{64}$")))
+            ' "$raw" >/dev/null
+            amd64="$(jq -er '.manifests[] | select(.platform.os == "linux" and .platform.architecture == "amd64") | .digest' "$raw")"
+            arm64="$(jq -er '.manifests[] | select(.platform.os == "linux" and .platform.architecture == "arm64") | .digest' "$raw")"
+            test "$amd64" != "$arm64"
+            states="$(jq -c --arg s "$sidecar" --arg amd64 "$amd64" --arg arm64 "$arm64" \
+              '.[$s] = {state: "exact", amd64_digest: $amd64, arm64_digest: $arm64}' <<<"$states")"
+          done
+          printf 'json=%s\n' "$states" >>"$GITHUB_OUTPUT"
 
   validate-platform:
     name: Validate ${{ matrix.platform }}
@@ -303,9 +356,202 @@ jobs:
           sbom-path: release-evidence/${{ matrix.slug }}-sbom.spdx.json
           push-to-registry: true
 
+  validate-sidecar:
+    name: Validate ${{ matrix.image }} ${{ matrix.platform }}
+    needs: release-context
+    if: needs.release-context.outputs.sidecars == 'true'
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 90
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+    strategy:
+      fail-fast: false
+      matrix:
+        image: [track-fetcher, advisory-fetcher]
+        platform: [linux/amd64, linux/arm64]
+        include:
+          - platform: linux/amd64
+            arch: amd64
+            runner: ubuntu-24.04
+          - platform: linux/arm64
+            arch: arm64
+            runner: ubuntu-24.04-arm
+    env:
+      SIDECAR_IMAGE: ghcr.io/sohampatwardhan/amtrak-gtfs-rt-${{ matrix.image }}
+      SLUG: ${{ matrix.image }}-linux-${{ matrix.arch }}
+      LOCAL_IMAGE: ${{ matrix.image }}:release-linux-${{ matrix.arch }}
+
+    # Native runners on both architectures, as for the service image. The sidecars share its
+    # digest-first flow: push one platform digest, gate that exact digest, then publish tags.
+    steps:
+      - name: Check out the control revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: control
+          fetch-depth: 0
+
+      - name: Check out the immutable release source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.release-context.outputs.release_revision }}
+          path: source
+          fetch-depth: 0
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
+
+      - name: Build and push the canonical platform digest
+        id: build
+        if: fromJSON(needs.release-context.outputs.sidecar_manifests)[matrix.image].state == 'absent'
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        with:
+          context: source/${{ matrix.image }}
+          platforms: ${{ matrix.platform }}
+          tags: ${{ env.SIDECAR_IMAGE }}
+          outputs: type=image,name=${{ env.SIDECAR_IMAGE }},push-by-digest=true,name-canonical=true,push=true
+          build-args: |
+            OCI_VERSION=${{ needs.release-context.outputs.version }}
+            OCI_REVISION=${{ needs.release-context.outputs.release_revision }}
+          # A platform manifest digest, not an OCI index; see the service build above.
+          sbom: false
+          provenance: false
+
+      - name: Select this platform's exact digest
+        id: candidate
+        env:
+          MANIFESTS: ${{ needs.release-context.outputs.sidecar_manifests }}
+          SIDECAR: ${{ matrix.image }}
+          ARCH: ${{ matrix.arch }}
+          BUILT_DIGEST: ${{ steps.build.outputs.digest }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          state="$(jq -er --arg s "$SIDECAR" '.[$s].state' <<<"$MANIFESTS")"
+          if [ "$state" = exact ]; then
+            digest="$(jq -er --arg s "$SIDECAR" --arg a "${ARCH}_digest" '.[$s][$a]' <<<"$MANIFESTS")"
+          else
+            test "$state" = absent
+            digest="$BUILT_DIGEST"
+          fi
+          [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]
+          printf 'digest=%s\n' "$digest" >>"$GITHUB_OUTPUT"
+
+      - name: Pull the exact digest
+        env:
+          DIGEST: ${{ steps.candidate.outputs.digest }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]
+          docker pull "$SIDECAR_IMAGE@$DIGEST"
+          docker tag "$SIDECAR_IMAGE@$DIGEST" "$LOCAL_IMAGE"
+
+      - name: Prepare diagnostic namespaces
+        shell: bash
+        run: mkdir -p release-evidence "release-diagnostics/$SLUG" digests
+
+      # Offline: labels, architecture, Chromium rendering under the compose confinement, /healthz,
+      # and a prompt SIGTERM exit. Amtrak is not contacted, so its edge cannot fail a release.
+      - name: Verify image identity and smoke-test the exact digest
+        shell: bash
+        run: |
+          source/scripts/test-fetcher-image.sh "$LOCAL_IMAGE" "${{ matrix.image }}" \
+            "${{ needs.release-context.outputs.version }}" \
+            "${{ needs.release-context.outputs.release_revision }}" \
+            "${{ matrix.arch }}"
+
+      - name: Install checksum-pinned release scanners
+        shell: bash
+        run: |
+          source/scripts/install-release-scanners.sh "$RUNNER_TEMP/release-tools"
+          printf '%s\n' "$RUNNER_TEMP/release-tools" >>"$GITHUB_PATH"
+
+      - name: Generate and atomically stage canonical evidence
+        env:
+          DIGEST: ${{ steps.candidate.outputs.digest }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          sbom_tmp="release-diagnostics/$SLUG/sbom.partial.json"
+          grype_tmp="release-diagnostics/$SLUG/grype.partial.json"
+          syft "$LOCAL_IMAGE" -o spdx-json="$sbom_tmp"
+          control/scripts/release-vulnerability-policy.sh validate-sbom "$sbom_tmp"
+          mv "$sbom_tmp" "release-evidence/$SLUG-sbom.spdx.json"
+
+          grype "$LOCAL_IMAGE" -o json >"$grype_tmp"
+          control/scripts/release-vulnerability-policy.sh summarize "$grype_tmp" \
+            "release-evidence/$SLUG-cves-grype.txt"
+          mv "$grype_tmp" "release-evidence/$SLUG-cves-grype.json"
+
+          control/scripts/release-vulnerability-policy.sh write-digest "$DIGEST" "digests/$SLUG"
+          control/scripts/release-vulnerability-policy.sh write-digest "$DIGEST" \
+            "release-evidence/$SLUG-image-digest.txt"
+          docker image inspect "$LOCAL_IMAGE" >"release-evidence/$SLUG-image-inspect.json"
+
+          {
+            printf '### Grype matches (%s)\n\n```\n' "$SLUG"
+            cat "release-evidence/$SLUG-cves-grype.txt"
+            printf '```\n'
+          } >>"$GITHUB_STEP_SUMMARY"
+
+      - name: Upload complete exact-digest evidence before policy enforcement
+        id: full_upload
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-sidecar-${{ env.SLUG }}
+          path: |
+            digests/${{ env.SLUG }}
+            release-evidence/${{ env.SLUG }}-*
+          if-no-files-found: error
+          retention-days: 30
+
+      # Named outside release-sidecar-* so the publish job's download pattern never selects it.
+      - name: Retain partial diagnostics after an earlier failure
+        if: always() && steps.full_upload.outcome != 'success'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-diagnostics-${{ env.SLUG }}-partial-${{ github.run_attempt }}
+          path: |
+            release-diagnostics/${{ env.SLUG }}
+            release-evidence/${{ env.SLUG }}-*
+            digests/${{ env.SLUG }}
+          if-no-files-found: warn
+          retention-days: 30
+
+      # The service image's zero-match policy cannot hold on a Debian and Chromium base, where
+      # unfixed matches are always present. The sidecars block on fixable Critical or High matches;
+      # the full report is release evidence either way.
+      - name: Enforce the retained fixable Critical and High policy
+        shell: bash
+        run: control/scripts/release-vulnerability-policy.sh enforce-fixable "release-evidence/$SLUG-cves-grype.json"
+
+      - name: Attest the exact-platform SBOM
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-name: ${{ env.SIDECAR_IMAGE }}
+          subject-digest: ${{ steps.candidate.outputs.digest }}
+          sbom-path: release-evidence/${{ env.SLUG }}-sbom.spdx.json
+          push-to-registry: true
+
   publish:
     name: Publish verified release
-    needs: [release-context, validate-platform]
+    needs: [release-context, validate-platform, validate-sidecar]
+    # validate-sidecar is skipped, not failed, for a source without sidecars.
+    if: >-
+      !cancelled() &&
+      needs.validate-platform.result == 'success' &&
+      (needs.validate-sidecar.result == 'success' ||
+        (needs.validate-sidecar.result == 'skipped' && needs.release-context.outputs.sidecars == 'false'))
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     permissions:
@@ -331,6 +577,14 @@ jobs:
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: release-platform-linux-arm64
+          path: .
+
+      - name: Download sidecar exact-digest evidence
+        if: needs.release-context.outputs.sidecars == 'true'
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: release-sidecar-*
+          merge-multiple: true
           path: .
 
       - name: Log in to GitHub Container Registry
@@ -403,6 +657,83 @@ jobs:
           subject-digest: ${{ steps.manifest.outputs.digest }}
           push-to-registry: true
 
+      - name: Assemble or verify immutable sidecar manifest tags
+        id: sidecar_manifest
+        if: needs.release-context.outputs.sidecars == 'true'
+        env:
+          VERSION: ${{ needs.release-context.outputs.version }}
+          MANIFESTS: ${{ needs.release-context.outputs.sidecar_manifests }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          minor="${VERSION%.*}"
+          for sidecar in track-fetcher advisory-fetcher; do
+            sidecar_image="$IMAGE-$sidecar"
+            expected_state="$(jq -er --arg s "$sidecar" '.[$s].state' <<<"$MANIFESTS")"
+            amd64_digest="$(cat "digests/$sidecar-linux-amd64")"
+            arm64_digest="$(cat "digests/$sidecar-linux-arm64")"
+            [[ "$amd64_digest" =~ ^sha256:[0-9a-f]{64}$ ]]
+            [[ "$arm64_digest" =~ ^sha256:[0-9a-f]{64}$ ]]
+            test "$amd64_digest" != "$arm64_digest"
+
+            if [ "$expected_state" = absent ]; then
+              error_file="$RUNNER_TEMP/$sidecar-precreate-manifest.err"
+              if docker buildx imagetools inspect "$sidecar_image:$VERSION" --raw \
+                >"$RUNNER_TEMP/$sidecar-precreate-manifest.json" 2>"$error_file"; then
+                printf '%s: immutable version tag appeared after context resolution; refusing to overwrite it.\n' \
+                  "$sidecar_image" >&2
+                exit 1
+              fi
+              if ! grep -Eqi 'manifest unknown|not found' "$error_file"; then
+                cat "$error_file" >&2
+                exit 1
+              fi
+              docker buildx imagetools create \
+                --tag "$sidecar_image:$VERSION" \
+                --tag "$sidecar_image:$minor" \
+                --tag "$sidecar_image:latest" \
+                "$sidecar_image@$amd64_digest" \
+                "$sidecar_image@$arm64_digest"
+            else
+              test "$expected_state" = exact
+            fi
+
+            docker buildx imagetools inspect "$sidecar_image:$VERSION" --raw >"$sidecar-manifest.json"
+            jq -e --arg amd64 "$amd64_digest" --arg arm64 "$arm64_digest" '
+              (.manifests | type == "array" and length == 2) and
+              ([.manifests[] | .platform.os + "/" + .platform.architecture] | sort
+                == ["linux/amd64", "linux/arm64"]) and
+              ([.manifests[].digest] | sort == ([$amd64, $arm64] | sort))
+            ' "$sidecar-manifest.json" >/dev/null
+
+            manifest_digest="$(docker buildx imagetools inspect "$sidecar_image:$VERSION" \
+              | awk '$1 == "Digest:" { print $2; exit }')"
+            [[ "$manifest_digest" =~ ^sha256:[0-9a-f]{64}$ ]]
+            for tag in "$minor" latest; do
+              resolved="$(docker buildx imagetools inspect "$sidecar_image:$tag" \
+                | awk '$1 == "Digest:" { print $2; exit }')"
+              test "$resolved" = "$manifest_digest"
+            done
+
+            printf '%s=%s\n' "${sidecar//-/_}" "$manifest_digest" >>"$GITHUB_OUTPUT"
+          done
+
+      - name: Attest the track-fetcher multi-platform manifest
+        if: needs.release-context.outputs.sidecars == 'true'
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-name: ${{ env.IMAGE }}-track-fetcher
+          subject-digest: ${{ steps.sidecar_manifest.outputs.track_fetcher }}
+          push-to-registry: true
+
+      - name: Attest the advisory-fetcher multi-platform manifest
+        if: needs.release-context.outputs.sidecars == 'true'
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-name: ${{ env.IMAGE }}-advisory-fetcher
+          subject-digest: ${{ steps.sidecar_manifest.outputs.advisory_fetcher }}
+          push-to-registry: true
+
       - name: Create or verify the GitHub Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -411,6 +742,9 @@ jobs:
           VERSION: ${{ needs.release-context.outputs.version }}
           RELEASE_REVISION: ${{ needs.release-context.outputs.release_revision }}
           CONTROL_REVISION: ${{ needs.release-context.outputs.control_revision }}
+          SIDECARS: ${{ needs.release-context.outputs.sidecars }}
+          TRACK_FETCHER_DIGEST: ${{ steps.sidecar_manifest.outputs.track_fetcher }}
+          ADVISORY_FETCHER_DIGEST: ${{ steps.sidecar_manifest.outputs.advisory_fetcher }}
         shell: bash
         working-directory: source
         run: |
@@ -435,6 +769,29 @@ jobs:
             printf 'docker pull %s@%s\n' "$IMAGE" "$MANIFEST_DIGEST"
             printf '\nPull by version:\n'
             printf 'docker pull %s:%s\n' "$IMAGE" "$VERSION"
+
+            # Appended after the service record, so a release without sidecars keeps its old text.
+            if [ "$SIDECARS" = true ]; then
+              for sidecar in track-fetcher advisory-fetcher; do
+                sidecar_image="$IMAGE-$sidecar"
+                case "$sidecar" in
+                  track-fetcher) sidecar_digest="$TRACK_FETCHER_DIGEST" ;;
+                  advisory-fetcher) sidecar_digest="$ADVISORY_FETCHER_DIGEST" ;;
+                esac
+                [[ "$sidecar_digest" =~ ^sha256:[0-9a-f]{64}$ ]]
+                printf '\nSidecar image: %s\n' "$sidecar_image"
+                printf 'Version tag: %s:%s\n' "$sidecar_image" "$VERSION"
+                printf 'Minor tag: %s:%s\n' "$sidecar_image" "$minor"
+                printf 'Convenience tag: %s:latest\n' "$sidecar_image"
+                printf 'Manifest digest: %s\n' "$sidecar_digest"
+                printf 'linux/amd64 digest: %s\n' "$(cat "../digests/$sidecar-linux-amd64")"
+                printf 'linux/arm64 digest: %s\n' "$(cat "../digests/$sidecar-linux-arm64")"
+                printf '\nPull by immutable digest:\n'
+                printf 'docker pull %s@%s\n' "$sidecar_image" "$sidecar_digest"
+                printf '\nPull by version:\n'
+                printf 'docker pull %s:%s\n' "$sidecar_image" "$VERSION"
+              done
+            fi
           } >../image-release.txt
 
           if gh release view "$TAG" >/dev/null 2>&1; then

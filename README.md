@@ -62,9 +62,11 @@ flowchart LR
   listed under **Unreleased** in [CHANGELOG.md](CHANGELOG.md).
 - **Releases:** `v0.6.2` (2026-10-19) is the current release. A release is complete when its
   GitHub Release carries `image-release.txt` with the tag, revisions, manifest digest, and both
-  platform digests; until then, `v0.5.0` stays the stable image. The release workflow publishes
-  the scratch service image only; build the browser sidecars from this repository. Pull the
-  version tag, and pin the manifest digest from that release's `image-release.txt`:
+  platform digests; until then, `v0.5.0` stays the stable image. Through `v0.6.2` the release
+  workflow publishes the scratch service image only; build the browser sidecars from this
+  repository. From `v0.7.0` it also publishes both sidecars (see [Container](#container)), and
+  `image-release.txt` records their digests too. Pull the version tag, and pin the manifest digest
+  from that release's `image-release.txt`:
 
   ```bash
   docker pull ghcr.io/sohampatwardhan/amtrak-gtfs-rt:0.6.2
@@ -170,6 +172,33 @@ without a registry login:
 docker pull ghcr.io/sohampatwardhan/amtrak-gtfs-rt:0.6.2
 ```
 
+From `v0.7.0` the two browser sidecars are released beside it, for the same platforms and with the
+same tags (`0.7.0`, `0.7`, and `latest`) and OCI labels:
+
+| Image | Built from |
+|-------|------------|
+| `ghcr.io/sohampatwardhan/amtrak-gtfs-rt` | root `Dockerfile`, `runtime` stage (scratch) |
+| `ghcr.io/sohampatwardhan/amtrak-gtfs-rt-track-fetcher` | [`track-fetcher/`](track-fetcher/README.md) |
+| `ghcr.io/sohampatwardhan/amtrak-gtfs-rt-advisory-fetcher` | [`advisory-fetcher/`](advisory-fetcher/README.md) |
+
+Pull all three, on a Raspberry Pi or any other host; Docker picks the native architecture:
+
+```bash
+for image in amtrak-gtfs-rt amtrak-gtfs-rt-track-fetcher amtrak-gtfs-rt-advisory-fetcher; do
+  docker pull "ghcr.io/sohampatwardhan/${image}:0.7.0"
+done
+```
+
+The [Compose stack](#compose-stack) names these images, so `docker compose pull` fetches them.
+Each sidecar's digests are in `image-release.txt`, after the service's.
+
+> [!NOTE]
+> GHCR creates a new package as private. After the first release that publishes the sidecars,
+> a maintainer sets `amtrak-gtfs-rt-track-fetcher` and `amtrak-gtfs-rt-advisory-fetcher` to
+> public once (the package's **Package settings**, then **Change visibility**). Until then,
+> pulling them needs `docker login ghcr.io`. Each package links to this repository through its
+> `org.opencontainers.image.source` label.
+
 > [!TIP]
 > `latest` is a convenience pointer that can move. For reproducible production deployment, pin the
 > manifest digest recorded in the release's `image-release.txt`:
@@ -216,7 +245,13 @@ docker buildx bake                  # service + advisory-fetcher
 docker buildx bake service          # scratch service only
 docker buildx bake advisory-fetcher # advisory browser sidecar only
 docker buildx bake track-fetcher    # optional track sidecar
+docker buildx bake default track-fetcher # all three, as Compose runs them
 ```
+
+Each target is tagged `<name>:local` and with its GHCR name at the release version
+(`ghcr.io/sohampatwardhan/amtrak-gtfs-rt-track-fetcher:0.7.0`, for example), so Compose runs what
+bake built. `AMTRAK_IMAGE_TAG=local docker buildx bake` tags local builds apart from a pulled
+release.
 
 ### Run with host networking (simplest safe posture)
 
@@ -374,6 +409,13 @@ only then assembles the public version tags. The final multi-platform digest rec
 attestation. The GitHub Release records that digest and attaches per-platform SPDX SBOMs,
 vulnerability reports, and license evidence. No release workflow deploys a running service.
 
+The two sidecar images go through the same flow, built natively on amd64 and arm64 runners. Each
+platform digest must pass an offline smoke test (OCI labels and architecture, Chromium rendering a
+page under the Compose confinement, `/healthz`, and a prompt exit on `SIGTERM`) and the fixable
+Critical and High policy above. No image's version tags are created until every gate on every
+image and platform has passed. Recovering a release tagged before `v0.7.0` publishes the service
+image alone, as before.
+
 The project is licensed `AGPL-3.0-only`. The complete project license and generated Rust
 third-party notices are available inside every released image at `/licenses/`, in the repository,
 and as GitHub Release assets. The minimized Java runtime and validator JAR retain their own legal
@@ -384,6 +426,26 @@ notices. OCI labels identify the exact source repository, revision, version, and
 > forwarded-identity trust, Docker Hub publication, and orchestration.
 
 ## Deployment
+
+### Raspberry Pi (linux/arm64)
+
+Every released image has a native `linux/arm64` build, so a Raspberry Pi on a 64-bit OS pulls the
+stack instead of building the Chromium images on the device. With Docker Engine and the
+Compose plugin installed, from a checkout of the release tag:
+
+```bash
+git clone --branch v0.7.0 https://github.com/sohampatwardhan/Amtrak-GTFS-RT.git
+cd Amtrak-GTFS-RT
+docker compose pull   # amtrak-gtfs-rt, -track-fetcher, and -advisory-fetcher at 0.7.0
+docker compose up -d
+```
+
+Without Compose, pull the three images as in [Container](#container). Check that a pulled image is
+the arm64 build with `docker image inspect --format '{{.Architecture}}' <image>`. A 32-bit OS
+cannot run these images; there is no `linux/arm/v7` build. To build on the Pi instead, use
+`AMTRAK_IMAGE_TAG=local docker compose up -d --build`.
+
+### Process supervisor
 
 Run it under a process supervisor. The service exits with a non-zero status if any of its
 long-lived tasks (poller, static refresher, HTTP server) stops unexpectedly, so a supervisor
@@ -446,11 +508,21 @@ The browser sidecars have their own settings, documented in
 
 ## Compose stack
 
-From the repository root, one Compose file builds and runs the scratch service with the advisory
-and track sidecars, with advisories and tracks on:
+From the repository root, one Compose file runs the scratch service with the advisory and track
+sidecars, with advisories and tracks on. It names the released GHCR images at the version in
+`docker-compose.yml` (`0.7.0`), so the stack can be pulled instead of built:
 
 ```bash
-docker compose up -d --build
+docker compose pull && docker compose up -d
+```
+
+Each service keeps its `build:` section, so the stack still builds from a checkout. `--build`
+tags the result with the same GHCR names; set `AMTRAK_IMAGE_TAG` to keep local builds apart from a
+pulled release:
+
+```bash
+docker compose up -d --build                         # build from this checkout
+AMTRAK_IMAGE_TAG=local docker compose up -d --build  # ...tagged :local instead of :0.7.0
 ```
 
 ```mermaid
@@ -485,7 +557,7 @@ skipped. Set `AMTRAK_TRACKS_AMTRAK_URL=` (empty) to keep the other boards withou
 with no tracks at all, and without the sidecar's Chromium:
 
 ```bash
-AMTRAK_TRACKS=off docker compose up -d --build --scale track-fetcher=0
+AMTRAK_TRACKS=off docker compose up -d --scale track-fetcher=0
 ```
 
 The feed is published on host loopback port 8090 (`http://127.0.0.1:8090`), leaving host port 8080
@@ -495,8 +567,11 @@ peer differs; the denied request logs `peer=<ip>`. Neither sidecar is published 
 
 Both sidecars run Chromium with `--disable-dev-shm-usage`, so Compose gives each a 64 MiB
 `/dev/shm` instead of 1 GiB. Chromium stays in the sidecar images and never enters the scratch
-service image. The scratch-image release workflow does not publish the sidecars; their browser
-base is outside that image's zero-match vulnerability gate.
+service image. The release workflow publishes the sidecars as separate images. Their Debian and
+Chromium base always has some vulnerability matches without a fix, so they are outside the scratch
+image's zero-match gate; they instead fail a release on any Critical or High match that has a fix,
+and their full Grype reports are release assets. Playwright's bundled Chromium is not a package
+Grype can see, so keeping the pinned Playwright version current is what keeps Chromium patched.
 
 > [!TIP]
 > Both sidecars use `chromium-headless-shell`, the lightest browser that passes Amtrak's Akamai
@@ -504,7 +579,8 @@ base is outside that image's zero-match vulnerability gate.
 > headful. The images get larger and headful Chromium uses more memory:
 >
 > ```bash
-> FETCHER_BROWSER_BUNDLE=full FETCHER_BROWSER_MODE=xvfb-headful docker compose up -d --build
+> AMTRAK_IMAGE_TAG=local FETCHER_BROWSER_BUNDLE=full FETCHER_BROWSER_MODE=xvfb-headful \
+>   docker compose up -d --build
 > ```
 
 To run the Rust service alone with advisories left off, skip Compose and run the scratch image by
@@ -738,10 +814,11 @@ ends that cycle's fetches, and relaunches back off from 1 to 15 minutes. If ever
 fails, `/tracks.json` goes `503` after five minutes instead of serving old documents as current. In
 Compose the sidecar runs read-only, with no capabilities, a 768 MB memory limit, and no published
 port. The image uses the same headless-shell build the advisory sidecar's on-device notes ran on a
-Raspberry Pi 5 (`linux/arm64`).
+Raspberry Pi 5 (`linux/arm64`), and releases publish it for `linux/arm64` as
+`ghcr.io/sohampatwardhan/amtrak-gtfs-rt-track-fetcher`.
 
 ```bash
-docker compose up -d --build
+docker compose pull && docker compose up -d
 ```
 
 > [!WARNING]

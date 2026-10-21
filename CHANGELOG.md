@@ -27,8 +27,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `AMTRAK_PUBLIC_URL` sets the base URL shown for a published port; Compose sets
   `http://127.0.0.1:8090`. `cargo run` now starts the service without `--bin`.
 
+- **Releases publish the browser sidecars.** Tagged releases push
+  `ghcr.io/sohampatwardhan/amtrak-gtfs-rt-track-fetcher` and
+  `ghcr.io/sohampatwardhan/amtrak-gtfs-rt-advisory-fetcher` for `linux/amd64` and `linux/arm64`,
+  with the service image's tags (version, minor, `latest`) and OCI labels, so a Raspberry Pi pulls
+  all three. Each platform digest is built on a native runner, smoke-tested offline (Chromium
+  renders a page under the Compose confinement, `/healthz` answers, `SIGTERM` stops it), scanned,
+  and SBOM-attested before any tag is created. The sidecars fail a release on a fixable Critical or
+  High Grype match; the service keeps its zero-match policy. `image-release.txt` records the
+  sidecars' manifest and platform digests after the service's.
+
 ### Changed
 
+- **Compose and bake name the released GHCR images.** The root `docker-compose.yml` runs
+  `ghcr.io/sohampatwardhan/amtrak-gtfs-rt{,-track-fetcher,-advisory-fetcher}` at
+  `${AMTRAK_IMAGE_TAG:-0.7.0}`, so `docker compose pull && docker compose up -d` needs no build.
+  The `build:` sections stay; `AMTRAK_IMAGE_TAG=local docker compose up -d --build` builds from
+  the checkout. Bake tags each target with the same name as well as `<name>:local`. The release
+  metadata check requires both defaults to match the release version.
 - **Tracks are on by default.** `AMTRAK_TRACKS` now defaults to on; set `off`, `false`, `0`, or
   `no` to publish Amtrak's feeds without platform stops. Any other value is a startup error
   instead of silently meaning off. This changes the published static feed for deployments that did

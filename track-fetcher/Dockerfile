@@ -74,6 +74,18 @@ RUN pip install --no-cache-dir \
 WORKDIR /app
 COPY fetcher/ /app/fetcher/
 
+# Set by the release workflow; local builds keep the defaults.
+ARG OCI_VERSION=dev
+ARG OCI_REVISION=unknown
+
+LABEL org.opencontainers.image.title="Amtrak GTFS-RT track-fetcher" \
+      org.opencontainers.image.description="Amtrak train-status sidecar (tracks and boarding gates) for Amtrak GTFS-RT" \
+      org.opencontainers.image.source="https://github.com/sohampatwardhan/Amtrak-GTFS-RT" \
+      org.opencontainers.image.documentation="https://github.com/sohampatwardhan/Amtrak-GTFS-RT/tree/main/track-fetcher" \
+      org.opencontainers.image.licenses="AGPL-3.0-only" \
+      org.opencontainers.image.version="$OCI_VERSION" \
+      org.opencontainers.image.revision="$OCI_REVISION"
+
 USER fetcher
 EXPOSE 8081
 

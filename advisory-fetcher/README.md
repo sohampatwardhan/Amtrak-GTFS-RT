@@ -50,22 +50,27 @@ scratch/musl, no-vulnerabilities posture.
 
 ## Run
 
-The primary stack is the repository-root [`docker-compose.yml`](../docker-compose.yml). It builds
-this image and the scratch service image, and turns advisories on:
+The primary stack is the repository-root [`docker-compose.yml`](../docker-compose.yml). It runs
+this image with the scratch service image and the track sidecar, and turns advisories on:
 
 ```text
 AMTRAK_ADVISORIES=on
 AMTRAK_ADVISORIES_URL=http://advisory-fetcher:8080/service-alerts-and-notices
 ```
 
-From the repository root:
+Releases from `v0.7.0` publish this image for `linux/amd64` and `linux/arm64` (Raspberry Pi) as
+`ghcr.io/sohampatwardhan/amtrak-gtfs-rt-advisory-fetcher`, tagged with the version, the minor
+version, and `latest`. The root Compose file names it at the release version. From the repository
+root:
 
 ```bash
-docker compose up -d --build
+docker compose pull && docker compose up -d       # released images
+AMTRAK_IMAGE_TAG=local docker compose up -d --build  # build from this checkout
+docker pull ghcr.io/sohampatwardhan/amtrak-gtfs-rt-advisory-fetcher:0.7.0  # this image alone
 ```
 
 [`docker-compose.yml`](docker-compose.yml) in this directory includes that root file, so the same
-stack starts from here. `docker buildx bake` at the root builds both images without starting them.
+stack starts from here. `docker buildx bake` at the root builds this image and the service without starting them.
 The scratch service can still be built and run alone, with advisories left off; see the root README.
 
 Advisory *consumption* from
