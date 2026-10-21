@@ -14,6 +14,8 @@ packages=(
   curl
   git
   jq
+  libssl-dev
+  pkg-config
   protobuf-compiler
   python-is-python3
   python3-pip
@@ -61,7 +63,9 @@ if [ -z "${java_major}" ] || [ "${java_major}" -lt 17 ]; then
   sudo apt-get install -y --no-install-recommends openjdk-17-jre-headless
 fi
 
-python3 -m pip install --disable-pip-version-check --break-system-packages \
+# System site-packages are not writable by the agent user. sudo keeps pytest
+# importable as `python -m pytest` without relying on ~/.local or a shell profile.
+sudo python3 -m pip install --disable-pip-version-check --break-system-packages \
   --requirement advisory-fetcher/requirements.txt \
   --requirement track-fetcher/requirements.txt
 
@@ -73,7 +77,8 @@ validator_sha="19293ddd9b6f954f216d4f12054bd8a3232921751c4484339e339764a91000e2"
 validator_jar="$ROOT/tools/gtfs-validator-v8.0.1-cli.jar"
 validator_url="https://github.com/MobilityData/gtfs-validator/releases/download/v8.0.1/gtfs-validator-8.0.1-cli.jar"
 mkdir -p "$ROOT/tools"
-if ! echo "${validator_sha}  ${validator_jar}" | sha256sum --check --status --strict; then
+if [ ! -f "$validator_jar" ] \
+  || ! echo "${validator_sha}  ${validator_jar}" | sha256sum --check --status --strict; then
   tmp="$(mktemp)"
   curl --fail --location --silent --show-error --output "$tmp" "$validator_url"
   echo "${validator_sha}  ${tmp}" | sha256sum --check --strict

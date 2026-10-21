@@ -56,13 +56,14 @@ Host defaults are bind `127.0.0.1:8080`, output `./out`, and validator JAR `./to
 
 - **Rust** stable, 1.85 or newer. The catenary crate uses edition 2024. This repo is developed against 1.96; CI uses `stable`; the release image pins `rust:1.96-alpine`.
 - **`protoc`** (`protobuf-compiler` on Debian/Ubuntu).
+- **`libssl-dev` and `pkg-config`**. `gtfs-structures` 0.46.1 pulls `reqwest` 0.12 with native TLS, so the build compiles `openssl-sys`. The service's own `reqwest` 0.13 uses rustls.
 - **Python 3.12** for the sidecar unit tests. Pins are `advisory-fetcher/requirements.txt` (pytest, playwright) and `track-fetcher/requirements.txt` (pytest, cryptography). Playwright is imported lazily; unit tests do not download or launch a browser.
 - **Java 17+** and the official MobilityData GTFS validator CLI 8.0.1 to run the service. Startup checks SHA-256 `19293ddd9b6f954f216d4f12054bd8a3232921751c4484339e339764a91000e2`. The container's repository-hardened JAR is a different digest and is not a substitute on the host. Unit tests do not start the JVM.
 - **`jq`** for `scripts/check-release-metadata.sh`.
 
 ```bash
 sudo apt-get update
-sudo apt-get install -y protobuf-compiler python3 python-is-python3 python3-pip jq
+sudo apt-get install -y protobuf-compiler libssl-dev pkg-config python3 python-is-python3 python3-pip jq
 rustup toolchain install stable --profile minimal --component rustfmt,clippy
 rustup default stable
 python3 -m pip install --break-system-packages \
@@ -81,7 +82,7 @@ cargo build --locked
 cargo test --locked                         # offline unit and integration tests
 cargo test --locked --features status       # also the amtrak-status CLI
 cargo fmt --all -- --check
-cargo clippy --locked --all-targets --all-features -- -D warnings
+cargo clippy --locked --all-targets --all-features -- -D warnings   # see the note below
 
 (cd advisory-fetcher && python -m pytest tests -q)
 (cd track-fetcher && python -m pytest tests -q)
@@ -110,6 +111,8 @@ docker compose up -d --build
 `AMTRAK_TRACKS=off docker compose up -d --build --scale track-fetcher=0` runs without tracks and without the track sidecar's Chromium. The service image alone, advisories off, is `docker build --tag amtrak-gtfs-rt:local .`.
 
 Do not start Compose or the HTTP server in order to run the unit tests. They are offline.
+
+`cargo fmt --all -- --check` is clean. Clippy with `-D warnings` is the bar described in the design notes, and CI does not run it. On Rust 1.99 it currently fails on pre-existing lints in `src/writer.rs`, `src/orchestrator.rs`, `src/sources/mod.rs`, `src/static_gtfs.rs`, `src/bin/status/source.rs`, and `examples/station_departures.rs` (`needless_return`, `useless_conversion`, `double_must_use`, `needless_borrows_for_generic_args`, `unnecessary_sort_by`, `print_literal`). Do not drive-by fix those unless the task is a clippy cleanup. The release image still builds with Rust 1.96.
 
 The MobilityData gate is separate and, by default, fetches live feeds:
 
@@ -192,7 +195,7 @@ Release workflow:
 
 Cloud Agent setup is `bash .cursor/install.sh`, from `.cursor/environment.json`. The script is idempotent and uses Cursor's default image. There is no `.cursor/Dockerfile`, and there is no `start` or `terminals` entry: unit tests do not need the HTTP server, the sidecars, or Docker.
 
-The script installs `protoc`, `python`, `jq`, and CA certificates when they are missing; installs Rust stable with `rustfmt` and `clippy` (the image's preinstalled 1.83 cannot compile the edition 2024 dependency); installs both sidecar requirement files; runs `cargo fetch --locked`; and downloads the official GTFS validator JAR to `tools/gtfs-validator-v8.0.1-cli.jar` after the SHA-256 check. It installs OpenJDK 17 only when `java` is missing or older than 17. The default image already has a newer JDK, which satisfies the service's Java 17 minimum.
+The script installs `protoc`, `libssl-dev`, `pkg-config`, `python`, `jq`, and CA certificates when they are missing; installs Rust stable with `rustfmt` and `clippy` (the image's preinstalled 1.83 cannot compile the edition 2024 dependency); installs both sidecar requirement files; runs `cargo fetch --locked`; and downloads the official GTFS validator JAR to `tools/gtfs-validator-v8.0.1-cli.jar` after the SHA-256 check. It installs OpenJDK 17 only when `java` is missing or older than 17. The default image already has a newer JDK, which satisfies the service's Java 17 minimum.
 
 After install, the commands in "Build, test, and lint" are the verification set. `cargo test --locked` does not run the ignored live tests.
 
