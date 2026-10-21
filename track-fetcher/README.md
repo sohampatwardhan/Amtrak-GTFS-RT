@@ -87,7 +87,7 @@ filling with `http 403`, first set `BLOCK_THIRD_PARTY=false` in case the status 
 outside `amtrak.com`. If 403s continue, rebuild with full Chromium and Xvfb and run headful:
 
 ```bash
-FETCHER_BROWSER_BUNDLE=full FETCHER_BROWSER_MODE=xvfb-headful \
+AMTRAK_IMAGE_TAG=local FETCHER_BROWSER_BUNDLE=full FETCHER_BROWSER_MODE=xvfb-headful \
   docker compose up -d --build
 ```
 
@@ -110,10 +110,17 @@ terms of use before running it.
 
 The root Compose file starts this image with the stack and points the service at it, so tracks and
 gates from Amtrak's status are on by default. An empty `AMTRAK_TRACKS_AMTRAK_URL` leaves this source
-off; `AMTRAK_TRACKS=off` with `--scale track-fetcher=0` runs the stack without tracks or Chromium:
+off; `AMTRAK_TRACKS=off` with `--scale track-fetcher=0` runs the stack without tracks or Chromium.
+
+Releases from `v0.7.0` publish this image for `linux/amd64` and `linux/arm64` (Raspberry Pi) as
+`ghcr.io/sohampatwardhan/amtrak-gtfs-rt-track-fetcher`, tagged with the version, the minor version,
+and `latest`. The root Compose file names it at the release version, so the stack can be pulled
+rather than built:
 
 ```bash
-docker compose up -d --build
+docker compose pull && docker compose up -d       # released images
+AMTRAK_IMAGE_TAG=local docker compose up -d --build  # build from this checkout
+docker pull ghcr.io/sohampatwardhan/amtrak-gtfs-rt-track-fetcher:0.7.0  # this image alone
 ```
 
 ## One-shot track dump
@@ -138,7 +145,7 @@ Train  Service date  Station  Side       Track  Gate  Scheduled                 
 ```
 
 `--json` prints one object per track instead. Locally it needs Playwright and its headless shell
-(`python -m pip install playwright==1.61.0`, then `python -m playwright install --only-shell
+(`python -m pip install playwright==1.64.0`, then `python -m playwright install --only-shell
 chromium`). The image already has both:
 
 ```bash

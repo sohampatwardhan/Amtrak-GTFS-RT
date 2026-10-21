@@ -1,4 +1,14 @@
-# Primary packaging: scratch GTFS-RT service plus the advisory-fetcher image.
+# Primary packaging: scratch GTFS-RT service plus the advisory-fetcher and track-fetcher images.
+#
+# Each service names its released GHCR image (linux/amd64 and linux/arm64, so a Raspberry Pi
+# pulls native builds) and keeps its local build. Pull the release and start it without building:
+#
+#   docker compose pull && docker compose up -d
+#
+# `--build` builds from this checkout instead and tags the result with the same names. To keep
+# local builds apart from the pulled release, give them another tag:
+#
+#   AMTRAK_IMAGE_TAG=local docker compose up -d --build
 #
 # Chromium stays in the advisory-fetcher image. The service build is the root
 # Dockerfile `runtime` stage (scratch). Advisories are on in this stack and
@@ -8,16 +18,15 @@
 # its credentials are set. Tracks change the published static feed; see the
 # README. To run without them (and without the sidecar's Chromium):
 #
-#   AMTRAK_TRACKS=off docker compose up -d --build --scale track-fetcher=0
+#   AMTRAK_TRACKS=off docker compose up -d --scale track-fetcher=0
 #
-#   docker compose up -d --build
-#
-# Build both images without starting them: `docker buildx bake`
+# Build the images without starting them: `docker buildx bake default track-fetcher`
 #
 # Both browser sidecars use chromium-headless-shell. If Amtrak blocks it, rebuild them with full
 # Chromium and Xvfb and run headful (larger images, more memory on a Pi):
 #
-#   FETCHER_BROWSER_BUNDLE=full FETCHER_BROWSER_MODE=xvfb-headful docker compose up -d --build
+#   AMTRAK_IMAGE_TAG=local FETCHER_BROWSER_BUNDLE=full FETCHER_BROWSER_MODE=xvfb-headful \
+#     docker compose up -d --build
 #
 # Rust service alone, advisories off (image default; do not set AMTRAK_ADVISORIES):
 #
@@ -36,7 +45,7 @@ services:
       dockerfile: Dockerfile
       args:
         BROWSER_BUNDLE: ${FETCHER_BROWSER_BUNDLE:-headless-shell}
-    image: advisory-fetcher:local
+    image: ghcr.io/sohampatwardhan/amtrak-gtfs-rt-advisory-fetcher:${AMTRAK_IMAGE_TAG:-0.7.0}
     restart: unless-stopped
     # Chromium is launched with --disable-dev-shm-usage, so it does not need a 1 GB /dev/shm.
     shm_size: "64mb"
@@ -54,7 +63,7 @@ services:
       dockerfile: Dockerfile
       args:
         BROWSER_BUNDLE: ${FETCHER_BROWSER_BUNDLE:-headless-shell}
-    image: track-fetcher:local
+    image: ghcr.io/sohampatwardhan/amtrak-gtfs-rt-track-fetcher:${AMTRAK_IMAGE_TAG:-0.7.0}
     restart: unless-stopped
     shm_size: "64mb"
     # Chromium runs Amtrak's page scripts without its own sandbox, so the container is the
@@ -81,7 +90,7 @@ services:
       context: .
       dockerfile: Dockerfile
       target: runtime
-    image: amtrak-gtfs-rt:local
+    image: ghcr.io/sohampatwardhan/amtrak-gtfs-rt:${AMTRAK_IMAGE_TAG:-0.7.0}
     restart: unless-stopped
     depends_on: [advisory-fetcher]
     environment:

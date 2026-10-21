@@ -40,7 +40,9 @@ jobs:
 
   advisory-fetcher-tests:
     name: Advisory fetcher offline tests
-    runs-on: ubuntu-latest
+    # ubuntu-latest moved to 26.04, which has no CPython 3.12.11 build. Stay on 24.04,
+    # where that exact interpreter is published.
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -61,7 +63,9 @@ jobs:
 
   track-fetcher-tests:
     name: Track fetcher offline tests
-    runs-on: ubuntu-latest
+    # ubuntu-latest moved to 26.04, which has no CPython 3.12.11 build. Stay on 24.04,
+    # where that exact interpreter is published.
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -116,6 +120,34 @@ jobs:
         run: |
           docker run --rm --entrypoint python fetcher:full -c \
             "from fetcher.display import start_virtual_display, stop_virtual_display; stop_virtual_display(start_virtual_display('xvfb-headful', {}))"
+
+      # The release workflow's offline smoke test, run here on both architectures.
+      - name: Smoke-test the default image
+        run: scripts/test-fetcher-image.sh fetcher:shell ${{ matrix.image }}
+
+  workflow-lint:
+    name: Workflow lint (actionlint)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      ACTIONLINT_VERSION: 1.7.7
+      ACTIONLINT_SHA256: 023070a287cd8cccd71515fedc843f1985bf96c436b7effaecce67290e7e0757
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # Checksum-pinned release binary. The runner's shellcheck checks every `run:` script.
+      - name: Install actionlint
+        run: |
+          archive="actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"
+          curl --fail --location --silent --show-error --output "$RUNNER_TEMP/$archive" \
+            "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/$archive"
+          printf '%s  %s\n' "$ACTIONLINT_SHA256" "$RUNNER_TEMP/$archive" | sha256sum --check --strict
+          tar -xzf "$RUNNER_TEMP/$archive" -C "$RUNNER_TEMP" actionlint
+          shellcheck --version
+
+      - name: Lint workflows
+        run: |
+          "$RUNNER_TEMP/actionlint" -color
 
   repository-controls:
     name: Repository release-control tests
