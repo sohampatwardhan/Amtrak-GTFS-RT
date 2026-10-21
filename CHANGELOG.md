@@ -33,12 +33,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   with the service image's tags (version, minor, `latest`) and OCI labels, so a Raspberry Pi pulls
   all three. Each platform digest is built on a native runner, smoke-tested offline (Chromium
   renders a page under the Compose confinement, `/healthz` answers, `SIGTERM` stops it), scanned,
-  and SBOM-attested before any tag is created. The sidecars fail a release on a fixable Critical or
-  High Grype match; the service keeps its zero-match policy. `image-release.txt` records the
-  sidecars' manifest and platform digests after the service's.
+  and SBOM-attested before any tag is created. SIGTERM kills a Playwright navigation that would
+  otherwise ignore cancellation, so `docker stop` returns during a poll. The sidecars fail a
+  release on a fixable Critical or High Grype match; the service keeps its zero-match policy.
+  `image-release.txt` records the sidecars' manifest and platform digests after the service's.
 
 ### Changed
 
+- **Sidecar images clear fixable High advisories.** Playwright is pinned to 1.64.0, whose driver is
+  Node 24.21.0 (1.61.0 shipped Node 24.17.0), and track-fetcher's `cryptography` is pinned to
+  50.0.2. Both Dockerfiles `apt-get upgrade` before installing packages, so a release build contains
+  Debian security updates. The sidecar gate still fails on any remaining fixable Critical or High
+  Grype match.
 - **Compose and bake name the released GHCR images.** The root `docker-compose.yml` runs
   `ghcr.io/sohampatwardhan/amtrak-gtfs-rt{,-track-fetcher,-advisory-fetcher}` at
   `${AMTRAK_IMAGE_TAG:-0.7.0}`, so `docker compose pull && docker compose up -d` needs no build.

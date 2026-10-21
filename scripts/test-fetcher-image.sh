@@ -105,10 +105,14 @@ if [ -z "$healthy" ]; then
 fi
 test "$(probe "$SERVE_PATH")" = 503
 
-# SIGTERM stops it well within Docker's grace period.
+# SIGTERM stops it well within Docker's grace period, including mid-poll.
 start="$(date +%s)"
 docker stop --time 20 "$CONTAINER" >/dev/null
-test $(( $(date +%s) - start )) -lt 15
+elapsed=$(( $(date +%s) - start ))
+if [ "$elapsed" -ge 15 ]; then
+  printf '%s did not exit within 15s of SIGTERM (%ss)\n' "$KIND" "$elapsed" >&2
+  exit 1
+fi
 test "$(docker inspect "$CONTAINER" -f '{{.State.OOMKilled}}')" = false
 
 printf 'Fetcher image smoke test passed: %s (%s)\n' "$IMAGE" "$KIND"

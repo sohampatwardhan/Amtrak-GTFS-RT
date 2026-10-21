@@ -5,8 +5,9 @@ name: Release gates
 # immutable tag. It builds linux/amd64 only and is path-gated to the image inputs: the smoke test
 # fetches live Amtrak data, so it stays off unrelated PRs. The weekly run rescans the current main
 # image against a fresh vulnerability database so new advisories surface before release day.
-# The browser sidecars get the same treatment with their own policy (no fixable Critical or High
-# match) and their offline smoke test.
+# The browser sidecars get their own policy (no fixable Critical or High match) and their offline
+# smoke test, on linux/amd64 and linux/arm64. The service gate stays amd64-only because its smoke
+# test calls Amtrak; the sidecar smoke test does not.
 
 on:
   pull_request:
@@ -109,13 +110,19 @@ jobs:
           retention-days: 14
 
   sidecar-gates:
-    name: ${{ matrix.image }} smoke test and vulnerability gate (linux/amd64)
-    runs-on: ubuntu-24.04
-    timeout-minutes: 60
+    name: ${{ matrix.image }} smoke test and vulnerability gate (linux/${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 90
     strategy:
       fail-fast: false
       matrix:
         image: [track-fetcher, advisory-fetcher]
+        arch: [amd64, arm64]
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
     env:
       LOCAL_IMAGE: ${{ matrix.image }}:release-gates
     steps:
@@ -146,7 +153,7 @@ jobs:
           scripts/release-vulnerability-policy.sh summarize release-gates/cves-grype.json \
             release-gates/cves-grype.txt
           {
-            printf '### Grype matches (${{ matrix.image }}, linux/amd64)\n\n```\n'
+            printf '### Grype matches (${{ matrix.image }}, linux/${{ matrix.arch }})\n\n```\n'
             cat release-gates/cves-grype.txt
             printf '```\n'
           } >>"$GITHUB_STEP_SUMMARY"
@@ -158,7 +165,7 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: release-gates-${{ matrix.image }}-linux-amd64-${{ github.run_attempt }}
+          name: release-gates-${{ matrix.image }}-linux-${{ matrix.arch }}-${{ github.run_attempt }}
           path: release-gates/
           if-no-files-found: warn
           retention-days: 14

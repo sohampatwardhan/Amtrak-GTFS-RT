@@ -6,19 +6,22 @@
 # calls go through the browser.
 FROM python:3.12-slim-bookworm
 
-ARG PLAYWRIGHT_VERSION=1.61.0
+ARG PLAYWRIGHT_VERSION=1.64.0
 # `headless-shell` (default) installs only chromium-headless-shell. `full` also installs full
 # Chromium and Xvfb for BROWSER_MODE=xvfb-headful, the fallback if Amtrak blocks the headless shell.
 # It makes the image larger, so build it only when that mode is needed:
 #   docker build --build-arg BROWSER_BUNDLE=full .
 ARG BROWSER_BUNDLE=headless-shell
-ARG CRYPTOGRAPHY_VERSION=46.0.3
+ARG CRYPTOGRAPHY_VERSION=50.0.2
 
 ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright \
     PIP_NO_CACHE_DIR=1 \
     PYTHONUNBUFFERED=1
 
+# Upgrade distro packages before the install. The release gate fails a fixable Critical or High,
+# and the python slim tag can lag Debian security updates.
 RUN apt-get update \
+    && apt-get upgrade --yes --no-install-recommends \
     && apt-get install --yes --no-install-recommends \
         ca-certificates \
         fonts-liberation \
