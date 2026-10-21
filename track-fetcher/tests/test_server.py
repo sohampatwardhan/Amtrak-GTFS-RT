@@ -72,3 +72,17 @@ def test_health_fails_when_the_poll_loop_stalls():
     assert route(store, "/tracks.json", 300, 7200, "/healthz", 1_601, 600)[0] == 503
     store.mark_cycle(1_600)
     assert route(store, "/tracks.json", 300, 7200, "/healthz", 1_700, 600)[0] == 200
+
+
+def test_health_fails_after_repeated_poll_failures_and_recovers():
+    store = TrackStore(started_at=1_000)
+    store.record_poll(False)
+    store.record_poll(False)
+    status, _, body = route(store, "/tracks.json", 300, 7200, "/healthz", 1_010)
+    assert (status, body) == (200, b"ok")
+    store.record_poll(False)
+    status, _, body = route(store, "/tracks.json", 300, 7200, "/healthz", 1_010)
+    assert (status, body) == (503, b"polls failing")
+    store.record_poll(True)
+    status, _, body = route(store, "/tracks.json", 300, 7200, "/healthz", 1_010)
+    assert (status, body) == (200, b"ok")

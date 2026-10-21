@@ -92,8 +92,9 @@ LABEL org.opencontainers.image.title="Amtrak GTFS-RT track-fetcher" \
 USER fetcher
 EXPOSE 8081
 
-# /healthz turns 503 when no poll has finished within LIVENESS_SECS, so a wedged loop is
-# restarted. It probes loopback, so LISTEN_HOST must stay 0.0.0.0 or 127.0.0.1.
+# /healthz turns 503 when no poll has finished within LIVENESS_SECS, or after three polls in a
+# row fail. A wedged loop and a feed Amtrak keeps rejecting are both restarted. It probes
+# loopback, so LISTEN_HOST must stay 0.0.0.0 or 127.0.0.1.
 HEALTHCHECK --interval=60s --timeout=10s --start-period=120s --retries=3 \
     CMD ["python", "-c", "import os, urllib.request; urllib.request.urlopen('http://127.0.0.1:' + os.environ.get('LISTEN_PORT', '8081') + '/healthz', timeout=5)"]
 

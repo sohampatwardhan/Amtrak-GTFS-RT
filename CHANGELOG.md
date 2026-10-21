@@ -13,6 +13,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   not exist yet can make the next `imagetools inspect` exit 255 with no message. The
   publish job retries that read. A rerun verifies a version tag whose platform digests
   already match, and still refuses a tag that points at something else.
+- **The track sidecar can read Amtrak's train list again.** `maps.amtrak.com`'s
+  `getTrainsData` now answers `Accept: application/json` with HTTP 406 and serves the
+  ciphertext as `text/plain`. The poll asks for `*/*`, which that endpoint accepts. The
+  Rust service does not send this header: positions still come from the `amtrak-gtfs-rt`
+  crate's default client. `/healthz` stays up through one failed poll and returns 503
+  after three in a row, so a loop that keeps running while every poll fails is restarted.
 
 ## [0.7.0] - 2026-10-20
 
