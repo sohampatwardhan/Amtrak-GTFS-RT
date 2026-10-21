@@ -1,0 +1,4 @@
+{
+  "name": "Amtrak GTFS-RT",
+  "install": "bash .cursor/install.sh"
+}
