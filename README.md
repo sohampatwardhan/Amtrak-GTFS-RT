@@ -60,16 +60,16 @@ flowchart LR
   platform assignments, with Amtrak's boarding gates (on by default; `AMTRAK_TRACKS=off` turns
   them off). Changes merged after a release are
   listed under **Unreleased** in [CHANGELOG.md](CHANGELOG.md).
-- **Releases:** `v0.6.2` (2026-10-19) is the current release. A release is complete when its
+- **Releases:** `v0.7.0` (2026-10-20) is the current release. A release is complete when its
   GitHub Release carries `image-release.txt` with the tag, revisions, manifest digest, and both
-  platform digests; until then, `v0.5.0` stays the stable image. Through `v0.6.2` the release
-  workflow publishes the scratch service image only; build the browser sidecars from this
-  repository. From `v0.7.0` it also publishes both sidecars (see [Container](#container)), and
-  `image-release.txt` records their digests too. Pull the version tag, and pin the manifest digest
-  from that release's `image-release.txt`:
+  platform digests; until then, `v0.6.2` stays the stable image. Through `v0.6.2` the release
+  workflow publishes the service image only. From `v0.7.0` a release publishes all three images:
+  the service, track-fetcher, and advisory-fetcher. `image-release.txt` records the sidecar
+  digests after the service's. Pull the version tag, and pin the manifest digest from that
+  release's `image-release.txt`:
 
   ```bash
-  docker pull ghcr.io/sohampatwardhan/amtrak-gtfs-rt:0.6.2
+  docker pull ghcr.io/sohampatwardhan/amtrak-gtfs-rt:0.7.0
   docker pull ghcr.io/sohampatwardhan/amtrak-gtfs-rt@sha256:<release-manifest-digest>
   ```
 
@@ -169,7 +169,7 @@ Versioned releases are published for `linux/amd64` and `linux/arm64` at
 without a registry login:
 
 ```bash
-docker pull ghcr.io/sohampatwardhan/amtrak-gtfs-rt:0.6.2
+docker pull ghcr.io/sohampatwardhan/amtrak-gtfs-rt:0.7.0
 ```
 
 From `v0.7.0` the two browser sidecars are released beside it, for the same platforms and with the
@@ -261,7 +261,7 @@ unchanged and only loopback peers are admitted:
 ```bash
 docker run --rm --network host \
   -v amtrak-data:/data \
-  ghcr.io/sohampatwardhan/amtrak-gtfs-rt:0.6.2
+  ghcr.io/sohampatwardhan/amtrak-gtfs-rt:0.7.0
 # manifest is reachable from the host loopback (an admitted peer):
 curl -fsS http://127.0.0.1:8080/v1/feed-set.json
 ```
@@ -284,7 +284,7 @@ docker run --rm --network amtrak-net \
   -e AMTRAK_BIND_ADDR=0.0.0.0:8080 \
   -e AMTRAK_ALLOWED_PEER_IPS=172.31.240.1 \
   -v amtrak-data:/data \
-  ghcr.io/sohampatwardhan/amtrak-gtfs-rt:0.6.2
+  ghcr.io/sohampatwardhan/amtrak-gtfs-rt:0.7.0
 ```
 
 > [!WARNING]

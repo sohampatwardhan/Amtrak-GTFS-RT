@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-10-20
+
 ### Added
 
 - **Amtrak's boarding gates in GTFS-Realtime.** Where Amtrak posts a gate beside the track
@@ -40,6 +42,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Image gates run on pull requests.** A pull request that changes the service image, and the
+  weekly rescan, runs the container smoke test and the zero-match Grype policy before a tag is
+  pushed. Sidecar changes run the sidecar smoke test and the fixable Critical/High policy on
+  both architectures.
 - **Sidecar images clear fixable High advisories.** Playwright is pinned to 1.64.0, whose driver is
   Node 24.21.0 (1.61.0 shipped Node 24.17.0), and track-fetcher's `cryptography` is pinned to
   50.0.2. Both Dockerfiles `apt-get upgrade` before installing packages, so a release build contains
@@ -343,8 +349,9 @@ against Amtrak's production endpoints (145 trip updates, 145 vehicle positions,
 - 21 tests, including live integration tests against Amtrak's real endpoints
   (run with `cargo test -- --include-ignored`).
 
-[Unreleased]: https://github.com/sohampatwardhan/Amtrak-GTFS-RT/compare/v0.6.2...HEAD
-[0.6.2]: https://github.com/sohampatwardhan/Amtrak-GTFS-RT/releases/tag/v0.6.2
+[Unreleased]: https://github.com/sohampatwardhan/Amtrak-GTFS-RT/compare/v0.7.0...HEAD
+[0.7.0]: https://github.com/sohampatwardhan/Amtrak-GTFS-RT/releases/tag/v0.7.0
+[0.6.2]: https://github.com/sohampatwardhan/Amtrak-GTFS-RT/compare/v0.6.1...v0.6.2
 [0.6.1]: https://github.com/sohampatwardhan/Amtrak-GTFS-RT/compare/v0.6.0...v0.6.1
 [0.6.0]: https://github.com/sohampatwardhan/Amtrak-GTFS-RT/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/sohampatwardhan/Amtrak-GTFS-RT/releases/tag/v0.5.0
