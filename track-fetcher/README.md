@@ -43,8 +43,9 @@ The browser stays in this image. The Rust service stays scratch and browser-free
   document, so if Amtrak stops answering the endpoint goes `503` instead of serving old documents
   as current. The service treats `503` as a missed refresh and keeps tracks it already stored
   until each train's departure, ranked below a live NJ Transit or Hartford reading.
-- `/healthz` is `503` once no poll has finished within `LIVENESS_SECS`, and the image's
-  `HEALTHCHECK` uses it, so a wedged poll loop is restarted.
+- `/healthz` is `503` once no poll has finished within `LIVENESS_SECS`, and after three polls
+  in a row fail. The image's `HEALTHCHECK` uses it, so a wedged poll loop, or a loop that keeps
+  running while every poll fails, is restarted. One failed poll stays healthy.
 
 On 2026-10-17 the app showed track 1 at Providence for train 167 about ten minutes before
 arrival. That same document had the track on `arrival.track` (`asOf` 16:57 for a 17:06 schedule).
@@ -70,7 +71,7 @@ a track it has seen until the train leaves.
 | `BROWSER_MAX_AGE_SECS` | `21600` | Recycle the resident browser after this long |
 | `RELAUNCH_BACKOFF_MAX_SECS` | `900` | Longest wait before relaunching a failed browser |
 | `MAX_STALE_SECS` | `300` | Serve `503` once the last successful poll is older than this |
-| `LIVENESS_SECS` | `900` | `/healthz` fails once no poll has finished for this long |
+| `LIVENESS_SECS` | `900` | `/healthz` fails once no poll has finished for this long. It also fails after three polls in a row fail |
 | `LISTEN_HOST` | `0.0.0.0` | Snapshot HTTP address. The healthcheck probes loopback, so keep `0.0.0.0` or `127.0.0.1` |
 | `LISTEN_PORT` | `8081` | Snapshot HTTP port |
 | `SERVE_PATH` | `/tracks.json` | Path the Rust service GETs |
@@ -120,7 +121,7 @@ rather than built:
 ```bash
 docker compose pull && docker compose up -d       # released images
 AMTRAK_IMAGE_TAG=local docker compose up -d --build  # build from this checkout
-docker pull ghcr.io/sohampatwardhan/amtrak-gtfs-rt-track-fetcher:0.7.0  # this image alone
+docker pull ghcr.io/sohampatwardhan/amtrak-gtfs-rt-track-fetcher:0.7.1  # this image alone
 ```
 
 ## One-shot track dump

@@ -33,6 +33,10 @@ logger = logging.getLogger(__name__)
 _LAUNCH_ARGS = ["--disable-dev-shm-usage", "--disable-gpu"]
 _BLOCKED_RESOURCE_TYPES = frozenset({"image", "font", "media", "stylesheet"})
 _FIRST_PARTY = "amtrak.com"
+# maps.amtrak.com rejects ``Accept: application/json`` with HTTP 406 and serves the ciphertext
+# as ``text/plain``. ``*/*`` is what that endpoint accepts. The www.amtrak.com status document
+# is JSON, so the in-page fetch below still asks for ``application/json``.
+TRAINS_ACCEPT = "*/*"
 _RELAUNCH_BACKOFF_MIN_SECS = 60
 _FETCH_JS = """async ([url, timeoutMs]) => {
   const controller = new AbortController();
@@ -93,7 +97,7 @@ def load_trains(cfg: Config) -> dict:
     """GET the maps train feed and return its GeoJSON. A JSON body is used as-is."""
     request = urllib.request.Request(
         cfg.trains_url,
-        headers={"Accept": "application/json", "User-Agent": "amtrak-gtfs-rt-track-fetcher"},
+        headers={"Accept": TRAINS_ACCEPT, "User-Agent": "amtrak-gtfs-rt-track-fetcher"},
     )
     with urllib.request.urlopen(request, timeout=cfg.nav_timeout_secs) as response:
         text = response.read().decode("utf-8", "replace").strip()
@@ -252,11 +256,12 @@ async def poll_once(
     now: datetime,
     trains_fetcher: TrainsFetcher,
     status_fetcher: StatusFetcher,
-) -> None:
+) -> bool:
     """One cycle. Raises when the train list itself cannot be read; status misses are skipped.
 
-    Every attempt, failed or not, starts the train's cooldown. ``last_fetched`` is pruned to the
-    trains still due.
+    Returns whether the cycle succeeded: it had nothing to fetch, or it stored a document. Every
+    attempt, failed or not, starts the train's cooldown. ``last_fetched`` is pruned to the trains
+    still due.
     """
     geojson = await trains_fetcher(cfg)
     due = due_trains(
@@ -295,7 +300,8 @@ async def poll_once(
             continue
         store.put(train.train_number, train.service_date, document, now.timestamp())
         stored += 1
-    if not picks or stored > 0:
+    succeeded = not picks or stored > 0
+    if succeeded:
         store.mark_success(now.timestamp())
     logger.info(
         "track poll due=%s picked=%s stored=%s rejected=%s%s",
@@ -305,6 +311,7 @@ async def poll_once(
         dict(rejected) or 0,
         f" browser_unavailable={browser_down}" if browser_down else "",
     )
+    return succeeded
 
 
 async def run_forever(
@@ -330,7 +337,7 @@ async def run_forever(
     try:
         while iterations is None or count < iterations:
             try:
-                await poll_once(
+                succeeded = await poll_once(
                     store,
                     cfg,
                     last_fetched,
@@ -340,6 +347,8 @@ async def run_forever(
                 )
             except Exception:  # noqa: BLE001 — a failed cycle must not crash the sidecar
                 logger.exception("track poll failed; keeping the last snapshot")
+                succeeded = False
+            store.record_poll(succeeded)
             store.mark_cycle(now_of().timestamp())
             count += 1
             if iterations is not None and count >= iterations:

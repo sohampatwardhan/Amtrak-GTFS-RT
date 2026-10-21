@@ -7,12 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.1] - 2026-10-21
+
 ### Fixed
 
 - **Publishing a new image retries the manifest read.** Tagging a GHCR package that did
   not exist yet can make the next `imagetools inspect` exit 255 with no message. The
   publish job retries that read. A rerun verifies a version tag whose platform digests
   already match, and still refuses a tag that points at something else.
+- **The track sidecar can read Amtrak's train list again.** `maps.amtrak.com`'s
+  `getTrainsData` now answers `Accept: application/json` with HTTP 406 and serves the
+  ciphertext as `text/plain`. The poll asks for `*/*`, which that endpoint accepts. The
+  Rust service does not send this header: positions still come from the `amtrak-gtfs-rt`
+  crate's default client. `/healthz` stays up through one failed poll and returns 503
+  after three in a row, so a loop that keeps running while every poll fails is restarted.
 
 ## [0.7.0] - 2026-10-20
 
@@ -356,8 +364,9 @@ against Amtrak's production endpoints (145 trip updates, 145 vehicle positions,
 - 21 tests, including live integration tests against Amtrak's real endpoints
   (run with `cargo test -- --include-ignored`).
 
-[Unreleased]: https://github.com/sohampatwardhan/Amtrak-GTFS-RT/compare/v0.7.0...HEAD
-[0.7.0]: https://github.com/sohampatwardhan/Amtrak-GTFS-RT/releases/tag/v0.7.0
+[Unreleased]: https://github.com/sohampatwardhan/Amtrak-GTFS-RT/compare/v0.7.1...HEAD
+[0.7.1]: https://github.com/sohampatwardhan/Amtrak-GTFS-RT/releases/tag/v0.7.1
+[0.7.0]: https://github.com/sohampatwardhan/Amtrak-GTFS-RT/compare/v0.6.2...v0.7.0
 [0.6.2]: https://github.com/sohampatwardhan/Amtrak-GTFS-RT/compare/v0.6.1...v0.6.2
 [0.6.1]: https://github.com/sohampatwardhan/Amtrak-GTFS-RT/compare/v0.6.0...v0.6.1
 [0.6.0]: https://github.com/sohampatwardhan/Amtrak-GTFS-RT/compare/v0.5.0...v0.6.0

@@ -82,7 +82,7 @@ dependencies = [
 
 [[package]]
 name = "amtrak-gtfs-rt-service"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "amtrak-gtfs-rt",
  "async-trait",

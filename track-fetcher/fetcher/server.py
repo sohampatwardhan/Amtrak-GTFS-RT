@@ -7,7 +7,9 @@ goes ``503`` instead of serving old documents as current. The Rust service treat
 failed refresh and keeps tracks it already stored.
 
 ``/healthz`` is liveness: ``503`` when no poll has finished within ``liveness_secs``, so a wedged
-loop is restarted. It does not look at the snapshot.
+loop is restarted, and ``503`` after ``POLL_FAILURES_BEFORE_UNHEALTHY`` polls in a row fail, so a
+loop that keeps running but never reads Amtrak is restarted too. One failure stays healthy, which
+lets the process come up before the first successful poll.
 """
 
 from __future__ import annotations
@@ -20,6 +22,10 @@ from urllib.parse import urlsplit
 from .store import TrackStore, iso_utc
 
 HEALTH_PATH = "/healthz"
+# Three failed polls is about three minutes at the default interval: long enough that the offline
+# image smoke test (one poll, then a long sleep) still sees a healthy process, and short enough
+# that a feed Amtrak is rejecting does not stay "healthy" for the whole liveness window.
+POLL_FAILURES_BEFORE_UNHEALTHY = 3
 SOURCE_TEMPLATE = (
     "https://www.amtrak.com/dotcom/travel-service/statuses/{train}?service-date={date}"
 )
@@ -39,6 +45,8 @@ def route(
     if clean == HEALTH_PATH:
         if now - store.last_cycle() > liveness_secs:
             return 503, "text/plain", b"poll loop stalled"
+        if store.consecutive_failures() >= POLL_FAILURES_BEFORE_UNHEALTHY:
+            return 503, "text/plain", b"polls failing"
         return 200, "text/plain", b"ok"
     if clean != serve_path:
         return 404, "text/plain", b"not found"

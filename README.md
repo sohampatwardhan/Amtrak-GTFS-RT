@@ -60,7 +60,7 @@ flowchart LR
   platform assignments, with Amtrak's boarding gates (on by default; `AMTRAK_TRACKS=off` turns
   them off). Changes merged after a release are
   listed under **Unreleased** in [CHANGELOG.md](CHANGELOG.md).
-- **Releases:** `v0.7.0` (2026-10-20) is the current release. A release is complete when its
+- **Releases:** `v0.7.1` (2026-10-21) is the current release. A release is complete when its
   GitHub Release carries `image-release.txt` with the tag, revisions, manifest digest, and both
   platform digests; until then, `v0.6.2` stays the stable image. Through `v0.6.2` the release
   workflow publishes the service image only. From `v0.7.0` a release publishes all three images:
@@ -69,7 +69,7 @@ flowchart LR
   release's `image-release.txt`:
 
   ```bash
-  docker pull ghcr.io/sohampatwardhan/amtrak-gtfs-rt:0.7.0
+  docker pull ghcr.io/sohampatwardhan/amtrak-gtfs-rt:0.7.1
   docker pull ghcr.io/sohampatwardhan/amtrak-gtfs-rt@sha256:<release-manifest-digest>
   ```
 
@@ -169,11 +169,11 @@ Versioned releases are published for `linux/amd64` and `linux/arm64` at
 without a registry login:
 
 ```bash
-docker pull ghcr.io/sohampatwardhan/amtrak-gtfs-rt:0.7.0
+docker pull ghcr.io/sohampatwardhan/amtrak-gtfs-rt:0.7.1
 ```
 
 From `v0.7.0` the two browser sidecars are released beside it, for the same platforms and with the
-same tags (`0.7.0`, `0.7`, and `latest`) and OCI labels:
+same tags (`0.7.1`, `0.7`, and `latest`) and OCI labels:
 
 | Image | Built from |
 |-------|------------|
@@ -185,7 +185,7 @@ Pull all three, on a Raspberry Pi or any other host; Docker picks the native arc
 
 ```bash
 for image in amtrak-gtfs-rt amtrak-gtfs-rt-track-fetcher amtrak-gtfs-rt-advisory-fetcher; do
-  docker pull "ghcr.io/sohampatwardhan/${image}:0.7.0"
+  docker pull "ghcr.io/sohampatwardhan/${image}:0.7.1"
 done
 ```
 
@@ -249,7 +249,7 @@ docker buildx bake default track-fetcher # all three, as Compose runs them
 ```
 
 Each target is tagged `<name>:local` and with its GHCR name at the release version
-(`ghcr.io/sohampatwardhan/amtrak-gtfs-rt-track-fetcher:0.7.0`, for example), so Compose runs what
+(`ghcr.io/sohampatwardhan/amtrak-gtfs-rt-track-fetcher:0.7.1`, for example), so Compose runs what
 bake built. `AMTRAK_IMAGE_TAG=local docker buildx bake` tags local builds apart from a pulled
 release.
 
@@ -261,7 +261,7 @@ unchanged and only loopback peers are admitted:
 ```bash
 docker run --rm --network host \
   -v amtrak-data:/data \
-  ghcr.io/sohampatwardhan/amtrak-gtfs-rt:0.7.0
+  ghcr.io/sohampatwardhan/amtrak-gtfs-rt:0.7.1
 # manifest is reachable from the host loopback (an admitted peer):
 curl -fsS http://127.0.0.1:8080/v1/feed-set.json
 ```
@@ -284,7 +284,7 @@ docker run --rm --network amtrak-net \
   -e AMTRAK_BIND_ADDR=0.0.0.0:8080 \
   -e AMTRAK_ALLOWED_PEER_IPS=172.31.240.1 \
   -v amtrak-data:/data \
-  ghcr.io/sohampatwardhan/amtrak-gtfs-rt:0.7.0
+  ghcr.io/sohampatwardhan/amtrak-gtfs-rt:0.7.1
 ```
 
 > [!WARNING]
@@ -434,9 +434,9 @@ stack instead of building the Chromium images on the device. With Docker Engine 
 Compose plugin installed, from a checkout of the release tag:
 
 ```bash
-git clone --branch v0.7.0 https://github.com/sohampatwardhan/Amtrak-GTFS-RT.git
+git clone --branch v0.7.1 https://github.com/sohampatwardhan/Amtrak-GTFS-RT.git
 cd Amtrak-GTFS-RT
-docker compose pull   # amtrak-gtfs-rt, -track-fetcher, and -advisory-fetcher at 0.7.0
+docker compose pull   # amtrak-gtfs-rt, -track-fetcher, and -advisory-fetcher at 0.7.1
 docker compose up -d
 ```
 
@@ -510,7 +510,7 @@ The browser sidecars have their own settings, documented in
 
 From the repository root, one Compose file runs the scratch service with the advisory and track
 sidecars, with advisories and tracks on. It names the released GHCR images at the version in
-`docker-compose.yml` (`0.7.0`), so the stack can be pulled instead of built:
+`docker-compose.yml` (`0.7.1`), so the stack can be pulled instead of built:
 
 ```bash
 docker compose pull && docker compose up -d
@@ -522,7 +522,7 @@ pulled release:
 
 ```bash
 docker compose up -d --build                         # build from this checkout
-AMTRAK_IMAGE_TAG=local docker compose up -d --build  # ...tagged :local instead of :0.7.0
+AMTRAK_IMAGE_TAG=local docker compose up -d --build  # ...tagged :local instead of :0.7.1
 ```
 
 ```mermaid

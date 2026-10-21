@@ -26,7 +26,7 @@ variable "FETCHER_BROWSER_BUNDLE" {
 
 # Keep in step with Cargo.toml and docker-compose.yml; scripts/check-release-metadata.sh checks it.
 variable "AMTRAK_IMAGE_TAG" {
-  default = "0.7.0"
+  default = "0.7.1"
 }
 
 variable "REGISTRY" {

@@ -48,7 +48,9 @@ class TrackStore:
 
     ``last_success`` is the last poll that had nothing to fetch or stored a document; it decides
     whether ``/tracks.json`` is current. ``last_cycle`` is the last poll that finished at all; it
-    decides whether ``/healthz`` reports the loop alive.
+    decides whether ``/healthz`` reports the loop alive. ``consecutive_failures`` counts polls
+    that finished without succeeding, so a loop that keeps running but never reads Amtrak can
+    still fail the healthcheck.
     """
 
     def __init__(self, started_at: float | None = None) -> None:
@@ -57,6 +59,7 @@ class TrackStore:
         self._tracked: dict[tuple[str, str], frozenset[str]] = {}
         self._last_success: float | None = None
         self._last_cycle: float = time.time() if started_at is None else started_at
+        self._consecutive_failures = 0
 
     def put(self, train_number: str, service_date: str, document: dict, now: float) -> None:
         """Store one status document. A later document for the same train-day replaces it."""
@@ -75,6 +78,16 @@ class TrackStore:
         """Record that a poll finished, whatever its outcome."""
         with self._lock:
             self._last_cycle = now
+
+    def record_poll(self, succeeded: bool) -> None:
+        """Count a finished poll. A success clears the failure streak."""
+        with self._lock:
+            self._consecutive_failures = 0 if succeeded else self._consecutive_failures + 1
+
+    def consecutive_failures(self) -> int:
+        """Polls in a row that finished without succeeding."""
+        with self._lock:
+            return self._consecutive_failures
 
     def last_cycle(self) -> float:
         """When the last poll finished, or when the store was created."""
