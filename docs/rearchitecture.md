@@ -1,38 +1,43 @@
-# Re-architecture proposal: one publisher, one browser, official static GTFS
+# Re-architecture proposal: one container per GTFS-Realtime feed
 
 - **Status:** proposal only. This document does not change the running service, the images, or the Raspberry Pi.
 - **Date:** 2026-11-01
-- **Owner intent:** Amtrak already publishes the static GTFS. This project should keep producing the three GTFS-Realtime feeds (TripUpdates, VehiclePositions, Alerts) and stay feature-rich, with fewer containers and fewer moving parts.
-- **What this proposal does:** folds today's three containers into two, keeps every current user-facing feature, and treats `https://content.amtrak.com/content/gtfs/GTFS.zip` as the schedule. It does not drop a feature. Two places where our bytes differ from that official ZIP are called out as open questions at the end, because they exist to keep matching and track assignments working.
+- **Owner intent:** Amtrak already publishes the static GTFS. This project should keep producing the three GTFS-Realtime feeds and stay feature-rich. The target shape is three containers, one per feed: Alerts, TripUpdates, and VehiclePositions.
+- **What this proposal does:** splits today's publisher-plus-sidecars stack along those three feeds, keeps every current user-facing feature and public URL, and treats `https://content.amtrak.com/content/gtfs/GTFS.zip` as the schedule. One process polls `getTrainsData`. The other two read that snapshot. A fourth container is not part of the design. Places where our bytes differ from Amtrak's ZIP, and whether a reverse proxy should become a fourth container, are open questions at the end.
 
 The repository has no Kiro spec layout (`.kiro/specs/`). This file is the design.
 
 ## Recommendation in one page
 
-Run **two containers** on the Pi:
+Run **three containers**, one per feed. They link one shared Rust library and they do not each poll Amtrak.
 
-1. **Publisher** (`amtrak-gtfs-rt`, the existing Rust process). It downloads Amtrak's official static GTFS, matches realtime trains to that schedule's `trip_id` / `stop_id` / `route_id`, and serves the same HTTP API it serves today, including `static.zip` on the generation URL. Track stamping, NJ Transit RailData, the Hartford Line board, advisory merge, the Capital Corridor filter, immutable generations, and peer checks stay in this process.
-2. **Browser worker** (one image, one Chromium). It replaces both `advisory-fetcher` and `track-fetcher`. `www.amtrak.com` still resets plain HTTP clients, so the notices pages and the train-status documents stay behind one headless browser. Compose gives that one container the old DNS names, so the publisher's URLs do not change.
+1. **VehiclePositions.** Rust, no browser. This is the only process that GETs `getTrainsData`, decrypts it, and matches it to the official static GTFS. It writes the vehicle protobuf and an internal fleet snapshot the other two read. It is also the public HTTP front: `/livez`, `/readyz`, `/v1/feed-set.json`, and all four generation files, on the same host port as today.
+2. **TripUpdates.** Rust plus one resident Chromium. It reads the fleet snapshot, stamps `assigned_stop_id` and `platform_code`, and writes `trip-updates.pb`. The browser fetches Amtrak track and gate documents. NJ Transit and the Hartford board stay plain HTTP in this process. It owns the served `static.zip` (official schedule, repair, platform stops) because those platform stops exist for this feed. A later, separate PR will add per-station track lead-time profiles; this container's status polling should use them.
+3. **Alerts.** Rust plus a Chromium that starts for each notices cycle and then exits. It reads the alert entities already in the fleet snapshot (TransitDocs ASM and Pacific Surfliner) and merges Amtrak's service-notices HTML. It writes `alerts.pb`.
 
-Keep the decrypt-and-match path this repo already uses: the `catenarytransit/amtrak-gtfs-rt` crate (AGPL-3.0) and its `amtk` decryptor, pointed at a parsed copy of Amtrak's official GTFS. [Piero Maddaleni's `piemadd/amtrak` library](https://github.com/piemadd/amtrak) (v3.0.17) is a TypeScript client of `api.amtraker.com`. It does not decrypt `getTrainsData`, does not emit GTFS-Realtime, and does not join `trip_id`s. Depending on it would add a Node runtime or a third-party API, plus that API's attribution terms. Details and the comparison table are below.
+`feed-set.json` advances only when that snapshot's three protobufs and the ZIP share one generation id, one timestamp, and one `static_version`. No fourth reverse proxy.
+
+Keep the decrypt-and-match path this repo already uses: the `catenarytransit/amtrak-gtfs-rt` crate (AGPL-3.0) and its `amtk` decryptor, called from the shared library, pointed at a parsed copy of Amtrak's official GTFS. [Piero Maddaleni's `piemadd/amtrak` library](https://github.com/piemadd/amtrak) (v3.0.17) is a TypeScript client of `api.amtraker.com`. It does not decrypt `getTrainsData`, does not emit GTFS-Realtime, and does not join `trip_id`s. Depending on it would add a Node runtime or a third-party API, plus that API's attribution terms. Details and the comparison table are below.
 
 No user-facing feature moves off the public API. `amtrak-status` stays a CLI. There is no dashboard in this repo today.
 
 ```mermaid
 flowchart LR
-  subgraph today["Today: three containers"]
+  subgraph today["Today: publisher plus two browsers"]
     direction TB
     adv["advisory-fetcher<br/>Chromium, notices HTML"]
     trk["track-fetcher<br/>Chromium, status JSON"]
-    pub["amtrak-gtfs-rt<br/>Rust + Java validator"]
+    pub["amtrak-gtfs-rt<br/>Rust + Java validator<br/>all three feeds"]
     adv -->|AMTRAK_ADVISORIES_URL| pub
     trk -->|AMTRAK_TRACKS_AMTRAK_URL| pub
   end
-  subgraph proposed["Proposed: two containers"]
+  subgraph proposed["Proposed: one container per feed"]
     direction TB
-    browser["browser worker<br/>one Chromium<br/>notices HTML and tracks.json"]
-    next["amtrak-gtfs-rt<br/>Rust publisher"]
-    browser -->|same two internal URLs| next
+    vp["VehiclePositions<br/>sole getTrainsData poll<br/>public /v1"]
+    tu["TripUpdates<br/>Chromium for tracks and gates<br/>serves static.zip bytes"]
+    al["Alerts<br/>Chromium for notices"]
+    vp -->|fleet snapshot| tu
+    vp -->|fleet snapshot| al
   end
   today --> proposed
 ```
@@ -191,7 +196,7 @@ Older trees associated with the same author (for example historical `fetchTrainD
 
 **(b) Port or borrow the approach.** The v3 approach is "HTTP GET a third-party API." Borrowing that replaces a direct read of Amtrak with Amtraker as the source of trains. The historical decrypt approach duplicates `amtk`. Two ideas in their model are already how this system works, and this document attributes them: a platform string on the station event (we publish that as `assigned_stop_id` / `platform_code`), and a train identity of number plus origin day (catenary's date-offset join is the GTFS form of that). Nothing else in v3 fills a hole in our feeds.
 
-**(c) Keep our own path. This is the recommendation.** Stay on catenary + `amtk` + Amtrak's official GTFS for TripUpdates and VehiclePositions. Keep ASM and Surfliner alerts that the crate already returns. Keep our advisory and track features behind one browser worker. Do not add `api.amtraker.com` as a source. If a later change quotes their code, keep this repo AGPL-3.0-only, keep their copyright notice, and do not drop the catenary repository-link requirement that crate's manifest states.
+**(c) Keep our own path. This is the recommendation.** Stay on catenary + `amtk` + Amtrak's official GTFS for TripUpdates and VehiclePositions. Keep ASM and Surfliner alerts that the crate already returns. Keep advisory and track features: notices in the Alerts container, track and gate documents in the TripUpdates container, one shared poll in VehiclePositions. Do not add `api.amtraker.com` as a source. If a later change quotes their code, keep this repo AGPL-3.0-only, keep their copyright notice, and do not drop the catenary repository-link requirement that crate's manifest states.
 
 ## Piero Maddaleni's other transit projects
 
@@ -287,143 +292,222 @@ Do not switch that poll to `AllTTMTrains`. The tracker uses it for the station b
 
 Do not use the FEMA ArcGIS layer. It is a 15-minute copy of TransitDocs, and the tracker does not call it.
 
-Track, gate, and service-alert HTML stay on the one browser worker, at the same polite caps as today, because the tracker never had them. The map's own fleet timer is 300 seconds; this service's 45-second poll is one request per cycle and, on this check, the origin was already changing inside that window. Per-train status fetches stay capped (24 per minute in the current sidecar) and still need a terms check by the operator. No login, no credential, and no attempt to get past the 403 is part of this design.
+Track, gate, and service-alert HTML stay browser work, because the tracker never had them. Notices move into the Alerts container. Track and gate documents move into the TripUpdates container. The fleet poll stays a single `getTrainsData` request per cycle, inside VehiclePositions, shared with the other two through the snapshot. The map's own timer is 300 seconds; this service's 45-second poll is one request, and on this check the origin was already changing inside that window. Per-train status fetches stay capped (24 per minute in the current sidecar) and still need a terms check by the operator. No login, no credential, and no attempt to get past the 403 is part of this design.
 
 ## Proposed architecture
 
 ```mermaid
 flowchart LR
-  subgraph upstream["Upstream"]
+  subgraph upstream["Upstream, one caller each"]
     gtfs["Official GTFS.zip"]
     maps["getTrainsData"]
     asm["TransitDocs ASM"]
     surf["Pacific Surfliner advisories"]
-    www["www.amtrak.com"]
+    wwwN["www.amtrak.com notices"]
+    wwwT["www.amtrak.com train status"]
     njt["NJ Transit RailData"]
     hart["Hartford Line board"]
   end
-  subgraph pi["Raspberry Pi: two containers"]
-    browser["browser worker<br/>one Chromium"]
-    pub["publisher<br/>Rust"]
+  subgraph pi["Raspberry Pi: three containers, one shared volume"]
+    vp["VehiclePositions<br/>poll, match, public HTTP"]
+    tu["TripUpdates<br/>tracks, gates, static.zip"]
+    al["Alerts<br/>notices"]
     data[("amtrak-data")]
-    snap[("browser snapshots")]
   end
-  gtfs --> pub
-  maps --> pub
-  asm --> pub
-  surf --> pub
-  njt --> pub
-  hart --> pub
-  www --> browser
-  maps --> browser
-  browser -->|"notices HTML and /tracks.json<br/>same paths as today"| pub
-  pub --> data
-  browser --> snap
-  pub --> http["same /v1 and /livez /readyz"]
-  http --> apps["Transit apps and amtrak-status"]
+  maps --> vp
+  asm --> vp
+  surf --> vp
+  gtfs --> tu
+  wwwT --> tu
+  njt --> tu
+  hart --> tu
+  wwwN --> al
+  vp -->|fleet snapshot| data
+  tu -->|trip-updates.pb and static.zip| data
+  al -->|alerts.pb| data
+  data --> vp
+  vp --> apps["Transit apps and amtrak-status<br/>same /v1 URLs"]
 ```
 
-### Publisher
+### Why one poll, shared as a library
 
-One Rust process, same binary role as today:
+`fetch_amtrak_gtfs_rt` already returns TripUpdates, VehiclePositions, and Alerts from **one** `getTrainsData` body, plus one TransitDocs ASM fetch and one Pacific Surfliner page. The three products are slices of that result. Track Your Train does the same thing: one polled fleet request fills the train list, the panel, and the stop-by-stop list, and opening a train adds no request.
 
-- Fetch official `GTFS.zip` on the existing interval. Parse it for matching. Keep the pending-snapshot rule: a new static version is not current until a realtime generation has been built against it.
-- Poll `AmtrakSource` on the existing interval. Matching stays inside catenary, so `trip_id` and scheduled `stop_id` are the official feed's ids. When Amtrak ships a new `feed_version`, the next successful refresh picks it up and the protobuf header's `feed_version` follows the snapshot actually used, including the `+tracks.{digest}` suffix while platform stops are in the served ZIP.
-- Keep `WithAdvisories`, `WithTracks`, the Capital Corridor filter, the board refresher, observed platforms, generation store, peer gate, and `/livez` `/readyz` `/v1/...`.
-- Keep serving `static.zip` on the generation URL. See the open questions before changing what those bytes contain. The default in this proposal is: official schedule, plus the dangling-stop repair, plus platform stops while tracks are on. That is what makes today's track feature a legal GTFS-RT reference.
-- NJ Transit token file stays under `{output}/tracks/` and is still not served.
+Two ways to share that across three binaries:
 
-The JRE and the validator JAR stay in this image for now. They are the gate that stops a bad platform rebuild from publishing. They are not a fourth service. An open question below asks whether that gate should leave the Pi image.
+| Approach | What hits Amtrak per cycle | Why it loses or wins |
+| --- | --- | --- |
+| Each container links the crate and polls on its own | Three `getTrainsData` GETs, three ASM GETs, three Surfliner GETs, every 45 seconds. The TripUpdates browser would be a fourth maps fetch if it still decrypts the fleet to choose who is near a stop, which the track sidecar does today. | The extra responses are the same trains. The tracker's own timer is 300 seconds. On 2026-11-01 the ciphertext was already changing inside 35 seconds, so one 45-second poll is enough. Tripling it spends Amtrak's origin budget for no fresher feed. |
+| **Shared library, one caller. This is the recommendation.** | One `getTrainsData`, one ASM, one Surfliner, every 45 seconds. One official GTFS download per day, plus a platform rebuild at most every 10 minutes. Status-document fetches stay capped at 24 per minute, and only from TripUpdates. | The library keeps matching, header stamping, and the Capital Corridor filter in one place so the three binaries cannot drift. Only VehiclePositions calls the network. The other two read a snapshot on the shared volume. TripUpdates chooses who is near a stop from that snapshot, so the second maps decrypt the track sidecar does today goes away. |
 
-### Browser worker
+The library is a crate in this repo, wrapping catenary. It is not a fourth process. All three binaries link it. The credit rules later in this document still apply if an implementation copies anything of Piero Maddaleni's: his npm client is not this library, and repositories of his with no `LICENSE` file are not copied into it.
 
-One Python image, one resident `chromium-headless-shell`, doing both jobs the two sidecars do today:
+### VehiclePositions
 
-- Notices list and detail snapshots, same paths: `/service-alerts-and-notices`, `/alert/<slug>.html`, same TTLs and stable-size render.
-- Train-status documents, same path: `/tracks.json`, same window, hot-train rule, 24-fetch cap, cooldown, and staleness.
-- `python -m fetcher.dump` stays in the image.
-- Compose network aliases `advisory-fetcher` and `track-fetcher` point at this container, on ports 8080 and 8081, so `AMTRAK_ADVISORIES_URL` and `AMTRAK_TRACKS_AMTRAK_URL` are unchanged. One volume holds snapshots.
-- Isolation stays the track sidecar's: read-only root, dropped capabilities, `no-new-privileges`, `init`, 768 MiB memory limit, 256 pids, 64 MiB `/dev/shm`, no host port. Advisory capture shares that budget. The spike notes in `advisory-fetcher/spike/results.md` say a Pi in this project had the memory cgroup disabled, so a Docker memory limit can be discarded by the kernel. Turning the memory cgroup back on is an operator step on the device, outside this repo, and it is what makes the 768 MiB cap real.
-- Health: the process stays up if one upstream fails. `/healthz` is 200 when the process can serve. Per-feed staleness stays on the snapshot URLs (`503` when that snapshot is too old), which the publisher already treats as fail-open. A single wedged browser restarts the worker. That is a behavior change from today's track image, whose healthcheck restarts the container after three failed polls even while the process is alive. The publisher still keeps the last track until grace expires, and still ranks a live NJ Transit or Hartford reading above a stale Amtrak document. Splitting the healthcheck is the way one blocked status endpoint does not take the notices snapshot down with it.
+Rust, no browser, no JRE. Image stays scratch and non-root, in the spirit of today's publisher, without the validator JAR.
 
-Maps-feed decryption for "who is near a stop" moves into this same process. It already lives in the track sidecar. The publisher's copy of that decrypt, inside catenary, still builds TripUpdates and VehiclePositions. The two reads stay, because one selects trains for status documents and the other builds the feeds. They share an endpoint, not a process.
+- Every `AMTRAK_POLL_SECS` (45), call the shared library once against the active static snapshot on disk. That decrypts `getTrainsData` and matches `trip_id` / `stop_id` / `route_id` to the official schedule, including catenary's date-offset check.
+- Write `vehicle-positions.pb` for that generation. Vehicle positions stay free of track and gate fields, as today.
+- Write an internal fleet snapshot beside it: the matched trip updates **before** track stamping, the ASM and Surfliner alerts, the generation id, the timestamp, and the `static_version`. Mode `0600`, not served over HTTP.
+- Apply `AMTRAK_FILTER_CAPITAL_CORRIDOR` here, so all three products see the same filter.
+- Serve the public API on `127.0.0.1:8090` (container port 8080). Paths, content types, peer allowlist, 403 / 404 / 503, `/livez`, and `/readyz` (300 seconds) stay as they are. `feed-set.json` gains no fields.
+- Advance the current generation only when the directory holds `static.zip`, `trip-updates.pb`, `vehicle-positions.pb`, and `alerts.pb`, and the three protobuf headers share that snapshot's timestamp and `static_version`. Until then the previous generation stays current. Last-good recovery on startup stays.
+- Retention window, count cap, and byte budget stay on this volume. The ZIP is still one blob, hard-linked into each generation.
 
-### What happens to the third container
+This container does not download `GTFS.zip` itself. It parses the ZIP TripUpdates has already committed to the volume. A missing ZIP on first boot waits for TripUpdates; the process stays live and `/readyz` stays false.
 
-`advisory-fetcher` and `track-fetcher` images stop being separate release artifacts once the worker image replaces them. Until cutover, the current Compose file keeps working. Cutover is a Compose change plus one new Dockerfile, in a later PR. This PR does not publish an image.
+### TripUpdates
 
-### Endpoint stability
+Rust, plus the track sidecar's browser moved in-process. One resident `chromium-headless-shell`. NJ Transit and Hartford stay plain HTTP here. The Java validator moves here too, because this container writes the ZIP consumers download.
 
-No public URL changes. Consumers keep:
+Each fleet snapshot:
+
+- Read the pre-stamp trip updates.
+- Stamp `stop_time_properties.assigned_stop_id`, `stop_sequence`, and clear `stop_id`, from the latest board. Same precedence as today: fresh Amtrak status, then NJ Transit RailData, then the Hartford board, then an older Amtrak track still inside `AMTRAK_TRACKS_RETAIN_GRACE_SECS`.
+- A gate still has no GTFS-RT field. It rides on the platform stop: `platform_code` `24 (Gate H)`, stop id `{stop}:track:{track}:gate:{gate}`.
+- Write `trip-updates.pb` into that generation directory. Stamping reads the board store only, so a slow browser does not hold up the generation. Fail-open stays: no board means the inner trip updates publish anyway.
+- `python -m fetcher.dump` stays in this image.
+
+Browser and boards:
+
+- Amtrak status documents, same cap as today (at most 24 fetches a cycle, hot trains every cycle, others on a 90 second cooldown). The "who is near a stop" decision reads the fleet snapshot. It does not GET `getTrainsData` again.
+- **Lead-time profiles.** A separate PR will add a deterministic track survey script. Its output is a per-station profile of how far ahead a track is usually posted. This container should use that profile to set the lookahead for each station, instead of one window for the whole railroad. Until the file is present, keep today's window: 10 minutes back, 30 minutes ahead, and a 12 minute hot window. A missing or unreadable profile is that fallback, not a startup failure. The survey script's format belongs to that PR; this design only requires a station code and a lead time this poller can read. Fetches stay inside the 24-per-cycle cap either way.
+- NJ Transit token file stays under `{output}/tracks/` and is still not served. Hartford stays one HTML page.
+- Isolation of the browser matches today's track sidecar: read-only root where the browser can live that way, dropped capabilities, `no-new-privileges`, `init`, 768 MiB limit, 256 pids, 64 MiB `/dev/shm`, no host port. The Rust server in this container is not published. The Pi spike in `advisory-fetcher/spike/results.md` found `cgroup_disable=memory` on one device, which makes a Docker memory limit a no-op. Turning the memory cgroup on is an operator step on the device, outside this repo.
+
+Static ZIP, written only by this container:
+
+- Download official `GTFS.zip` on `AMTRAK_STATIC_REFRESH_SECS` (86400), and sooner when the platform table changes.
+- Repair dangling stop times so the parser can load the schedule.
+- If tracks are on, add parent stations and platform stops from `AMTRAK_TRACKS_PLATFORMS` plus `observed-platforms.txt`. `feed_version` keeps the `+tracks.{digest}` suffix.
+- Run the MobilityData validator when the bytes are new. On rejection, keep the previous ZIP. If the rejection is an observed-platform rebuild, retry with the configured list only.
+- Hold the new ZIP as pending. VehiclePositions stamps headers with it only on the next fleet snapshot that commits after the ZIP is accepted. Unchanged bytes stay one blob.
+
+`AMTRAK_TRACKS=off` skips the browser, the boards, and the platform stops, and still writes trip updates from the snapshot. Compose can run that way without Chromium in this image only if the image build grows a no-browser variant; until then the process simply does not launch Chromium. That is the same fail-open switch as today.
+
+### Alerts
+
+Rust, plus the advisory sidecar's browser moved in-process. The browser starts for a notices cycle and exits, which is how `advisory-fetcher` already works. It is not a second resident Chromium.
+
+Each fleet snapshot:
+
+- Start from the ASM and Surfliner entities in the snapshot. This container does not fetch those itself.
+- When `AMTRAK_ADVISORIES` is on, merge station and passenger notices. `stop_id` is the station code. `route_id` comes from `route_long_name`. `header_text` is the list title. `description_text` is the detail page when that render succeeded. TTL, last-good advisories, and list versus detail staleness stay.
+- Write `alerts.pb`. A failed notices cycle still writes the ASM and Surfliner entities. Unsetting advisories writes those entities alone.
+- No host port. Notices HTML stays inside the container. The old `/service-alerts-and-notices` URL was only for the publisher and does not need to survive.
+
+Headless-shell is the default. The headful Chromium fallback (`FETCHER_BROWSER_BUNDLE=full`, `FETCHER_BROWSER_MODE=xvfb-headful`) still applies to this image and to TripUpdates, as separate build args.
+
+### Generation consistency, and no fourth container
+
+Today one process writes all four files and then moves the current marker. Three writers need the same rule or clients will pair a new vehicle file with an old trip file.
+
+The rule: VehiclePositions mints the generation id when it polls. TripUpdates and Alerts must write their protobufs into that directory, with headers copied from the snapshot (timestamp and `static_version`, including `+tracks.{digest}`). VehiclePositions publishes `/v1/feed-set.json` for that id only after all four files are present and the headers match. Readers who already hold the previous manifest can still download it until the retention window deletes it.
+
+A tiny reverse proxy in front of three public ports would also keep one URL, and it would be a **fourth** container. This proposal does not add it. The open question below records that choice. The default is the shared volume plus the HTTP server already required for VehiclePositions.
+
+### What happens to today's containers
+
+| Today | After cutover |
+| --- | --- |
+| `amtrak-gtfs-rt` publisher | Replaced by the three binaries. The public port, peer policy, and generation store move to VehiclePositions. The ZIP writer and the validator move to TripUpdates. |
+| `advisory-fetcher` | Removed as its own image. The notices browser runs inside Alerts. |
+| `track-fetcher` | Removed as its own image. The status browser and `fetcher.dump` run inside TripUpdates. |
+
+Until the implementation's Compose file switches, the current three images keep working. Rollback is the previous Compose file and the previous digests, on the same `/data` volume. This PR does not publish an image.
+
+### Public URLs
+
+No consumer migration. These stay:
 
 - `http://127.0.0.1:8090/v1/feed-set.json` on the Compose stack
-- generation paths `/v1/generations/{id}/{static.zip,trip-updates.pb,vehicle-positions.pb,alerts.pb}`
+- `/v1/generations/{id}/static.zip`
+- `/v1/generations/{id}/trip-updates.pb`
+- `/v1/generations/{id}/vehicle-positions.pb`
+- `/v1/generations/{id}/alerts.pb`
 - `/livez`, `/readyz`
-- peer policy, 403 / 404 / 503 meanings
+- peer policy and the 403 / 404 / 503 meanings
 - `amtrak-status` flags and exit codes
 
-`feed-set.json` gains no fields. `static_version` may still end in `+tracks.{digest}` while platform stops are published. Clients that bind realtime to the ZIP from the manifest keep working. Clients that bind realtime to a ZIP they downloaded themselves from `content.amtrak.com` will see official `trip_id`s match, and will **not** find `{stop}:track:...` stops. That is the open question below, and it is why this proposal keeps serving our ZIP.
+`amtrak-status --source local` keeps talking to that one base URL. It does not learn three hosts. Internal sidecar URLs (`AMTRAK_ADVISORIES_URL`, `AMTRAK_TRACKS_AMTRAK_URL`) go away because the browsers are in-process. During a staged rollout those variables can still point at the old sidecars; the implementation may support that for one release and then drop it.
+
+Clients that follow the manifest still receive a ZIP that contains platform stops while tracks are on. Clients that instead download `content.amtrak.com` themselves will see official `trip_id`s match, and will not find `{stop}:track:...` stops. That is open question 1.
 
 ### Config
 
-Every current `AMTRAK_*` variable and both NJ Transit variables keep their names and defaults. The browser worker accepts the union of the two sidecars' variables (`POLL_INTERVAL_SECS` needs two knobs, because notices are 15 minutes and tracks are 60 seconds: `ADVISORY_POLL_INTERVAL_SECS` and `TRACK_POLL_INTERVAL_SECS`, with the old name still honored per job during migration). `FETCHER_BROWSER_BUNDLE` and `FETCHER_BROWSER_MODE` still apply to the one image, including the headful fallback.
+Every current `AMTRAK_*` variable and both NJ Transit variables keep their names and defaults. They are set on the container that uses them:
+
+| Variable group | Container |
+| --- | --- |
+| `AMTRAK_POLL_SECS`, `AMTRAK_FILTER_CAPITAL_CORRIDOR`, bind address, peer allowlist, public URL, generation budget / retain / max | VehiclePositions |
+| `AMTRAK_STATIC_URL`, static refresh, validator path and cache, all `AMTRAK_TRACKS_*`, NJ Transit credentials | TripUpdates |
+| `AMTRAK_ADVISORIES`, advisory URL override (only if an external snapshot is still used during rollout), advisory TTL, notices poll interval | Alerts |
+
+`AMTRAK_OUTPUT_DIR` is the shared volume, mounted in all three. TripUpdates is the only writer of `static.zip`, `observed-platforms.txt`, and the RailData token. Alerts is the only writer of `alerts.pb`. VehiclePositions is the only writer of the fleet snapshot, `vehicle-positions.pb`, and the current marker.
 
 ### Raspberry Pi 5
 
-The heavy pieces today are two Chromiums and a JRE that wakes up on static or platform changes. The publisher's steady state is the Rust poll plus the board refresher (RailData and one Hartford HTML page). The proposal removes one Chromium and one image pull. The track sidecar's 768 MiB cap becomes the cap for the only browser. The publisher image stays scratch and non-root. Generation retention stays at 256 MiB unique bytes so `/data` does not grow with every poll. Host port 8090 and the `172.31.240.0/24` network stay.
+Container count stays three. The split is by feed, not "publisher plus two browsers." Chromium count stays two, and they no longer share a process, so a wedged status browser does not take notices down.
 
-`linux/arm64` remains a release target. There is still no `linux/arm/v7` build.
+| Container | Steady cost | Peak |
+| --- | --- | --- |
+| VehiclePositions | Rust poll and the in-memory generation cache (count cap 20). No JRE, no Chromium. | A GTFS parse of the ZIP already on disk when the version changes. |
+| TripUpdates | One resident Chromium under the current 768 MiB limit, 64 MiB `/dev/shm`, plus the board refresher (RailData and one Hartford page). | A Java validator run when the ZIP or the platform table changes. That JRE is only in this image. |
+| Alerts | Idle between notices cycles. | One headless Chromium for a render every 15 minutes, then the process exits the browser, same as today's advisory fetcher. |
+
+Disk stays the 256 MiB generation budget plus one ZIP of headroom. Host port 8090 and the `172.31.240.0/24` network stay. `linux/arm64` remains a release target. There is still no `linux/arm/v7` build. The memory cgroup on the Pi has to be enabled before either browser limit is real.
+
+Compared with today, Amtrak sees fewer calls: the publisher's 45-second fleet poll remains, and the track sidecar's extra `getTrainsData` decrypt goes away. Status-document volume is unchanged. Official GTFS is still one daily download.
 
 ### Testing and validation
 
-Existing gates stay, aimed at the merged layout:
-
-- `cargo test` and `cargo test --features status` for the publisher and `amtrak-status`.
-- Pytest for the browser worker, covering both snapshots without a browser, plus the current on-device Akamai check when a Pi is available. CI already builds the browser images on amd64 and arm64.
-- `./scripts/validate-feeds.sh` and the nightly workflow. Run gtfs-realtime-validator twice if the implementation PR changes bytes: once against the official ZIP (trip and stop ids from Amtrak) and once against the served ZIP (platform `assigned_stop_id`s). ERROR codes outside `validation/baseline.json` still fail.
-- `scripts/test-container.sh` for the publisher. Extend the fetcher smoke test so one container answers both internal URLs and exits on `SIGTERM`.
-- A fixture generation that includes a platform stop, a gate, an advisory with a detail body, an NJ Transit row, and a Hartford row, decoded with `gtfs-realtime` and checked for the same fields the README describes.
+- `cargo test` for the shared library and all three binaries, plus `cargo test --features status` for `amtrak-status`.
+- Pytest for the notices renderer and the status fetcher, moved with their code, offline. The on-device Akamai check stays a Pi step.
+- `./scripts/validate-feeds.sh` and the nightly workflow. Run gtfs-realtime-validator against the official ZIP (trip and stop ids) and against the served ZIP (platform `assigned_stop_id`s). ERROR codes outside `validation/baseline.json` still fail. A generation used in that run must be one `feed-set.json` says is current, so the three protobufs and the ZIP are the matched set.
+- `scripts/test-container.sh` against the VehiclePositions image for peer policy, readiness, and retained-volume recovery. TripUpdates and Alerts get the sidecar smoke shape: `SIGTERM`, and no host port.
+- A fixture snapshot with a platform stop, a gate, an advisory with a detail body, an NJ Transit row, and a Hartford row. Assert the manifest does not flip until all four files exist, and that a second poll is not sent when only TripUpdates restarts.
+- With a sample lead-time profile, a station whose profile says the track appears hours ahead is eligible earlier than the default 30 minute window, and the 24-fetch cap still holds.
 
 ## Feature-parity checklist
 
-Each row is something an operator or a feed consumer can observe today. The proposed column is where it lives after the merge. Nothing in this table is dropped.
+Each row is something an operator or a feed consumer can observe today. The proposed column is which of the three containers owns it. Nothing in this table is dropped. Public URLs do not change, so there is no consumer migration.
 
 | Current feature | Where it lives today | Where it lives in the proposal |
 | --- | --- | --- |
-| TripUpdates protobuf | Publisher, via catenary | Same publisher, same crate, official GTFS as the match input |
-| VehiclePositions protobuf (lat, lon, speed, bearing) | Publisher, via catenary | Same |
-| Alerts from TransitDocs ASM, scoped to a train | Catenary, merged into `alerts.pb` | Same |
-| Pacific Surfliner travel advisories in `alerts.pb` | Catenary | Same |
-| Amtrak station and passenger advisories, with detail text, effective dates, stop and route selectors | advisory-fetcher + `WithAdvisories` | Browser worker + same `WithAdvisories`. Fail-open kept |
-| Advisory TTL, last-good advisories, list vs detail staleness | Sidecar + publisher cache | Same knobs on the worker |
-| Live track via `assigned_stop_id` and `stop_sequence` | `WithTracks` + augmented static | Same. Served `static.zip` still contains the platform stop |
-| Boarding gate in `platform_code` (`24 (Gate H)`) | Platform stop id `{stop}:track:{t}:gate:{g}` | Same |
-| Amtrak's own track and gate documents | track-fetcher `/tracks.json` | Browser worker, same path |
-| NJ Transit RailData tracks, token cache, 10-token budget, one-hour pause on failure | Publisher refresher | Same process |
-| Hartford Line board for New Haven | Publisher refresher, plain HTTP | Same process |
-| Source precedence and retain-grace | `AssignmentStore` | Same |
-| Seeded platform list `AMTRAK_TRACKS_PLATFORMS` | Publisher config | Same |
-| Observed platforms file and debounced static rebuild | Publisher | Same |
-| `AMTRAK_TRACKS=off` publishes feeds without platform stops | Publisher + Compose scale | Same. Browser worker can still be omitted when both advisories and Amtrak tracks are off |
-| Capital Corridor filter | `AMTRAK_FILTER_CAPITAL_CORRIDOR` | Same |
-| Official GTFS download and daily refresh | Publisher | Same URL and interval |
-| Dangling stop-time repair | Publisher, before parse and before serve | Kept by default. Open question 2 asks whether the served ZIP should stay repaired |
-| `feed_version` on all three headers, including `+tracks.{digest}` | Orchestrator | Same, tied to the snapshot that was matched |
-| Immutable generations and manifest-first URLs | `/v1/feed-set.json` and `/v1/generations/...` | Same paths, same status codes |
-| Last-good serve, atomic publish, pending static until realtime commits | Publisher store | Same |
-| Retention window, count cap, byte budget, blob hard-link | `/data` | Same |
-| `/livez`, `/readyz` (300s), Docker healthcheck | Publisher | Same. Readiness stays about the feed, not about the browser |
-| Peer allowlist, loopback default, no `X-Forwarded-For` trust | Publisher | Same |
-| Startup banner and first-generation URLs | stdout | Same, including which track sources are on |
-| `amtrak-status station` and `train`, local or `--source amtrak`, delay, track, zone, alerts, generation id, exit codes | CLI, not a container | Same CLI |
-| `fetcher.dump` one-shot | track-fetcher image | Browser-worker image |
-| Compose loopback publish `127.0.0.1:8090`, subnet `172.31.240.0/24` | `docker-compose.yml` | Same host port and peer |
-| Fail-open advisories and tracks | Decorators | Same |
-| Headless-shell default and headful Chromium fallback | Both sidecar Dockerfiles | One image, same build args |
-| arm64 and amd64 images, digest pin via `image-release.txt` | Release workflow | Publisher plus one worker image. Cutover documented in the release notes of the implementation |
-| GTFS and GTFS-RT validator gate, baseline ERROR list | `scripts/validate-feeds.sh`, nightly workflow | Same, plus a pass of realtime against the served ZIP so platform stops are checked |
-| Container smoke test, SBOM, vulnerability policy | Release workflows | Same. Worker uses the sidecar policy (fixable Critical/High), publisher keeps its own gate |
-| `RtSource` seam | `src/sources` | Kept. TransitDocs and RailRat position fallbacks stay unimplemented, as they are today |
+| TripUpdates protobuf | Publisher, via catenary | TripUpdates, from the shared snapshot. Official GTFS is the match input. |
+| VehiclePositions protobuf (lat, lon, speed, bearing) | Publisher, via catenary | VehiclePositions, same snapshot. No track fields added. |
+| Alerts from TransitDocs ASM, scoped to a train | Catenary, inside the one poll | Still produced by that one poll. Alerts writes them into `alerts.pb`. |
+| Pacific Surfliner travel advisories in `alerts.pb` | Catenary | Same poll. Alerts container writes the file. |
+| Amtrak station and passenger advisories, with detail text, effective dates, stop and route selectors | advisory-fetcher + `WithAdvisories` | Alerts container, in-process browser. Fail-open kept. |
+| Advisory TTL, last-good advisories, list vs detail staleness | Sidecar + publisher cache | Alerts container, same knobs |
+| Live track via `assigned_stop_id` and `stop_sequence` | `WithTracks` + augmented static | TripUpdates. Served `static.zip` still contains the platform stop. |
+| Boarding gate in `platform_code` (`24 (Gate H)`) | Platform stop id `{stop}:track:{t}:gate:{g}` | TripUpdates |
+| Amtrak's own track and gate documents | track-fetcher `/tracks.json` | TripUpdates, in-process browser. Poll window follows the lead-time profiles once that separate PR lands. |
+| NJ Transit RailData tracks, token cache, 10-token budget, one-hour pause on failure | Publisher refresher | TripUpdates |
+| Hartford Line board for New Haven | Publisher refresher, plain HTTP | TripUpdates |
+| Source precedence and retain-grace | `AssignmentStore` | TripUpdates |
+| Seeded platform list `AMTRAK_TRACKS_PLATFORMS` | Publisher config | TripUpdates |
+| Observed platforms file and debounced static rebuild | Publisher | TripUpdates |
+| `AMTRAK_TRACKS=off` publishes feeds without platform stops | Publisher + Compose scale | TripUpdates writes an unaugmented ZIP and does not launch Chromium. VehiclePositions and Alerts keep publishing. |
+| Capital Corridor filter | `AMTRAK_FILTER_CAPITAL_CORRIDOR` | VehiclePositions, applied to the snapshot so all three products match |
+| Official GTFS download and daily refresh | Publisher | TripUpdates, one download. The others read the volume. |
+| Dangling stop-time repair | Publisher, before parse and before serve | TripUpdates. Open question 2 asks whether the served ZIP should stay repaired. |
+| `feed_version` on all three headers, including `+tracks.{digest}` | Orchestrator | Shared snapshot. The front door refuses a generation whose headers disagree. |
+| Immutable generations and manifest-first URLs | `/v1/feed-set.json` and `/v1/generations/...` | Same paths, served by VehiclePositions |
+| Last-good serve, atomic publish, pending static until realtime commits | Publisher store | Same, on the shared volume |
+| Retention window, count cap, byte budget, blob hard-link | `/data` | VehiclePositions, same volume |
+| `/livez`, `/readyz` (300s), Docker healthcheck | Publisher | Public routes on VehiclePositions. Each container also has its own Docker healthcheck. `/readyz` stays generation age. |
+| Peer allowlist, loopback default, no `X-Forwarded-For` trust | Publisher | VehiclePositions |
+| Startup banner and first-generation URLs | stdout | VehiclePositions prints the public URLs. TripUpdates prints which track sources are on. |
+| `amtrak-status station` and `train`, local or `--source amtrak`, delay, track, zone, alerts, generation id, exit codes | CLI, not a container | Same CLI, same default base URL |
+| `fetcher.dump` one-shot | track-fetcher image | TripUpdates image |
+| Compose loopback publish `127.0.0.1:8090`, subnet `172.31.240.0/24` | `docker-compose.yml` | Same host port and peer, aimed at VehiclePositions only |
+| Fail-open advisories and tracks | Decorators | Alerts and TripUpdates. A missing board or a missed notices cycle does not block the other feeds. |
+| Headless-shell default and headful Chromium fallback | Both sidecar Dockerfiles | TripUpdates and Alerts, separate images, same build args |
+| arm64 and amd64 images, digest pin via `image-release.txt` | Release workflow | Three feed images. Old sidecar tags stay for rollback until the release notes say otherwise. |
+| GTFS and GTFS-RT validator gate, baseline ERROR list | `scripts/validate-feeds.sh`, nightly workflow | Same, on one manifest-selected generation, plus realtime checked against the served ZIP |
+| Container smoke test, SBOM, vulnerability policy | Release workflows | VehiclePositions keeps the scratch-image gate. TripUpdates and Alerts use the current sidecar policy (fixable Critical or High). |
+| `RtSource` seam | `src/sources` | Kept inside the shared library. TransitDocs and RailRat position fallbacks stay unimplemented. |
 
 There is no web dashboard, no extra public feed, no oEmbed endpoint, and no GraphQL or JSON trip API in this repo. `amtrak-status` is the query tool. Those are not gaps to fill in this proposal.
 
@@ -431,26 +515,27 @@ There is no web dashboard, no extra public feed, no oEmbed endpoint, and no Grap
 
 | Current | Decision | Why |
 | --- | --- | --- |
-| `amtrak-gtfs-rt` publisher | **Keep** | It is the feed. Matching, stamping, NJ Transit, Hartford, HTTP, and generations already share this process. |
-| Java validator inside that image | **Keep the gate.** Whether the JRE stays on the Pi is open question 3. | Platform rebuilds can emit a ZIP consumers download. The gate is what rejects a bad one. |
-| `advisory-fetcher` | **Merge** into the browser worker | Same Akamai constraint and same browser stack as the track sidecar. |
-| `track-fetcher` | **Merge** into the browser worker | Second Chromium is the cost the owner is pointing at. Its HTTP contract stays. |
-| NJ Transit client | **Keep** in the publisher | Plain HTTPS API. A container would add a process and a credential hop. |
-| Hartford parser | **Keep** in the publisher | One public HTML page, no browser required. |
-| `amtrak-status` | **Keep** as a CLI | It is a consumer, not a service. |
-| `fetcher.dump` | **Keep** on the worker image | Operators use it to see what Amtrak posted. |
+| `amtrak-gtfs-rt` publisher | **Split** into VehiclePositions, TripUpdates, and Alerts | One feed per container. The public HTTP front and the single fleet poll stay together on VehiclePositions so URLs and Amtrak load do not multiply. |
+| Java validator inside that image | **Move** to TripUpdates. Whether the JRE stays on the Pi is open question 3. | Only the ZIP writer needs it. The other two images stay free of Corretto. |
+| `advisory-fetcher` | **Merge** into Alerts | Notices become `alerts.pb`. A separate Chromium container is an extra hop. |
+| `track-fetcher` | **Merge** into TripUpdates | Tracks and gates become `assigned_stop_id` / `platform_code` on trip updates. Its extra `getTrainsData` decrypt is replaced by the shared snapshot. |
+| NJ Transit client | **Move** to TripUpdates | It only exists to stamp trip updates. A fourth hop for one HTTPS API is not worth it. |
+| Hartford parser | **Move** to TripUpdates | One public HTML page, no browser, same reason. |
+| `amtrak-status` | **Keep** as a CLI | It is a consumer of the public front door. |
+| `fetcher.dump` | **Move** to the TripUpdates image | Operators use it to see what Amtrak posted. |
 | GitHub `validate-feeds` and `release-gates` cron | **Keep** in CI | They are not Pi processes. |
-| Mutable `/*.pb` and `/health` routes | **Already gone.** Stay gone. | Consumers were moved to the manifest. |
-| TransitDocs / RailRat fallbacks | **Leave unimplemented** | They are not a current feature. The trait stays so they can be added later without a new container. |
+| Mutable `/*.pb` and `/health` routes | **Already gone.** Stay gone. | Consumers use the manifest. |
+| TransitDocs / RailRat fallbacks | **Leave unimplemented** | They are not a current feature. The shared library keeps the seam. |
+| A reverse proxy in front of the three feeds | **Do not add.** Open question 6. | It would be a fourth container. The shared volume already presents one URL. |
 
 ## Matching, static updates, and the served ZIP
 
-1. On startup, load the last complete generation if `/data` has one. Otherwise download official `GTFS.zip`.
-2. Repair dangling stop times so the parser can load the schedule. Record whether any row was dropped.
-3. If tracks are on, add platform stops from the configured list plus `observed-platforms.txt`.
-4. Run the validator when the bytes are new. On rejection, keep the previous snapshot. If the rejection is the observed-platform rebuild, retry with the configured list only, as today.
-5. Hold a newly accepted snapshot as pending until the poller builds TripUpdates, VehiclePositions, and Alerts against it and the store commits them together.
-6. Each poll parses the active snapshot, calls catenary, merges advisories, stamps tracks, and publishes a new generation id. Unchanged static bytes stay one blob.
+1. TripUpdates loads the last accepted ZIP from the volume, or downloads official `GTFS.zip` if there is none.
+2. It repairs dangling stop times so the parser can load the schedule, and records whether any row was dropped.
+3. If tracks are on, it adds platform stops from the configured list plus `observed-platforms.txt`.
+4. It runs the validator when the bytes are new. On rejection, it keeps the previous ZIP. If the rejection is the observed-platform rebuild, it retries with the configured list only.
+5. The new ZIP stays pending until VehiclePositions builds a fleet snapshot against it.
+6. That poll writes the snapshot. TripUpdates stamps tracks and writes `trip-updates.pb`. Alerts merges notices and writes `alerts.pb`. VehiclePositions writes `vehicle-positions.pb` and, once all four files match, moves the current marker.
 7. A consumer that follows `feed-set.json` always pairs the three protobufs with the ZIP those headers name.
 
 Catenary's known mismatches stay visible as the baseline ERROR codes (extra sections, stations missing from the schedule, estimates out of order). This proposal does not promise those go away. San Joaquins trip ids are a catenary concern (their README says that route's ids follow the train number and route `GR`, and that Amtrak no longer ships it in the same ZIP). The implementation should re-check that against the current official ZIP and record the result in the validator report, rather than guessing here.
@@ -459,53 +544,62 @@ Catenary's known mismatches stay visible as the baseline ERROR codes (extra sect
 
 | Concern | Proposal |
 | --- | --- |
-| Public config | Same variables and defaults. See the publisher section. |
-| Browser config | Union of the two READMEs. Two poll intervals. |
-| Liveness | Publisher `/livez` and `--healthcheck`. Worker `/healthz` means the process can serve. |
-| Readiness | Publisher `/readyz` stays the feed-age signal at 300 seconds. |
-| Secrets | `NJT_RAILDATA_USERNAME` and `NJT_RAILDATA_PASSWORD` stay in the environment only. |
-| Disk | 256 MiB generation budget plus one ZIP of headroom, same as today. |
-| RAM | One Chromium under 768 MiB. Publisher RSS dominated by the retained generations (count cap 20) and, on a static change, a short Java run. |
-| CPU | 45s map poll, 60s status cycle (≤24 browser fetches), 15 min notices render, daily static parse. |
+| Public config | Same variables and defaults, placed on the container in the table above. |
+| Browser config | Notices settings on Alerts. Status-fetch settings on TripUpdates. Lead-time profile path on TripUpdates, optional until the survey PR. |
+| Liveness | Public `/livez` on VehiclePositions. Each image has its own Docker healthcheck. |
+| Readiness | Public `/readyz` on VehiclePositions, still generation age at 300 seconds. A browser being down does not by itself flip readiness if the last generation is young. |
+| Secrets | `NJT_RAILDATA_USERNAME` and `NJT_RAILDATA_PASSWORD` stay in the TripUpdates environment only. |
+| Disk | 256 MiB generation budget plus one ZIP of headroom, one shared volume. |
+| RAM | TripUpdates holds the resident Chromium (768 MiB cap). Alerts holds a Chromium only during a notices render. VehiclePositions holds the generation cache and no browser. |
+| CPU | One 45s map poll, one 60s status cycle (≤24 browser fetches, windows from the lead-time profiles when present), one 15 min notices render, one daily static parse. |
+| Amtrak load | One fleet GET per cycle. No second decrypt from the track path. Official GTFS at most once a day, plus a platform rebuild at most every 10 minutes. |
 
 ## Testing matrix for the implementation PR
 
 | Check | Pass |
 | --- | --- |
-| Unit tests | Publisher, status CLI, worker pytest, all offline |
-| Live smoke | A generation appears; manifest URLs return the four artifacts; protobufs decode |
+| Unit tests | Shared library, three binaries, status CLI, notices and status pytest, all offline |
+| Live smoke | One generation appears on the public port; manifest URLs return the four artifacts; protobufs decode |
+| Single poll | While a generation is produced, `getTrainsData` is requested once, not three times. Restarting Alerts does not add a maps request. |
 | Trip identity | Sample of `trip_id`s exist in the official ZIP's `trips.txt` |
 | Tracks | A stop time with a known board value has `assigned_stop_id` equal to a stop in the **served** ZIP, with `platform_code` set, and `stop_sequence` set |
 | Gate | A gated track uses the `:gate:` stop id and the `platform_code` text |
-| Advisories | With the worker up, `alerts.pb` contains a station or route entity from the notices page; with the worker stopped, trip updates still publish |
+| Lead time | With a fixture profile, a station is eligible according to that lead time, and the 24-fetch cap still holds. With no profile, the current 30 minute window is used. |
+| Advisories | With Alerts up, `alerts.pb` contains a station or route entity from the notices page; with Alerts stopped, the previous generation remains and VehiclePositions does not go unready solely because notices are quiet if that generation is still young |
+| Consistency | The manifest does not name a generation until all four files exist and the three headers share `static_version` |
 | NJT / Hartford | Fixture HTML and fixture JSON stamp the same way they do now |
-| Peer policy | Non-allowlisted peer gets 403; spoofed `X-Forwarded-For` does not admit |
+| Peer policy | Non-allowlisted peer gets 403 on the public port; spoofed `X-Forwarded-For` does not admit. TripUpdates and Alerts are not reachable on the host. |
 | Recovery | Restart on the same volume serves the previous generation before the next poll |
 | Validator | `validate-feeds.sh` reports no new ERROR code |
-| Images | Publisher scratch smoke; worker answers both internal paths; arm64 build exists before a release tag |
-| Pi | One hour with the worker's RSS inside the cap once the memory cgroup is on, `rejected=` near zero, and a track visible in a trip update |
+| Images | VehiclePositions scratch smoke; TripUpdates and Alerts exit on `SIGTERM`; arm64 builds exist before a release tag |
+| Pi | One hour with TripUpdates RSS inside the cap once the memory cgroup is on, `rejected=` near zero, and a track visible in a trip update |
 
 ## Open questions for the owner
 
-These are the only cuts even worth discussing. This proposal does **not** choose them. The design above keeps the current behavior in each case.
+These are the decisions this proposal does not make. The design above keeps today's behavior unless the question says otherwise.
 
-1. **Serving a full `static.zip`.** Amtrak's official ZIP is the schedule. Our ZIP is that schedule, plus repair, plus platform stops that official `stops.txt` does not have. Those platform stops are what make track and gate assignments valid for a consumer who trusts `assigned_stop_id`. Options that preserve the feature: keep serving the combined ZIP at the current URL (this proposal's default), or publish the official ZIP unchanged and also publish a small platform overlay consumers must load. Dropping our ZIP and telling everyone to use only `content.amtrak.com` would make `{stop}:track:...` ids fail validation. That drop is not recommended. The question is whether you want the overlay split out later.
+1. **Serving a full `static.zip`.** Amtrak's official ZIP is the schedule. Our ZIP is that schedule, plus repair, plus platform stops that official `stops.txt` does not have. Those platform stops are what make track and gate assignments valid for a consumer who trusts `assigned_stop_id`. Options that preserve the feature: keep serving the combined ZIP at the current URL (this proposal's default, written by TripUpdates), or publish the official ZIP unchanged and also publish a small platform overlay consumers must load. Dropping our ZIP and telling everyone to use only `content.amtrak.com` would make `{stop}:track:...` ids fail validation. That drop is not recommended. The question is whether you want the overlay split out later.
 
 2. **Dangling stop repair in the bytes we serve.** The repair exists because official stop times sometimes name a stop the official `stops.txt` omits, and the parser then rejects the entire file. Repair changes `stop_times.txt` relative to Amtrak. It is not redundant with the official file; it is a local fix so matching and serving can proceed. Question: keep writing the repaired rows into the served ZIP (current behavior, kept above), or repair only the in-memory copy used for matching and serve Amtrak's stop times untouched. The second choice can put the parser bug back in front of consumers who download our ZIP. A third approach shows up in `transitstatus/gtfs-schedule-data`: keep the stop times and insert a synthetic Ocean Springs stop. That repository has no `LICENSE` file, so the idea can be discussed and must not be copied as data. This proposal does not switch to it.
 
-3. **JRE on the Pi.** The validator is a gate, not a feed feature. It runs on static change, and it is most of the publisher image's complexity. Question: leave Corretto in the image (safest for a platform rebuild on the device), or run the full validator only in CI and keep a smaller on-device check. The second choice means a bad observed-platform list might not be caught until the nightly workflow.
+3. **JRE on the Pi.** The validator is a gate, not a feed feature. It runs on static change, and only TripUpdates would ship it. Question: leave Corretto in that one image (safest for a platform rebuild on the device), or run the full validator only in CI and keep a smaller on-device check. The second choice means a bad observed-platform list might not be caught until the nightly workflow.
 
-4. **Worker health versus the track sidecar's restart rule.** Question: confirm that a stretch of status-endpoint failures should mark `/tracks.json` stale and leave notices up, instead of restarting the whole browser. The publisher already fail-opens.
+4. **Restart rule for the status browser.** Splitting the containers already answers the old question: a failed status poll cannot take the notices renderer down, because that renderer is the Alerts container. What is still open: should Docker restart TripUpdates after three failed status polls, as today's track image does, or only when the process itself is wedged? The feed stays on the previous generation either way.
 
-5. **Amtraker as a future source.** Question is closed in this proposal unless you disagree: do not call `api.amtraker.com` for the feeds. Their `/v3/stale` shape is worth copying only as an idea if you ever want a public freshness JSON beside `/readyz`. The same answer covers Track Your Train: use the map host's `getTrainsData`, which we already poll, and do not replace it with `AllTTMTrains`, the FEMA ArcGIS copy, or his proxy.
+5. **Amtraker as a future source.** Closed unless you disagree: do not call `api.amtraker.com` for the feeds. Their `/v3/stale` shape is worth copying only as an idea if you ever want a public freshness JSON beside `/readyz`. Track Your Train's fleet source stays `getTrainsData`, polled once. Do not replace it with `AllTTMTrains`, the FEMA ArcGIS copy, or his proxy.
+
+6. **A fourth container for HTTP.** A reverse proxy could own `127.0.0.1:8090` and forward to three private ports. That keeps the poller from also being the public edge. It is also a fourth process, a fourth image, and another thing to health-check on the Pi. This proposal keeps the edge inside VehiclePositions and does not add the proxy. Say if you want the proxy anyway.
+
+7. **Lead-time profile file.** The survey script is a separate PR. This design assumes TripUpdates can read per-station lead times and fall back to today's fixed window when the file is absent. The column names and the path can wait for that PR, as long as a station with a longer lead time is fetched earlier and the 24-fetch cap still applies.
 
 ## Implementation sequence (later PRs, not this one)
 
-1. Add the browser worker by moving the two Python packages into one process and one Dockerfile. Keep the old images building until Compose switches. The fleet source stays `getTrainsData` through catenary.
-2. Point Compose at the worker with both DNS aliases. Confirm the publisher needs no code change to read the same URLs.
-3. If that PR uses any of Piero Maddaleni's code, approach, or data handling, add the README acknowledgements and the `NOTICE` headers described above before merge. A straight merge of our own two sidecars does not by itself require that notice.
-4. Release one worker image beside the publisher. Document the digest in `image-release.txt`. Leave the old sidecar tags in place for rollback.
-5. Re-run the validator and the Pi hour check before deleting the old Dockerfiles.
+1. Extract the shared library and the VehiclePositions binary. It performs the one fleet poll, writes the snapshot and `vehicle-positions.pb`, and serves the existing HTTP API from the volume. Trip updates and alerts can still be produced in-process for one release so the public URLs never go empty.
+2. Move track stamping, the status browser, NJ Transit, Hartford, and the ZIP writer into TripUpdates. Point its near-stop selection at the snapshot. Add an optional lead-time profile path, defaulting to the current window, ready for the survey PR.
+3. Move notices into Alerts. ASM and Surfliner come from the snapshot.
+4. Switch the current marker so it waits for all four files. Confirm one poll per cycle under test.
+5. If any of those PRs use Piero Maddaleni's code, approach, or data handling, add the README acknowledgements and the `NOTICE` headers described above before merge. Wrapping catenary, which this repo already links, is not such a use.
+6. Release the three images. Leave the old publisher and sidecar tags in place for rollback. Re-run the validator and the Pi hour check before deleting the old Dockerfiles.
 
 No step deploys to a device from CI. Rollback is the previous Compose file and the previous image digests, on the same `/data` volume.
 
