@@ -7,9 +7,10 @@
 # A real browser is still required: Amtrak's Akamai edge rejects non-browser TLS clients.
 FROM python:3.12-slim-bookworm
 
-# Pin Playwright to an exact release. Its bundled chromium-headless-shell is the build the
-# on-device spike verified against Amtrak's Akamai gate.
-ARG PLAYWRIGHT_VERSION=1.61.0
+# Pin Playwright to an exact release. 1.64.0 bundles Node 24.21.0; 1.61.0's Node 24.17.0 has
+# fixable High advisories, which fail the sidecar release gate. BROWSER_BUNDLE=full is still the
+# fallback if this release's headless shell is blocked.
+ARG PLAYWRIGHT_VERSION=1.64.0
 # `headless-shell` (default) installs only chromium-headless-shell. `full` also installs full
 # Chromium and Xvfb for BROWSER_MODE=xvfb-headful, the fallback if Amtrak blocks the headless shell.
 # It makes the image larger, so build it only when that mode is needed:
@@ -20,9 +21,12 @@ ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright \
     PIP_NO_CACHE_DIR=1 \
     PYTHONUNBUFFERED=1
 
-# Debian 12 names from Playwright 1.61 nativeDeps.ts (chromium), plus fontconfig so the shell can
+# Debian 12 names from Playwright's chromium nativeDeps, plus fontconfig so the shell can
 # shape text. `--no-install-recommends` keeps recommended GUI stacks out.
+# Upgrade distro packages before the install. The release gate fails a fixable Critical or High,
+# and the python slim tag can lag Debian security updates.
 RUN apt-get update \
+    && apt-get upgrade --yes --no-install-recommends \
     && apt-get install --yes --no-install-recommends \
         ca-certificates \
         fonts-liberation \
@@ -82,6 +86,18 @@ VOLUME ["/snapshot"]
 
 WORKDIR /app
 COPY fetcher/ /app/fetcher/
+
+# Set by the release workflow; local builds keep the defaults.
+ARG OCI_VERSION=dev
+ARG OCI_REVISION=unknown
+
+LABEL org.opencontainers.image.title="Amtrak GTFS-RT advisory-fetcher" \
+      org.opencontainers.image.description="Amtrak service-alerts sidecar for Amtrak GTFS-RT" \
+      org.opencontainers.image.source="https://github.com/sohampatwardhan/Amtrak-GTFS-RT" \
+      org.opencontainers.image.documentation="https://github.com/sohampatwardhan/Amtrak-GTFS-RT/tree/main/advisory-fetcher" \
+      org.opencontainers.image.licenses="AGPL-3.0-only" \
+      org.opencontainers.image.version="$OCI_VERSION" \
+      org.opencontainers.image.revision="$OCI_REVISION"
 
 USER fetcher
 EXPOSE 8080

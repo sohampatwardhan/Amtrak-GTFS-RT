@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.1] - 2026-10-21
+
+### Fixed
+
+- **Publishing a new image retries the manifest read.** Tagging a GHCR package that did
+  not exist yet can make the next `imagetools inspect` exit 255 with no message. The
+  publish job retries that read. A rerun verifies a version tag whose platform digests
+  already match, and still refuses a tag that points at something else.
+- **The track sidecar can read Amtrak's train list again.** `maps.amtrak.com`'s
+  `getTrainsData` now answers `Accept: application/json` with HTTP 406 and serves the
+  ciphertext as `text/plain`. The poll asks for `*/*`, which that endpoint accepts. The
+  Rust service does not send this header: positions still come from the `amtrak-gtfs-rt`
+  crate's default client. `/healthz` stays up through one failed poll and returns 503
+  after three in a row, so a loop that keeps running while every poll fails is restarted.
+
+## [0.7.0] - 2026-10-20
+
 ### Added
 
 - **Amtrak's boarding gates in GTFS-Realtime.** Where Amtrak posts a gate beside the track
@@ -27,8 +44,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `AMTRAK_PUBLIC_URL` sets the base URL shown for a published port; Compose sets
   `http://127.0.0.1:8090`. `cargo run` now starts the service without `--bin`.
 
+- **Releases publish the browser sidecars.** Tagged releases push
+  `ghcr.io/sohampatwardhan/amtrak-gtfs-rt-track-fetcher` and
+  `ghcr.io/sohampatwardhan/amtrak-gtfs-rt-advisory-fetcher` for `linux/amd64` and `linux/arm64`,
+  with the service image's tags (version, minor, `latest`) and OCI labels, so a Raspberry Pi pulls
+  all three. Each platform digest is built on a native runner, smoke-tested offline (Chromium
+  renders a page under the Compose confinement, `/healthz` answers, `SIGTERM` stops it), scanned,
+  and SBOM-attested before any tag is created. SIGTERM kills a Playwright navigation that would
+  otherwise ignore cancellation, so `docker stop` returns during a poll. The sidecars fail a
+  release on a fixable Critical or High Grype match; the service keeps its zero-match policy.
+  `image-release.txt` records the sidecars' manifest and platform digests after the service's.
+
 ### Changed
 
+- **Image gates run on pull requests.** A pull request that changes the service image, and the
+  weekly rescan, runs the container smoke test and the zero-match Grype policy before a tag is
+  pushed. Sidecar changes run the sidecar smoke test and the fixable Critical/High policy on
+  both architectures.
+- **Sidecar images clear fixable High advisories.** Playwright is pinned to 1.64.0, whose driver is
+  Node 24.21.0 (1.61.0 shipped Node 24.17.0), and track-fetcher's `cryptography` is pinned to
+  50.0.2. Both Dockerfiles `apt-get upgrade` before installing packages, so a release build contains
+  Debian security updates. The sidecar gate still fails on any remaining fixable Critical or High
+  Grype match.
+- **Compose and bake name the released GHCR images.** The root `docker-compose.yml` runs
+  `ghcr.io/sohampatwardhan/amtrak-gtfs-rt{,-track-fetcher,-advisory-fetcher}` at
+  `${AMTRAK_IMAGE_TAG:-0.7.0}`, so `docker compose pull && docker compose up -d` needs no build.
+  The `build:` sections stay; `AMTRAK_IMAGE_TAG=local docker compose up -d --build` builds from
+  the checkout. Bake tags each target with the same name as well as `<name>:local`. The release
+  metadata check requires both defaults to match the release version.
 - **Tracks are on by default.** `AMTRAK_TRACKS` now defaults to on; set `off`, `false`, `0`, or
   `no` to publish Amtrak's feeds without platform stops. Any other value is a startup error
   instead of silently meaning off. This changes the published static feed for deployments that did
@@ -321,8 +364,10 @@ against Amtrak's production endpoints (145 trip updates, 145 vehicle positions,
 - 21 tests, including live integration tests against Amtrak's real endpoints
   (run with `cargo test -- --include-ignored`).
 
-[Unreleased]: https://github.com/sohampatwardhan/Amtrak-GTFS-RT/compare/v0.6.2...HEAD
-[0.6.2]: https://github.com/sohampatwardhan/Amtrak-GTFS-RT/releases/tag/v0.6.2
+[Unreleased]: https://github.com/sohampatwardhan/Amtrak-GTFS-RT/compare/v0.7.1...HEAD
+[0.7.1]: https://github.com/sohampatwardhan/Amtrak-GTFS-RT/releases/tag/v0.7.1
+[0.7.0]: https://github.com/sohampatwardhan/Amtrak-GTFS-RT/compare/v0.6.2...v0.7.0
+[0.6.2]: https://github.com/sohampatwardhan/Amtrak-GTFS-RT/compare/v0.6.1...v0.6.2
 [0.6.1]: https://github.com/sohampatwardhan/Amtrak-GTFS-RT/compare/v0.6.0...v0.6.1
 [0.6.0]: https://github.com/sohampatwardhan/Amtrak-GTFS-RT/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/sohampatwardhan/Amtrak-GTFS-RT/releases/tag/v0.5.0

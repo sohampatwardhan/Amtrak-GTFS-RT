@@ -18,6 +18,14 @@ grep -Eqx "## \[${VERSION//./\\.}\] - [0-9]{4}-[0-9]{2}-[0-9]{2}" "$ROOT/CHANGEL
 grep -Fqx 'license = "AGPL-3.0-only"' "$ROOT/Cargo.toml"
 test -s "$ROOT/THIRD_PARTY_LICENSES.html"
 
+# The root compose file and bake default to this release's GHCR images.
+for image in amtrak-gtfs-rt amtrak-gtfs-rt-advisory-fetcher amtrak-gtfs-rt-track-fetcher; do
+  grep -Fqx "    image: ghcr.io/sohampatwardhan/${image}:\${AMTRAK_IMAGE_TAG:-${VERSION}}" \
+    "$ROOT/docker-compose.yml"
+done
+grep -A1 -x 'variable "AMTRAK_IMAGE_TAG" {' "$ROOT/docker-bake.hcl" \
+  | grep -Fqx "  default = \"${VERSION}\""
+
 if command -v cargo-about >/dev/null 2>&1; then
   generated="$(mktemp)"
   trap 'rm -f "$generated"' EXIT

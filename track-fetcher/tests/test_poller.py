@@ -1,16 +1,22 @@
 """One poll cycle with injected train data and status responses. No browser, no network."""
 
 import asyncio
+import threading
 from datetime import datetime, timedelta, timezone
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from urllib.error import HTTPError
+from urllib.request import Request, urlopen
 
 import pytest
 
 from fetcher.config import Config
 from fetcher.poller import (
+    TRAINS_ACCEPT,
     BrowserUnavailable,
     ResidentBrowser,
     StatusMiss,
     document_from_eval,
+    load_trains,
     poll_once,
     run_forever,
     should_abort,
@@ -203,6 +209,76 @@ def test_every_cycle_is_recorded_for_liveness_even_when_it_fails():
         )
     )
     assert store.last_cycle() == NOW.timestamp()
+    assert store.consecutive_failures() == 1
+
+
+def test_repeated_failed_polls_are_counted_and_a_success_clears_them():
+    store = TrackStore(started_at=0)
+
+    async def boom(_cfg):
+        raise RuntimeError("maps down")
+
+    async def trains(_cfg):
+        return {"features": []}
+
+    async def run(fetcher, iterations):
+        await run_forever(
+            store,
+            Config(),
+            trains_fetcher=fetcher,
+            status_fetcher=_status_for([]),
+            sleep=_no_sleep,
+            clock=lambda: NOW,
+            iterations=iterations,
+        )
+
+    asyncio.run(run(boom, 2))
+    assert store.consecutive_failures() == 2
+    asyncio.run(run(trains, 1))
+    assert store.consecutive_failures() == 0
+
+
+class _MapsFeed(BaseHTTPRequestHandler):
+    """406 for ``Accept: application/json``; 200 ``text/plain`` JSON otherwise."""
+
+    seen: list[str] = []
+
+    def do_GET(self):  # noqa: N802 — http.server's method name
+        accept = self.headers.get("Accept", "")
+        type(self).seen.append(accept)
+        if accept == "application/json":
+            body = b"not acceptable"
+            status = 406
+        else:
+            body = b'{"features":[]}'
+            status = 200
+        self.send_response(status)
+        self.send_header("Content-Type", "text/plain")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def log_message(self, *args: object) -> None:
+        return
+
+
+def test_load_trains_sends_an_accept_header_the_maps_feed_allows():
+    _MapsFeed.seen = []
+    server = ThreadingHTTPServer(("127.0.0.1", 0), _MapsFeed)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        url = f"http://127.0.0.1:{server.server_address[1]}/trains/getTrainsData"
+        rejected = Request(url, headers={"Accept": "application/json"})
+        with pytest.raises(HTTPError) as error:
+            urlopen(rejected, timeout=5)
+        assert error.value.code == 406
+        assert load_trains(Config(trains_url=url)) == {"features": []}
+        assert TRAINS_ACCEPT == "*/*"
+        assert _MapsFeed.seen == ["application/json", "*/*"]
+    finally:
+        server.shutdown()
+        server.server_close()
 
 
 def test_routing_blocks_page_weight_and_third_parties():

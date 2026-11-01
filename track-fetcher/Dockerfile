@@ -6,19 +6,22 @@
 # calls go through the browser.
 FROM python:3.12-slim-bookworm
 
-ARG PLAYWRIGHT_VERSION=1.61.0
+ARG PLAYWRIGHT_VERSION=1.64.0
 # `headless-shell` (default) installs only chromium-headless-shell. `full` also installs full
 # Chromium and Xvfb for BROWSER_MODE=xvfb-headful, the fallback if Amtrak blocks the headless shell.
 # It makes the image larger, so build it only when that mode is needed:
 #   docker build --build-arg BROWSER_BUNDLE=full .
 ARG BROWSER_BUNDLE=headless-shell
-ARG CRYPTOGRAPHY_VERSION=46.0.3
+ARG CRYPTOGRAPHY_VERSION=50.0.2
 
 ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright \
     PIP_NO_CACHE_DIR=1 \
     PYTHONUNBUFFERED=1
 
+# Upgrade distro packages before the install. The release gate fails a fixable Critical or High,
+# and the python slim tag can lag Debian security updates.
 RUN apt-get update \
+    && apt-get upgrade --yes --no-install-recommends \
     && apt-get install --yes --no-install-recommends \
         ca-certificates \
         fonts-liberation \
@@ -74,11 +77,24 @@ RUN pip install --no-cache-dir \
 WORKDIR /app
 COPY fetcher/ /app/fetcher/
 
+# Set by the release workflow; local builds keep the defaults.
+ARG OCI_VERSION=dev
+ARG OCI_REVISION=unknown
+
+LABEL org.opencontainers.image.title="Amtrak GTFS-RT track-fetcher" \
+      org.opencontainers.image.description="Amtrak train-status sidecar (tracks and boarding gates) for Amtrak GTFS-RT" \
+      org.opencontainers.image.source="https://github.com/sohampatwardhan/Amtrak-GTFS-RT" \
+      org.opencontainers.image.documentation="https://github.com/sohampatwardhan/Amtrak-GTFS-RT/tree/main/track-fetcher" \
+      org.opencontainers.image.licenses="AGPL-3.0-only" \
+      org.opencontainers.image.version="$OCI_VERSION" \
+      org.opencontainers.image.revision="$OCI_REVISION"
+
 USER fetcher
 EXPOSE 8081
 
-# /healthz turns 503 when no poll has finished within LIVENESS_SECS, so a wedged loop is
-# restarted. It probes loopback, so LISTEN_HOST must stay 0.0.0.0 or 127.0.0.1.
+# /healthz turns 503 when no poll has finished within LIVENESS_SECS, or after three polls in a
+# row fail. A wedged loop and a feed Amtrak keeps rejecting are both restarted. It probes
+# loopback, so LISTEN_HOST must stay 0.0.0.0 or 127.0.0.1.
 HEALTHCHECK --interval=60s --timeout=10s --start-period=120s --retries=3 \
     CMD ["python", "-c", "import os, urllib.request; urllib.request.urlopen('http://127.0.0.1:' + os.environ.get('LISTEN_PORT', '8081') + '/healthz', timeout=5)"]
 
