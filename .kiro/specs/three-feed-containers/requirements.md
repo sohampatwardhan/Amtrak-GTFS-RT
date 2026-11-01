@@ -92,4 +92,6 @@ stateDiagram-v2
 1. WHEN a generation is published THEN the system SHALL serve `official-static.zip` as the bytes downloaded from Amtrak, and SHALL serve `static.zip` as those bytes after the missing-stop repair and platform stops.
 2. WHEN the add-on changes `stops.txt` or `stop_times.txt` THEN the system SHALL put only those files and `addon.txt` in `platform-addon.zip`, and SHALL set `platform_addon_version` to `amtrak-platform-addon/v1` plus a digest.
 3. WHEN a consumer replaces each file named by the add-on's `files` line onto the official zip THEN the resulting GTFS files SHALL match `static.zip`.
-4. IF the vehicle-positions image is built THEN the system SHALL keep the Java validator in that image, and SHALL NOT add a fourth proxy container.
+4. IF the vehicle-positions image is built THEN the system SHALL keep the Java validator in that image, and SHALL keep serving the public URLs on that container.
+5. IF Compose is started without the `proxy` profile THEN the system SHALL NOT start a reverse proxy.
+6. IF Compose is started with `--profile proxy` THEN the system SHALL start a Caddy proxy that gzips, rate-limits per client IP, writes access logs, forwards `ETag` and `304`, and enables TLS only when `AMTRAK_PROXY_TLS` is set.

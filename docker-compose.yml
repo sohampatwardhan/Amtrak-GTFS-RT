@@ -51,7 +51,9 @@ services:
       AMTRAK_TRACKS: ${AMTRAK_TRACKS:-on}
       AMTRAK_TRACKS_AMTRAK_URL: ""
       AMTRAK_BIND_ADDR: 0.0.0.0:8080
-      AMTRAK_ALLOWED_PEER_IPS: 172.31.240.1
+      # 172.31.240.1 is the Compose gateway (the host). 172.31.240.10 is the optional
+      # proxy. The service still ignores X-Forwarded-For and serves 127.0.0.1:8090 directly.
+      AMTRAK_ALLOWED_PEER_IPS: 172.31.240.1,172.31.240.10
       AMTRAK_PUBLIC_URL: http://127.0.0.1:8090
     ports:
       - "127.0.0.1:8090:8080"
@@ -103,6 +105,28 @@ services:
     volumes:
       - amtrak-data:/data
     networks: [amtrak]
+
+  # Optional edge. Off unless started with `docker compose --profile proxy up`.
+  # Vehicle-positions keeps publishing 127.0.0.1:8090. This does not replace it.
+  proxy:
+    profiles: ["proxy"]
+    build:
+      context: proxy
+    image: amtrak-gtfs-rt-proxy:${AMTRAK_IMAGE_TAG:-0.7.1}
+    restart: unless-stopped
+    depends_on:
+      - vehicle-positions
+    environment:
+      AMTRAK_PROXY_TLS: ${AMTRAK_PROXY_TLS:-off}
+      AMTRAK_PROXY_DOMAIN: ${AMTRAK_PROXY_DOMAIN:-}
+      AMTRAK_PROXY_RATE_EVENTS: ${AMTRAK_PROXY_RATE_EVENTS:-120}
+      AMTRAK_PROXY_RATE_WINDOW: ${AMTRAK_PROXY_RATE_WINDOW:-1m}
+    ports:
+      - "127.0.0.1:8091:8080"
+      - "127.0.0.1:8443:8443"
+    networks:
+      amtrak:
+        ipv4_address: 172.31.240.10
 
 networks:
   amtrak:

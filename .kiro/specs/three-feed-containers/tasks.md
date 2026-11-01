@@ -29,8 +29,11 @@
   - _Requirements: 1.1, 2.3_
 
 - [x] 6. Official static zip and platform add-on
-  - Serve the untouched download, the overlay, and the existing combined `static.zip`. Keep the validator in the positions image. Do not add a proxy.
+  - Serve the untouched download, the overlay, and the existing combined `static.zip`. Keep the validator in the positions image.
   - _Requirements: 4.1, 4.2, 4.3, 4.4_
+- [x] 6.1 Optional Caddy proxy profile
+  - Off by default. Gzip, per-IP rate limit, access logs, ETag forwarding, TLS only from `AMTRAK_PROXY_TLS`. Digest-pinned upstream images. The release gate scans the built image.
+  - _Requirements: 4.5, 4.6_
 
 ## Task graph
 

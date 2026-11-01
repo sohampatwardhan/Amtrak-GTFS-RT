@@ -686,12 +686,29 @@ async fn validate_with_mobility_data(
             .arg("--skip_validator_update")
             .stdout(Stdio::null())
             .stderr(Stdio::null());
-        run_command_bounded(&mut command, timeout).await?;
-        let report = std::fs::read(report_dir.join("report.json"))
-            .map_err(|error| StaticValidationError(format!("validator report missing: {error}")))?;
-        validate_report(&report)
+        let command_result = run_command_bounded(&mut command, timeout).await;
+        let report = std::fs::read(report_dir.join("report.json")).ok();
+        validator_outcome(command_result, report.as_deref())
     }
     .await
+}
+
+/// Decides whether a validator run is acceptable.
+///
+/// OGNL 3.4.13 removes `ognl.DefaultMemberAccess`. Thymeleaf 3.0, which writes the HTML report,
+/// aborts after `report.json` is already complete, and the process exits non-zero. The JSON report
+/// is the acceptance gate: zero `ERROR` notices pass, even when that HTML export crashes.
+fn validator_outcome(
+    command: Result<(), StaticValidationError>,
+    report: Option<&[u8]>,
+) -> Result<(), StaticValidationError> {
+    if let Some(bytes) = report {
+        return validate_report(bytes);
+    }
+    match command {
+        Err(error) => Err(error),
+        Ok(()) => Err(StaticValidationError("validator report missing".into())),
+    }
 }
 
 struct TemporaryDirectoryGuard(PathBuf);
@@ -876,6 +893,28 @@ mod tests {
         assert!(validate_report(br#"{"notices":[]}"#).is_ok());
         assert!(validate_report(br#"{"notices":[{"severity":"WARNING"}]}"#).is_ok());
         assert!(validate_report(br#"{"notices":[{"severity":"ERROR"}]}"#).is_err());
+        let clean = br#"{"notices":[{"severity":"WARNING"}]}"#;
+        assert!(validator_outcome(
+            Err(StaticValidationError(
+                "validator exited unsuccessfully".into()
+            )),
+            Some(clean),
+        )
+        .is_ok());
+        assert!(validator_outcome(
+            Err(StaticValidationError(
+                "validator exited unsuccessfully".into()
+            )),
+            Some(br#"{"notices":[{"severity":"ERROR"}]}"#),
+        )
+        .is_err());
+        assert!(validator_outcome(
+            Err(StaticValidationError(
+                "validator exited unsuccessfully".into()
+            )),
+            None,
+        )
+        .is_err());
         assert!(validate_report(br#"{}"#).is_err());
         assert!(validate_report(b"not-json").is_err());
     }

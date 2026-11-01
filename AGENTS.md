@@ -66,7 +66,7 @@ HTTP contract. Do not add other feed URLs.
 | `/v1/generations/{id}/platform-addon.zip` | controlled | Overlay (`addon.txt` plus changed GTFS files) that rebuilds `static.zip` |
 | `/v1/generations/{id}/{trip-updates,vehicle-positions,alerts}.pb` | controlled | One GTFS-Realtime product, `application/x-protobuf` |
 
-`static.zip` remains the single file existing consumers load. It is the official download with the dangling-stop repair and platform stops applied. Consumers who want the pieces unzip `official-static.zip` and replace each name on the add-on's `files=` line. The Java validator stays in the vehicle-positions image until that open question is decided. There is no fourth proxy container.
+`static.zip` remains the single file existing consumers load. It is the official download with the dangling-stop repair and platform stops applied. Consumers who want the pieces unzip `official-static.zip` and replace each name on the add-on's `files=` line. The Java validator stays in the vehicle-positions image until that open question is decided. Vehicle-positions still serves the public URLs. An optional Caddy proxy is the Compose `proxy` profile and is off by default. Do not assume nginx or Tailscale Serve is in front.
 
 Controlled routes authorize the direct socket peer. An empty allowlist admits loopback only. `Forwarded` and `X-Forwarded-For` are ignored. A non-loopback bind with no `AMTRAK_ALLOWED_PEER_IPS` refuses to start. `403` is an unauthorized peer, `404` is an unknown generation or artifact, `503` is no current or fresh generation.
 

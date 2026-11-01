@@ -6,7 +6,20 @@ Three processes link `amtrak-gtfs-rt-service`. `AMTRAK_ROLE` selects the role. U
 
 This covers requirements 1.1–1.4, 2.1–2.4, 3.1–3.7, and 4.1–4.4.
 
-`static.zip` stays the combined schedule. `official-static.zip` is the download. `platform-addon.zip` is schema `amtrak-platform-addon/v1`: `addon.txt` lists the files to copy over the official zip. Those files are the repaired `stop_times.txt` and the platform `stops.txt` when they differ. The Java validator stays in the vehicle-positions image. No fourth proxy is added.
+`static.zip` stays the combined schedule. `official-static.zip` is the download. `platform-addon.zip` is schema `amtrak-platform-addon/v1`: `addon.txt` lists the files to copy over the official zip. Those files are the repaired `stop_times.txt` and the platform `stops.txt` when they differ. The Java validator stays in the vehicle-positions image. Vehicle-positions keeps the public port. A Caddy proxy is optional and off unless Compose is started with `--profile proxy`. The deployment does not assume nginx or Tailscale Serve in front.
+
+```mermaid
+---
+config:
+  layout: elk
+---
+flowchart LR
+  client["Client"] --> direct["127.0.0.1:8090"]
+  client --> proxy["Caddy profile proxy"]
+  direct --> vp["vehicle-positions"]
+  proxy --> vp
+  vp --> feeds["feed-set and artifacts"]
+```
 
 ```mermaid
 ---
@@ -26,7 +39,7 @@ flowchart LR
 
 ## Architecture
 
-VehiclePositions owns the poll, the static refresh (the image already has the validator), the HTTP server, and the early-refresh queue. TripUpdates owns the track browser, NJ Transit, Hartford, and trip-update stamping. Alerts owns the notices browser and alert merging. A fourth proxy is not added.
+VehiclePositions owns the poll, the static refresh (the image already has the validator), the HTTP server, and the early-refresh queue. TripUpdates owns the track browser, NJ Transit, Hartford, and trip-update stamping. Alerts owns the notices browser and alert merging. The optional Caddy service is not one of the three required containers.
 
 ```mermaid
 sequenceDiagram

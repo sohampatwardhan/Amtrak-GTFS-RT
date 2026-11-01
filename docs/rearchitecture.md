@@ -3,7 +3,7 @@
 - **Status:** proposal only. This document does not change the running service, the images, or the Raspberry Pi.
 - **Date:** 2026-11-01
 - **Owner intent:** Amtrak already publishes the static GTFS. This project should keep producing the three GTFS-Realtime feeds and stay feature-rich. The target shape is three containers, one per feed: Alerts, TripUpdates, and VehiclePositions.
-- **What this proposal does:** splits today's publisher-plus-sidecars stack along those three feeds, keeps every current user-facing feature and public URL, and treats `https://content.amtrak.com/content/gtfs/GTFS.zip` as the schedule. One process polls `getTrainsData`. The other two read that snapshot. A fourth container is not part of the design. Places where our bytes differ from Amtrak's ZIP, and whether a reverse proxy should become a fourth container, are open questions at the end.
+- **What this proposal does:** splits today's publisher-plus-sidecars stack along those three feeds, keeps every current user-facing feature and public URL, and treats `https://content.amtrak.com/content/gtfs/GTFS.zip` as the schedule. One process polls `getTrainsData`. The other two read that snapshot. A Caddy proxy is optional and off by default. The deployment does not assume nginx or Tailscale Serve in front.
 
 The repository has no Kiro spec layout (`.kiro/specs/`). This file is the design.
 
@@ -404,7 +404,7 @@ Today one process writes all four files and then moves the current marker. Three
 
 The rule: VehiclePositions mints the generation id when it polls. TripUpdates and Alerts must write their protobufs into that directory, with headers copied from the snapshot (timestamp and `static_version`, including `+tracks.{digest}`). VehiclePositions publishes `/v1/feed-set.json` for that id only after all four files are present and the headers match. Readers who already hold the previous manifest can still download it until the retention window deletes it.
 
-A tiny reverse proxy in front of three public ports would also keep one URL, and it would be a **fourth** container. This proposal does not add it. The open question below records that choice. The default is the shared volume plus the HTTP server already required for VehiclePositions.
+VehiclePositions keeps the public port. An optional Caddy container, started only with `docker compose --profile proxy`, can sit in front of that port. It is not required, and the deployment does not assume nginx or Tailscale Serve on the host. The default is still the HTTP server already required for VehiclePositions.
 
 ### What happens to today's containers
 
@@ -526,7 +526,7 @@ There is no web dashboard, no extra public feed, no oEmbed endpoint, and no Grap
 | GitHub `validate-feeds` and `release-gates` cron | **Keep** in CI | They are not Pi processes. |
 | Mutable `/*.pb` and `/health` routes | **Already gone.** Stay gone. | Consumers use the manifest. |
 | TransitDocs / RailRat fallbacks | **Leave unimplemented** | They are not a current feature. The shared library keeps the seam. |
-| A reverse proxy in front of the three feeds | **Do not add.** Open question 6. | It would be a fourth container. The shared volume already presents one URL. |
+| A reverse proxy in front of the three feeds | **Optional**, Compose profile `proxy`. Off by default. | VehiclePositions still serves `127.0.0.1:8090`. Caddy adds gzip, a per-IP rate limit, access logs, and optional TLS. |
 
 ## Matching, static updates, and the served ZIP
 
@@ -588,7 +588,7 @@ These are the decisions this proposal does not make. The design above keeps toda
 
 5. **Amtraker as a future source.** Closed unless you disagree: do not call `api.amtraker.com` for the feeds. Their `/v3/stale` shape is worth copying only as an idea if you ever want a public freshness JSON beside `/readyz`. Track Your Train's fleet source stays `getTrainsData`, polled once. Do not replace it with `AllTTMTrains`, the FEMA ArcGIS copy, or his proxy.
 
-6. **A fourth container for HTTP.** Decided: no proxy. The public edge stays inside VehiclePositions. A reverse proxy in front of three private ports would be a fourth container and is not part of this design.
+6. **A fourth container for HTTP.** Decided. The three feed containers stay required, and vehicle-positions still serves the public URLs. A Caddy proxy is optional (`docker compose --profile proxy up`) for gzip, per-IP rate limiting, access logs, and TLS when `AMTRAK_PROXY_TLS` is set. The Raspberry Pi deployment is no longer a priority, so nothing assumes nginx or Tailscale Serve in front of the service.
 
 7. **Lead-time profile file.** The survey script is a separate PR. This design assumes TripUpdates can read per-station lead times and fall back to today's fixed window when the file is absent. The column names and the path can wait for that PR, as long as a station with a longer lead time is fetched earlier and the 24-fetch cap still applies.
 

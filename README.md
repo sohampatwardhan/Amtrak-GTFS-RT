@@ -124,8 +124,37 @@ sequenceDiagram
 ```
 
 **Access control.** Controlled routes authorize the direct socket peer. With no explicit
-allowlist, only loopback peers are admitted. `Forwarded` and `X-Forwarded-For` are ignored; placing
-a reverse proxy at this authorization boundary requires a separately designed trusted-proxy policy.
+allowlist, only loopback peers are admitted. `Forwarded` and `X-Forwarded-For` are ignored. The
+service does not assume nginx or Tailscale Serve is installed on the host.
+
+**Optional proxy.** The three feed containers are the stack. Vehicle-positions keeps
+`127.0.0.1:8090`. To put Caddy in front of it:
+
+```bash
+docker compose --profile proxy up -d
+```
+
+Caddy listens on `127.0.0.1:8091` (HTTP). `127.0.0.1:8443` is the TLS port, used when `AMTRAK_PROXY_TLS` is not `off`. It gzips
+responses, writes an access log, and allows 120 requests per minute per client IP
+(`AMTRAK_PROXY_RATE_EVENTS`, `AMTRAK_PROXY_RATE_WINDOW`). `ETag`, `Last-Modified`, and `304` are
+forwarded. A gzipped response's `ETag` is weakened to `W/"..."`, and the proxy strips that `W/`
+before the next conditional request so the origin's exact match still returns `304`.
+
+`AMTRAK_PROXY_TLS` defaults to `off`. Set it to `internal` for a Caddy-local certificate, or to an
+email address and set `AMTRAK_PROXY_DOMAIN` for a public certificate. The proxy's address on the
+Compose network is `172.31.240.10`, which is allowlisted. Other peers are still rejected.
+
+```mermaid
+---
+config:
+  layout: elk
+---
+flowchart LR
+  client["Client"] --> direct["127.0.0.1:8090"]
+  client --> caddy["127.0.0.1:8091 profile proxy"]
+  direct --> positions["vehicle-positions"]
+  caddy --> positions
+```
 
 ## Running from source
 

@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- **Optional Caddy proxy.** `docker compose --profile proxy up` adds gzip, a per-IP rate limit, access logs, and TLS when `AMTRAK_PROXY_TLS` is set. It is off by default. Vehicle-positions still serves `127.0.0.1:8090`. The image is built from digest-pinned Caddy tags and scanned by the release gate.
+- **Validator JSON report is the static gate.** OGNL 3.4.13 removes `DefaultMemberAccess`, so Thymeleaf's HTML export exits non-zero after `report.json` is written. A report with no `ERROR` notices is accepted.
 - **Official static GTFS is served untouched.** `official-static.zip` is Amtrak's download. `platform-addon.zip` (`amtrak-platform-addon/v1`, plus a digest when it changes a file) holds the dangling-stop repair and platform stops. `static.zip` is still the combined feed. `feed-set.json` names all three and `platform_addon_version`.
 - **Sidecar images ship Node 24.22.1.** Playwright is pinned to 1.64.1. 1.64.0 bundled Node 24.21.0, which has fixable High advisories CVE-2026-105482, CVE-2026-105483, CVE-2026-106069, and CVE-2026-111497.
 - **The validator JAR forces Guava 33.7.2 and OGNL 3.4.13.** Those are the fixed releases for GHSA-xxph-c9ww-hj94 (Guava 32.0.0-jre) and GHSA-crwc-vw2r-qr6m (OGNL 3.1.26). The service image keeps the zero-match Grype policy.
