@@ -60,9 +60,13 @@ HTTP contract. Do not add other feed URLs.
 | --- | --- | --- |
 | `/livez` | public | Process liveness, independent of feed readiness |
 | `/readyz` | controlled | `200` only while the current generation is younger than 300 seconds |
-| `/v1/feed-set.json` | controlled | Generation id, timestamp, static version, entity counts, four URLs |
-| `/v1/generations/{id}/static.zip` | controlled | Static GTFS for exactly that generation |
+| `/v1/feed-set.json` | controlled | Generation id, timestamp, static version, platform add-on version, entity counts, artifact URLs |
+| `/v1/generations/{id}/static.zip` | controlled | Combined static GTFS for exactly that generation |
+| `/v1/generations/{id}/official-static.zip` | controlled | Amtrak's static GTFS, byte for byte |
+| `/v1/generations/{id}/platform-addon.zip` | controlled | Overlay (`addon.txt` plus changed GTFS files) that rebuilds `static.zip` |
 | `/v1/generations/{id}/{trip-updates,vehicle-positions,alerts}.pb` | controlled | One GTFS-Realtime product, `application/x-protobuf` |
+
+`static.zip` remains the single file existing consumers load. It is the official download with the dangling-stop repair and platform stops applied. Consumers who want the pieces unzip `official-static.zip` and replace each name on the add-on's `files=` line. The Java validator stays in the vehicle-positions image until that open question is decided. There is no fourth proxy container.
 
 Controlled routes authorize the direct socket peer. An empty allowlist admits loopback only. `Forwarded` and `X-Forwarded-For` are ignored. A non-loopback bind with no `AMTRAK_ALLOWED_PEER_IPS` refuses to start. `403` is an unauthorized peer, `404` is an unknown generation or artifact, `503` is no current or fresh generation.
 

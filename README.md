@@ -89,15 +89,26 @@ flowchart LR
 |------|--------|--------------|-------------|
 | `/livez` | public | `application/json` | Process liveness, independent of feed readiness |
 | `/readyz` | controlled | `application/json` | `200` only while the current generation is less than 300 seconds old |
-| `/v1/feed-set.json` | controlled | `application/json` | Current generation ID, timestamp, static version, entity counts, and four immutable URLs |
-| `/v1/generations/{id}/static.zip` | controlled | `application/zip` | Static GTFS for exactly generation `{id}` |
+| `/v1/feed-set.json` | controlled | `application/json` | Current generation ID, timestamp, static version, platform add-on version, entity counts, and the artifact URLs |
+| `/v1/generations/{id}/static.zip` | controlled | `application/zip` | Combined static GTFS for exactly generation `{id}`: the official schedule with the missing-stop repair and platform stops already applied |
+| `/v1/generations/{id}/official-static.zip` | controlled | `application/zip` | Amtrak's static GTFS for that generation, byte for byte |
+| `/v1/generations/{id}/platform-addon.zip` | controlled | `application/zip` | Overlay that rebuilds `static.zip` from the official zip |
 | `/v1/generations/{id}/{trip-updates,vehicle-positions,alerts}.pb` | controlled | `application/x-protobuf` | One GTFS-Realtime product from exactly generation `{id}` |
 
 > [!IMPORTANT]
 > Fetch `/v1/feed-set.json` first and then use only the URLs it returns. Do not construct
 > generation URLs or substitute a newer ID between artifact requests. Every realtime header is
-> stamped with the manifest's static version and generation timestamp, so the four artifacts of
+> stamped with the manifest's static version and generation timestamp, so the artifacts of
 > one manifest always belong together.
+
+`static.zip` is still the feed to load if you want one file. It is the official zip plus the
+platform add-on. `assigned_stop_id` values such as `NYP:track:21` exist only in that combined
+feed. To build it yourself, unzip `official-static.zip`, then replace each file named on the
+`files=` line of the add-on's `addon.txt` with the copy from `platform-addon.zip`. Leave
+`addon.txt` out of the GTFS directory. The manifest field `platform_addon_version` is
+`amtrak-platform-addon/v1` when the overlay changes nothing, and that token plus a digest when
+it changes `stops.txt` or `stop_times.txt`. The missing-stop repair (stop times whose stop is
+absent from `stops.txt`) lives in the add-on's `stop_times.txt`, not in the official zip.
 
 ```mermaid
 sequenceDiagram

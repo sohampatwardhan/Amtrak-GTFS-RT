@@ -13,6 +13,7 @@ pub mod roles;
 pub mod schedule;
 pub mod serve;
 pub mod sources;
+pub mod static_addon;
 pub mod static_augment;
 pub mod static_gtfs;
 pub mod static_repair;

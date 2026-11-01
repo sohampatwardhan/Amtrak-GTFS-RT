@@ -431,7 +431,7 @@ No consumer migration. These stay:
 
 `amtrak-status --source local` keeps talking to that one base URL. It does not learn three hosts. Internal sidecar URLs (`AMTRAK_ADVISORIES_URL`, `AMTRAK_TRACKS_AMTRAK_URL`) go away because the browsers are in-process. During a staged rollout those variables can still point at the old sidecars; the implementation may support that for one release and then drop it.
 
-Clients that follow the manifest still receive a ZIP that contains platform stops while tracks are on. Clients that instead download `content.amtrak.com` themselves will see official `trip_id`s match, and will not find `{stop}:track:...` stops. That is open question 1.
+Clients that follow the manifest still receive `static.zip`, which contains platform stops while tracks are on. `official-static.zip` is the byte-for-byte Amtrak download, and `platform-addon.zip` is what a consumer overlays to rebuild `static.zip`. `{stop}:track:...` stops are in the combined zip and the add-on, not in the official zip.
 
 ### Config
 
@@ -516,7 +516,7 @@ There is no web dashboard, no extra public feed, no oEmbed endpoint, and no Grap
 | Current | Decision | Why |
 | --- | --- | --- |
 | `amtrak-gtfs-rt` publisher | **Split** into VehiclePositions, TripUpdates, and Alerts | One feed per container. The public HTTP front and the single fleet poll stay together on VehiclePositions so URLs and Amtrak load do not multiply. |
-| Java validator inside that image | **Move** to TripUpdates. Whether the JRE stays on the Pi is open question 3. | Only the ZIP writer needs it. The other two images stay free of Corretto. |
+| Java validator inside that image | **Stays** in VehiclePositions until open question 3 is decided. | The positions image already refreshes and validates static GTFS. TripUpdates and Alerts stay free of Corretto. |
 | `advisory-fetcher` | **Merge** into Alerts | Notices become `alerts.pb`. A separate Chromium container is an extra hop. |
 | `track-fetcher` | **Merge** into TripUpdates | Tracks and gates become `assigned_stop_id` / `platform_code` on trip updates. Its extra `getTrainsData` decrypt is replaced by the shared snapshot. |
 | NJ Transit client | **Move** to TripUpdates | It only exists to stamp trip updates. A fourth hop for one HTTPS API is not worth it. |
@@ -578,17 +578,17 @@ Catenary's known mismatches stay visible as the baseline ERROR codes (extra sect
 
 These are the decisions this proposal does not make. The design above keeps today's behavior unless the question says otherwise.
 
-1. **Serving a full `static.zip`.** Amtrak's official ZIP is the schedule. Our ZIP is that schedule, plus repair, plus platform stops that official `stops.txt` does not have. Those platform stops are what make track and gate assignments valid for a consumer who trusts `assigned_stop_id`. Options that preserve the feature: keep serving the combined ZIP at the current URL (this proposal's default, written by TripUpdates), or publish the official ZIP unchanged and also publish a small platform overlay consumers must load. Dropping our ZIP and telling everyone to use only `content.amtrak.com` would make `{stop}:track:...` ids fail validation. That drop is not recommended. The question is whether you want the overlay split out later.
+1. **Serving a full `static.zip`.** Decided. `static.zip` stays the combined feed at the existing URL, so a consumer who loads one file still gets platform stops and the missing-stop repair. `official-static.zip` is Amtrak's ZIP byte for byte. `platform-addon.zip` is the overlay. `feed-set.json` names all three and `platform_addon_version` (`amtrak-platform-addon/v1`, plus a digest when a file changes). To rebuild the combined feed, unzip the official zip and replace each file named on the add-on's `files=` line. Do not copy `addon.txt` into the GTFS directory.
 
-2. **Dangling stop repair in the bytes we serve.** The repair exists because official stop times sometimes name a stop the official `stops.txt` omits, and the parser then rejects the entire file. Repair changes `stop_times.txt` relative to Amtrak. It is not redundant with the official file; it is a local fix so matching and serving can proceed. Question: keep writing the repaired rows into the served ZIP (current behavior, kept above), or repair only the in-memory copy used for matching and serve Amtrak's stop times untouched. The second choice can put the parser bug back in front of consumers who download our ZIP. A third approach shows up in `transitstatus/gtfs-schedule-data`: keep the stop times and insert a synthetic Ocean Springs stop. That repository has no `LICENSE` file, so the idea can be discussed and must not be copied as data. This proposal does not switch to it.
+2. **Dangling stop repair in the bytes we serve.** Decided. The repair stays, and it lives in the add-on (`stop_times.txt` with the dangling rows removed). The official zip is not edited. `static.zip` is the official zip after that overlay, so a consumer of the existing URL still gets a feed the parser accepts. A synthetic Ocean Springs stop is not added.
 
-3. **JRE on the Pi.** The validator is a gate, not a feed feature. It runs on static change, and only TripUpdates would ship it. Question: leave Corretto in that one image (safest for a platform rebuild on the device), or run the full validator only in CI and keep a smaller on-device check. The second choice means a bad observed-platform list might not be caught until the nightly workflow.
+3. **JRE on the Pi.** No decision yet. The validator stays in the vehicle-positions image, which is the image that refreshes static GTFS today. Moving Corretto to TripUpdates, or running the full validator only in CI, is still open. A bad observed-platform list would not be caught on the device if the on-device check were removed.
 
 4. **Restart rule for the status browser.** Splitting the containers already answers the old question: a failed status poll cannot take the notices renderer down, because that renderer is the Alerts container. What is still open: should Docker restart TripUpdates after three failed status polls, as today's track image does, or only when the process itself is wedged? The feed stays on the previous generation either way.
 
 5. **Amtraker as a future source.** Closed unless you disagree: do not call `api.amtraker.com` for the feeds. Their `/v3/stale` shape is worth copying only as an idea if you ever want a public freshness JSON beside `/readyz`. Track Your Train's fleet source stays `getTrainsData`, polled once. Do not replace it with `AllTTMTrains`, the FEMA ArcGIS copy, or his proxy.
 
-6. **A fourth container for HTTP.** A reverse proxy could own `127.0.0.1:8090` and forward to three private ports. That keeps the poller from also being the public edge. It is also a fourth process, a fourth image, and another thing to health-check on the Pi. This proposal keeps the edge inside VehiclePositions and does not add the proxy. Say if you want the proxy anyway.
+6. **A fourth container for HTTP.** Decided: no proxy. The public edge stays inside VehiclePositions. A reverse proxy in front of three private ports would be a fourth container and is not part of this design.
 
 7. **Lead-time profile file.** The survey script is a separate PR. This design assumes TripUpdates can read per-station lead times and fall back to today's fixed window when the file is absent. The column names and the path can wait for that PR, as long as a station with a longer lead time is fetched earlier and the 24-fetch cap still applies.
 

@@ -19,6 +19,8 @@ pub struct FleetMeta {
     pub generated_at_unix: u64,
     /// Static `feed_version`, including a tracks suffix when the ZIP has one.
     pub static_version: String,
+    /// Version of the platform add-on stored beside this snapshot.
+    pub addon_version: String,
 }
 
 /// Writes one fleet snapshot atomically and points `fleet/CURRENT` at it.
@@ -30,7 +32,9 @@ pub struct FleetMeta {
 /// * `trip_updates` - Trip updates before track stamping.
 /// * `vehicle_positions` - Vehicle positions for this poll.
 /// * `alerts` - Alerts from the fleet poll, before notice merging.
-/// * `static_zip` - Static GTFS the poll was matched against.
+/// * `static_zip` - Combined static GTFS the poll was matched against.
+/// * `official_zip` - Untouched official GTFS download.
+/// * `addon_zip` - Overlay that rebuilds the combined zip.
 ///
 /// # Errors
 ///
@@ -46,8 +50,13 @@ pub struct FleetMeta {
 /// let _ = std::fs::remove_dir_all(&dir);
 /// write_fleet(
 ///     &dir,
-///     &FleetMeta { id: "10-1".into(), generated_at_unix: 10, static_version: "v".into() },
-///     b"tu", b"vp", b"al", b"zip",
+///     &FleetMeta {
+///         id: "10-1".into(),
+///         generated_at_unix: 10,
+///         static_version: "v".into(),
+///         addon_version: "amtrak-platform-addon/v1".into(),
+///     },
+///     b"tu", b"vp", b"al", b"zip", b"official", b"addon",
 /// ).unwrap();
 /// assert_eq!(std::fs::read(dir.join("fleet/CURRENT")).unwrap(), b"10-1\n");
 /// let _ = std::fs::remove_dir_all(&dir);
@@ -59,6 +68,8 @@ pub fn write_fleet(
     vehicle_positions: &[u8],
     alerts: &[u8],
     static_zip: &[u8],
+    official_zip: &[u8],
+    addon_zip: &[u8],
 ) -> std::io::Result<()> {
     let fleet = output_dir.join("fleet");
     fs::create_dir_all(&fleet)?;
@@ -71,6 +82,8 @@ pub fn write_fleet(
     write_file(&temporary.join("vehicle-positions.pb"), vehicle_positions)?;
     write_file(&temporary.join("alerts.pb"), alerts)?;
     write_file(&temporary.join("static.zip"), static_zip)?;
+    write_file(&temporary.join("official-static.zip"), official_zip)?;
+    write_file(&temporary.join("platform-addon.zip"), addon_zip)?;
     let _ = fs::remove_dir_all(&final_dir);
     fs::rename(&temporary, &final_dir)?;
     write_file(&fleet.join("CURRENT"), format!("{}\n", meta.id).as_bytes())?;
@@ -125,6 +138,11 @@ pub fn read_meta(output_dir: &Path, id: &str) -> Result<FleetMeta, String> {
             .get("static_version")
             .and_then(Value::as_str)
             .unwrap_or_default()
+            .to_string(),
+        addon_version: object
+            .get("addon_version")
+            .and_then(Value::as_str)
+            .unwrap_or("amtrak-platform-addon/v1")
             .to_string(),
     })
 }
@@ -209,6 +227,7 @@ fn meta_bytes(meta: &FleetMeta) -> String {
         "id": meta.id,
         "generated_at_unix": meta.generated_at_unix,
         "static_version": meta.static_version,
+        "addon_version": meta.addon_version,
     })
     .to_string()
 }
@@ -241,8 +260,19 @@ mod tests {
             id: "15-1".into(),
             generated_at_unix: 15,
             static_version: "2026".into(),
+            addon_version: "amtrak-platform-addon/v1".into(),
         };
-        write_fleet(&dir, &meta, b"tu", b"vp", b"al", b"zip").unwrap();
+        write_fleet(
+            &dir,
+            &meta,
+            b"tu",
+            b"vp",
+            b"al",
+            b"zip",
+            b"official",
+            b"addon",
+        )
+        .unwrap();
         assert_eq!(current_fleet_id(&dir).as_deref(), Some("15-1"));
         assert_eq!(read_meta(&dir, "15-1").unwrap(), meta);
         assert!(!contributions_ready(&dir, "15-1"));

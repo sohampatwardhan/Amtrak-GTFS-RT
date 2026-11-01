@@ -4,7 +4,9 @@
 
 Three processes link `amtrak-gtfs-rt-service`. `AMTRAK_ROLE` selects the role. Unset means the combined process, so `cargo run` and the existing image smoke test stay valid. Compose runs the three roles. VehiclePositions polls once, writes `fleet/{id}`, and publishes a generation only when `contrib/{id}/trip-updates.pb` and `contrib/{id}/alerts.pb` exist. HTTP reads that generation from memory.
 
-This covers requirements 1.1–1.4, 2.1–2.4, and 3.1–3.7.
+This covers requirements 1.1–1.4, 2.1–2.4, 3.1–3.7, and 4.1–4.4.
+
+`static.zip` stays the combined schedule. `official-static.zip` is the download. `platform-addon.zip` is schema `amtrak-platform-addon/v1`: `addon.txt` lists the files to copy over the official zip. Those files are the repaired `stop_times.txt` and the platform `stops.txt` when they differ. The Java validator stays in the vehicle-positions image. No fourth proxy is added.
 
 ```mermaid
 ---
@@ -79,6 +81,7 @@ classDiagram
     +id: String
     +generated_at_unix: u64
     +static_version: String
+    +addon_version: String
   }
   TrackScheduler --> FleetMeta : hints never block HTTP
 ```

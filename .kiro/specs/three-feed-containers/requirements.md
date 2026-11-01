@@ -53,7 +53,7 @@ stateDiagram-v2
 
 #### Acceptance Criteria
 
-1. WHEN a client GETs `/v1/feed-set.json` THEN the system SHALL return one generation id and the URLs for `static.zip`, `trip-updates.pb`, `vehicle-positions.pb`, and `alerts.pb`.
+1. WHEN a client GETs `/v1/feed-set.json` THEN the system SHALL return one generation id and the URLs for `static.zip`, `official-static.zip`, `platform-addon.zip`, `trip-updates.pb`, `vehicle-positions.pb`, and `alerts.pb`.
 2. WHEN any of those four files for a new poll is missing THEN the system SHALL keep serving the previous complete generation.
 3. WHEN `AMTRAK_ROLE` is `vehicle-positions` THEN the system SHALL be the only process that GETs `getTrainsData`.
 4. IF the peer is not allowlisted THEN the system SHALL respond `403` and leave the generation unchanged.
@@ -82,3 +82,14 @@ stateDiagram-v2
 5. WHERE a station profile is `amtrak-station-lead-time/v1` and the station is `observed` and `wider` THEN the system SHALL use that station's suggested lookahead and hot window.
 6. IF a station is missing or its confidence is `sparse`, `no_track`, or `none` THEN the system SHALL use the global window.
 7. IF a station is `covered` THEN the system SHALL NOT narrow its lookahead from the profile.
+
+### Requirement 4
+
+**User Story:** As a feed consumer, I want Amtrak's official static GTFS and a separate platform add-on, so that track assignments stay valid without rewriting Amtrak's zip.
+
+#### Acceptance Criteria
+
+1. WHEN a generation is published THEN the system SHALL serve `official-static.zip` as the bytes downloaded from Amtrak, and SHALL serve `static.zip` as those bytes after the missing-stop repair and platform stops.
+2. WHEN the add-on changes `stops.txt` or `stop_times.txt` THEN the system SHALL put only those files and `addon.txt` in `platform-addon.zip`, and SHALL set `platform_addon_version` to `amtrak-platform-addon/v1` plus a digest.
+3. WHEN a consumer replaces each file named by the add-on's `files` line onto the official zip THEN the resulting GTFS files SHALL match `static.zip`.
+4. IF the vehicle-positions image is built THEN the system SHALL keep the Java validator in that image, and SHALL NOT add a fourth proxy container.

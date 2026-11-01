@@ -251,6 +251,9 @@ pub async fn artifact(
         return StatusCode::NOT_FOUND.into_response();
     };
     let (content_type, bytes) = artifact.bytes(&generation);
+    if bytes.is_empty() {
+        return StatusCode::NOT_FOUND.into_response();
+    }
     let interest = interest_from_query(raw_query.as_deref().unwrap_or(""));
     if matches!(artifact, Artifact::TripUpdates)
         && (!interest.trains.is_empty() || !interest.stations.is_empty())
@@ -487,6 +490,8 @@ fn readiness_response(
 fn manifest_json(manifest: &FeedSetManifest) -> Value {
     let ArtifactUrls {
         static_zip,
+        official_static_zip,
+        platform_addon_zip,
         trip_updates,
         vehicle_positions,
         alerts,
@@ -495,6 +500,7 @@ fn manifest_json(manifest: &FeedSetManifest) -> Value {
         "generation_id": manifest.generation_id.0,
         "generated_at_unix": manifest.generated_at_unix,
         "static_version": manifest.static_version,
+        "platform_addon_version": manifest.platform_addon_version,
         "source": manifest.source,
         "entity_counts": {
             "trip_updates": manifest.entity_counts.trip_updates,
@@ -503,6 +509,8 @@ fn manifest_json(manifest: &FeedSetManifest) -> Value {
         },
         "urls": {
             "static_zip": static_zip,
+            "official_static_zip": official_static_zip,
+            "platform_addon_zip": platform_addon_zip,
             "trip_updates": trip_updates,
             "vehicle_positions": vehicle_positions,
             "alerts": alerts,
@@ -513,6 +521,8 @@ fn manifest_json(manifest: &FeedSetManifest) -> Value {
 #[derive(Clone, Copy)]
 enum Artifact {
     Static,
+    OfficialStatic,
+    PlatformAddon,
     TripUpdates,
     VehiclePositions,
     Alerts,
@@ -524,6 +534,8 @@ impl FromStr for Artifact {
     fn from_str(value: &str) -> Result<Self, Self::Err> {
         match value {
             "static.zip" => Ok(Self::Static),
+            "official-static.zip" => Ok(Self::OfficialStatic),
+            "platform-addon.zip" => Ok(Self::PlatformAddon),
             "trip-updates.pb" => Ok(Self::TripUpdates),
             "vehicle-positions.pb" => Ok(Self::VehiclePositions),
             "alerts.pb" => Ok(Self::Alerts),
@@ -536,6 +548,8 @@ impl Artifact {
     fn bytes(self, generation: &PublishedGeneration) -> (&'static str, Arc<[u8]>) {
         match self {
             Self::Static => ("application/zip", generation.static_zip.clone()),
+            Self::OfficialStatic => ("application/zip", generation.official_zip.clone()),
+            Self::PlatformAddon => ("application/zip", generation.addon_zip.clone()),
             Self::TripUpdates => ("application/x-protobuf", generation.trip_updates.clone()),
             Self::VehiclePositions => (
                 "application/x-protobuf",
@@ -598,11 +612,11 @@ mod tests {
                 ..Default::default()
             });
             let candidate = GenerationBuilder::build(
-                Arc::new(StaticSnapshot {
-                    version: "STATIC-V1".into(),
-                    parsed: Arc::new(Gtfs::default()),
-                    zip: Arc::from(&b"PK fixture"[..]),
-                }),
+                Arc::new(StaticSnapshot::identical(
+                    "STATIC-V1",
+                    Arc::new(Gtfs::default()),
+                    Arc::from(&b"PK fixture"[..]),
+                )),
                 SelectedBatch {
                     source_name: "fixture",
                     batch: RtBatch {
@@ -768,11 +782,11 @@ mod tests {
         );
 
         let candidate = GenerationBuilder::build(
-            Arc::new(StaticSnapshot {
-                version: "STATIC-V2".into(),
-                parsed: Arc::new(Gtfs::default()),
-                zip: Arc::from(&b"PK fixture 2"[..]),
-            }),
+            Arc::new(StaticSnapshot::identical(
+                "STATIC-V2",
+                Arc::new(Gtfs::default()),
+                Arc::from(&b"PK fixture 2"[..]),
+            )),
             SelectedBatch {
                 source_name: "fixture",
                 batch: RtBatch {
@@ -818,8 +832,14 @@ mod tests {
         assert_eq!(manifest["generated_at_unix"], 100);
         assert_eq!(manifest["source"], "fixture");
         assert_eq!(manifest["entity_counts"]["trip_updates"], 0);
+        assert!(!manifest["platform_addon_version"]
+            .as_str()
+            .unwrap()
+            .is_empty());
         for (key, content_type, expected_prefix) in [
             ("static_zip", "application/zip", b"PK".as_slice()),
+            ("official_static_zip", "application/zip", b"PK".as_slice()),
+            ("platform_addon_zip", "application/zip", b"PK".as_slice()),
             ("trip_updates", "application/x-protobuf", b"\n".as_slice()),
             (
                 "vehicle_positions",

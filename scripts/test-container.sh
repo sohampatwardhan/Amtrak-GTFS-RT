@@ -147,13 +147,15 @@ peer_fetch() { # ip name url outfile
 manifest_key() {
   case "$1" in
     static.zip)           echo '.urls.static_zip' ;;
+    official-static.zip)  echo '.urls.official_static_zip' ;;
+    platform-addon.zip)   echo '.urls.platform_addon_zip' ;;
     trip-updates.pb)      echo '.urls.trip_updates' ;;
     vehicle-positions.pb) echo '.urls.vehicle_positions' ;;
     alerts.pb)            echo '.urls.alerts' ;;
     *) return 1 ;;
   esac
 }
-ARTIFACTS="static.zip trip-updates.pb vehicle-positions.pb alerts.pb"
+ARTIFACTS="static.zip official-static.zip platform-addon.zip trip-updates.pb vehicle-positions.pb alerts.pb"
 
 command -v docker >/dev/null || die "docker is required"
 docker image inspect "$IMAGE" >/dev/null 2>&1 || die "image not found: $IMAGE (build it first)"
@@ -257,7 +259,7 @@ TIME_TO_HEALTH=$((health_ts - started))
 pass "healthy in ${TIME_TO_HEALTH}s; /readyz=200 via allow-listed peer"
 
 # -----------------------------------------------------------------------------------------------
-step "fetch manifest and all four artifacts via the allow-listed peer"
+step "fetch manifest and the generation artifacts via the allow-listed peer"
 peer_fetch "$ALLOW_IP" "${ALLOW_PEER}-m" "http://${SVC_IP}:8080/v1/feed-set.json" "$WORKDIR/manifest.json"
 GEN_ID="$(jq -r '.generation_id' "$WORKDIR/manifest.json")"
 [ -n "$GEN_ID" ] && [ "$GEN_ID" != "null" ] || die "manifest has no generation_id"
@@ -279,6 +281,35 @@ for required in agency.txt stops.txt routes.txt trips.txt stop_times.txt; do
   grep -Fxq "$required" "$WORKDIR/static-entries.txt" || die "static.zip missing $required"
 done
 pass "static.zip integrity ok and contains core GTFS files ($(wc -l <"$WORKDIR/static-entries.txt" | tr -d ' ') entries)"
+
+step "official static zip stays untouched and the add-on rebuilds static.zip"
+addon_version="$(jq -r '.platform_addon_version' "$WORKDIR/manifest.json")"
+case "$addon_version" in
+  amtrak-platform-addon/v1*) ;;
+  *) die "platform_addon_version is $addon_version" ;;
+esac
+unzip -tqq "$WORKDIR/official-static.zip" || die "official-static.zip failed integrity check"
+unzip -tqq "$WORKDIR/platform-addon.zip" || die "platform-addon.zip failed integrity check"
+unzip -Z1 "$WORKDIR/official-static.zip" >"$WORKDIR/official-entries.txt"
+for required in agency.txt stops.txt routes.txt trips.txt stop_times.txt; do
+  grep -Fxq "$required" "$WORKDIR/official-entries.txt" || die "official-static.zip missing $required"
+done
+note="$(unzip -p "$WORKDIR/platform-addon.zip" addon.txt)"
+printf '%s\n' "$note" | grep -q '^schema=amtrak-platform-addon/v1$' || die "addon.txt schema missing"
+printf '%s\n' "$note" | grep -q "^version=${addon_version}$" || die "addon.txt version does not match the manifest"
+files="$(printf '%s\n' "$note" | sed -n 's/^files=//p')"
+if [ -n "$files" ]; then
+  IFS=',' read -r -a overlay <<<"$files"
+  for name in "${overlay[@]}"; do
+    unzip -p "$WORKDIR/static.zip" "$name" >"$WORKDIR/combined-member"
+    unzip -p "$WORKDIR/platform-addon.zip" "$name" >"$WORKDIR/addon-member"
+    cmp -s "$WORKDIR/combined-member" "$WORKDIR/addon-member" || die "add-on $name does not match static.zip"
+  done
+fi
+unzip -p "$WORKDIR/official-static.zip" trips.txt >"$WORKDIR/official-trips"
+unzip -p "$WORKDIR/static.zip" trips.txt >"$WORKDIR/combined-trips"
+cmp -s "$WORKDIR/official-trips" "$WORKDIR/combined-trips" || die "static.zip changed trips.txt"
+pass "official zip is intact; overlay files match static.zip"
 
 # Dependency-free GTFS-Realtime check: parse the wire format directly and require a FeedHeader
 # (field 1) carrying gtfs_realtime_version (its field 1). This decodes the bytes independently of

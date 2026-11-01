@@ -40,7 +40,7 @@ pub fn startup_banner(
         format!("  Feed set (start here)  {base}/v1/feed-set.json"),
         format!(
             "  Generation files       {base}/v1/generations/{{id}}/\
-             {{static.zip,trip-updates.pb,vehicle-positions.pb,alerts.pb}}"
+             {{static.zip,official-static.zip,platform-addon.zip,trip-updates.pb,vehicle-positions.pb,alerts.pb}}"
         ),
         format!("  Readiness              {base}/readyz"),
         format!("  Liveness               {base}/livez"),
@@ -98,6 +98,11 @@ pub fn generation_urls(base: &str, generation: &PublishedGeneration) -> String {
         format!("  Trip updates           {base}{}", urls.trip_updates),
         format!("  Alerts                 {base}{}", urls.alerts),
         format!("  Static schedule        {base}{}", urls.static_zip),
+        format!(
+            "  Official static GTFS   {base}{}",
+            urls.official_static_zip
+        ),
+        format!("  Platform add-on        {base}{}", urls.platform_addon_zip),
         "  Generation URLs change on every refresh; read the feed set for the current ones."
             .to_string(),
     ]
@@ -185,7 +190,7 @@ mod tests {
         assert!(off.contains("http://127.0.0.1:8080/v1/feed-set.json"));
         assert!(off.contains(
             "http://127.0.0.1:8080/v1/generations/{id}/\
-             {static.zip,trip-updates.pb,vehicle-positions.pb,alerts.pb}"
+             {static.zip,official-static.zip,platform-addon.zip,trip-updates.pb,vehicle-positions.pb,alerts.pb}"
         ));
         assert!(off.contains("http://127.0.0.1:8080/readyz"));
         assert!(off.contains("loopback clients only"));

@@ -256,19 +256,26 @@ async fn fetch_static_at(
         .bytes()
         .await
         .map_err(|_| StaticError("static body failed".into()))?;
-    let repaired = repair_static(bytes.as_ref());
-    let upstream = repaired.as_deref().unwrap_or(bytes.as_ref());
+    let official: Arc<[u8]> = Arc::from(bytes.to_vec());
+    let repaired = repair_static(official.as_ref());
+    let upstream = repaired.as_deref().unwrap_or(official.as_ref());
     for table in platforms {
-        if let Some(snapshot) = augmented_snapshot(upstream, table, validator, now).await {
+        if let Some(mut snapshot) = augmented_snapshot(upstream, table, validator, now).await {
+            stamp_official(&mut snapshot, official);
             return Ok(snapshot);
         }
     }
-    let zip: Arc<[u8]> = Arc::from(upstream);
-    let snapshot = snapshot_from_bytes(zip.clone(), now, None)?;
+    let zip: Arc<[u8]> = if repaired.is_some() {
+        Arc::from(repaired.unwrap())
+    } else {
+        official.clone()
+    };
+    let mut snapshot = snapshot_from_bytes(zip.clone(), now, None)?;
     validator
         .validate(zip)
         .await
         .map_err(|_| StaticError("static standards validation failed".into()))?;
+    stamp_official(&mut snapshot, official);
     Ok(snapshot)
 }
 
@@ -337,11 +344,20 @@ fn snapshot_from_bytes(
         .find(|version| !version.trim().is_empty())
         .map(str::to_owned)
         .unwrap_or_else(|| fallback_snapshot_version(now));
-    Ok(StaticSnapshot {
-        version: format!("{version}{}", suffix.unwrap_or_default()),
-        parsed: Arc::new(parsed),
+    Ok(StaticSnapshot::identical(
+        format!("{version}{}", suffix.unwrap_or_default()),
+        Arc::new(parsed),
         zip,
-    })
+    ))
+}
+
+/// Records the untouched download and the overlay that rebuilds `snapshot.zip`.
+fn stamp_official(snapshot: &mut StaticSnapshot, official: Arc<[u8]>) {
+    let (addon_zip, addon_version) =
+        crate::static_addon::build_addon(official.as_ref(), snapshot.zip.as_ref());
+    snapshot.official_zip = official;
+    snapshot.addon_zip = Arc::from(addon_zip);
+    snapshot.addon_version = addon_version;
 }
 
 /// An error and its sources, joined with `: `. GTFS parse errors name the file, id, or value that
@@ -377,11 +393,9 @@ pub fn recover_static(
     }
     let parsed = Gtfs::from_reader(Cursor::new(zip.clone()))
         .map_err(|_| StaticError("recovered static parse failed".into()))?;
-    Ok(StaticSnapshotState::new(Arc::new(StaticSnapshot {
-        version: committed_version,
-        parsed: Arc::new(parsed),
-        zip,
-    })))
+    Ok(StaticSnapshotState::new(Arc::new(
+        StaticSnapshot::identical(committed_version, Arc::new(parsed), zip),
+    )))
 }
 
 fn fallback_snapshot_version(now: SystemTime) -> String {

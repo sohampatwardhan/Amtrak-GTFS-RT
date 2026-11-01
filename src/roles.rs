@@ -289,6 +289,7 @@ impl GenerationCommitter for FleetCommitter {
             id: id.clone(),
             generated_at_unix: candidate.generated_at_unix,
             static_version: candidate.static_snapshot.version.clone(),
+            addon_version: candidate.static_snapshot.addon_version.clone(),
         };
         cohort::write_fleet(
             &self.output_dir,
@@ -297,6 +298,8 @@ impl GenerationCommitter for FleetCommitter {
             &candidate.vehicle_positions,
             &candidate.alerts,
             &candidate.static_snapshot.zip,
+            &candidate.static_snapshot.official_zip,
+            &candidate.static_snapshot.addon_zip,
         )
         .map_err(|error| PublishError(error.to_string()))?;
         Ok(Arc::new(PublishedGeneration {
@@ -306,6 +309,8 @@ impl GenerationCommitter for FleetCommitter {
                 crate::orchestrator::ArtifactUrls::default(),
             ),
             static_zip: candidate.static_snapshot.zip.clone(),
+            official_zip: candidate.static_snapshot.official_zip.clone(),
+            addon_zip: candidate.static_snapshot.addon_zip.clone(),
             trip_updates: candidate.trip_updates.clone(),
             vehicle_positions: candidate.vehicle_positions.clone(),
             alerts: candidate.alerts.clone(),
@@ -341,10 +346,15 @@ async fn assemble_one(
     let meta = cohort::read_meta(output_dir, id)?;
     let zip = std::fs::read(cohort::fleet_file(output_dir, id, "static.zip"))
         .map_err(|error| error.to_string())?;
-    let snapshot = recover_static(Arc::<[u8]>::from(zip), meta.static_version.clone())
+    let mut snapshot = recover_static(Arc::<[u8]>::from(zip), meta.static_version.clone())
         .map_err(|error| error.to_string())?
         .active()
         .await;
+    let official = std::fs::read(cohort::fleet_file(output_dir, id, "official-static.zip"))
+        .map_err(|error| error.to_string())?;
+    let addon = std::fs::read(cohort::fleet_file(output_dir, id, "platform-addon.zip"))
+        .map_err(|error| error.to_string())?;
+    snapshot = retarget_static(snapshot, official, addon, meta.addon_version.clone());
     let vehicles = decode_feed(&cohort::fleet_file(output_dir, id, "vehicle-positions.pb"))?;
     let stamped = decode_feed(&cohort::contribution_file(
         output_dir,
@@ -428,6 +438,38 @@ async fn write_alerts(
     }
     cohort::write_contribution(output_dir, id, "alerts.pb", &message.encode_to_vec())
         .map_err(|error| error.to_string())
+}
+
+fn retarget_static(
+    snapshot: Arc<crate::orchestrator::StaticSnapshot>,
+    official: Vec<u8>,
+    addon: Vec<u8>,
+    addon_version: String,
+) -> Arc<crate::orchestrator::StaticSnapshot> {
+    let crate::orchestrator::StaticSnapshot {
+        version,
+        parsed,
+        zip,
+        ..
+    } = match Arc::try_unwrap(snapshot) {
+        Ok(value) => value,
+        Err(shared) => crate::orchestrator::StaticSnapshot {
+            version: shared.version.clone(),
+            parsed: Arc::clone(&shared.parsed),
+            zip: Arc::clone(&shared.zip),
+            official_zip: Arc::clone(&shared.official_zip),
+            addon_zip: Arc::clone(&shared.addon_zip),
+            addon_version: shared.addon_version.clone(),
+        },
+    };
+    Arc::new(crate::orchestrator::StaticSnapshot {
+        version,
+        parsed,
+        zip,
+        official_zip: Arc::from(official),
+        addon_zip: Arc::from(addon),
+        addon_version,
+    })
 }
 
 fn decode_feed(path: &std::path::Path) -> Result<FeedMessage, String> {

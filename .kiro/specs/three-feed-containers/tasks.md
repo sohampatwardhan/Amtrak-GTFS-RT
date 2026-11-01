@@ -28,6 +28,10 @@
   - Three images, `cargo doc -D warnings`, AGENTS.md matches the tree.
   - _Requirements: 1.1, 2.3_
 
+- [x] 6. Official static zip and platform add-on
+  - Serve the untouched download, the overlay, and the existing combined `static.zip`. Keep the validator in the positions image. Do not add a proxy.
+  - _Requirements: 4.1, 4.2, 4.3, 4.4_
+
 ## Task graph
 
 Arrows mean depends-on. Critical path is the publication gate through cached HTTP. Profile parsing can proceed beside the snapshot once the library exists.
@@ -54,6 +58,7 @@ flowchart TB
   end
   subgraph phase4 [Phase 4 Packaging]
     t5["5. Compose bake CI and docs"]
+    t6["6. Official zip and platform add-on"]
   end
   subgraph legend [Legend]
     legCrit["Critical path"]
@@ -67,10 +72,11 @@ flowchart TB
   t41 --> t42
   t3 --> t42
   t42 --> t5
+  t5 --> t6
   classDef critical fill:#fde68a,stroke:#b45309,color:#1c1917
   classDef parallel fill:#dbeafe,stroke:#1d4ed8,color:#1e3a8a
   classDef blocked fill:#fecaca,stroke:#b91c1c,color:#7f1d1d
-  class t1,t21,t22,t3,t42,t5 critical
+  class t1,t21,t22,t3,t42,t5,t6 critical
   class t41 parallel
   class legCrit critical
   class legPar parallel
