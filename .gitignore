@@ -1,5 +1,6 @@
 /target
 /out
+/tools/*.jar
 .DS_Store
 .env
 .env.*
