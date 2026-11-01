@@ -256,19 +256,26 @@ async fn fetch_static_at(
         .bytes()
         .await
         .map_err(|_| StaticError("static body failed".into()))?;
-    let repaired = repair_static(bytes.as_ref());
-    let upstream = repaired.as_deref().unwrap_or(bytes.as_ref());
+    let official: Arc<[u8]> = Arc::from(bytes.to_vec());
+    let repaired = repair_static(official.as_ref());
+    let upstream = repaired.as_deref().unwrap_or(official.as_ref());
     for table in platforms {
-        if let Some(snapshot) = augmented_snapshot(upstream, table, validator, now).await {
+        if let Some(mut snapshot) = augmented_snapshot(upstream, table, validator, now).await {
+            stamp_official(&mut snapshot, official);
             return Ok(snapshot);
         }
     }
-    let zip: Arc<[u8]> = Arc::from(upstream);
-    let snapshot = snapshot_from_bytes(zip.clone(), now, None)?;
+    let zip: Arc<[u8]> = if repaired.is_some() {
+        Arc::from(repaired.unwrap())
+    } else {
+        official.clone()
+    };
+    let mut snapshot = snapshot_from_bytes(zip.clone(), now, None)?;
     validator
         .validate(zip)
         .await
         .map_err(|_| StaticError("static standards validation failed".into()))?;
+    stamp_official(&mut snapshot, official);
     Ok(snapshot)
 }
 
@@ -337,11 +344,20 @@ fn snapshot_from_bytes(
         .find(|version| !version.trim().is_empty())
         .map(str::to_owned)
         .unwrap_or_else(|| fallback_snapshot_version(now));
-    Ok(StaticSnapshot {
-        version: format!("{version}{}", suffix.unwrap_or_default()),
-        parsed: Arc::new(parsed),
+    Ok(StaticSnapshot::identical(
+        format!("{version}{}", suffix.unwrap_or_default()),
+        Arc::new(parsed),
         zip,
-    })
+    ))
+}
+
+/// Records the untouched download and the overlay that rebuilds `snapshot.zip`.
+fn stamp_official(snapshot: &mut StaticSnapshot, official: Arc<[u8]>) {
+    let (addon_zip, addon_version) =
+        crate::static_addon::build_addon(official.as_ref(), snapshot.zip.as_ref());
+    snapshot.official_zip = official;
+    snapshot.addon_zip = Arc::from(addon_zip);
+    snapshot.addon_version = addon_version;
 }
 
 /// An error and its sources, joined with `: `. GTFS parse errors name the file, id, or value that
@@ -377,11 +393,9 @@ pub fn recover_static(
     }
     let parsed = Gtfs::from_reader(Cursor::new(zip.clone()))
         .map_err(|_| StaticError("recovered static parse failed".into()))?;
-    Ok(StaticSnapshotState::new(Arc::new(StaticSnapshot {
-        version: committed_version,
-        parsed: Arc::new(parsed),
-        zip,
-    })))
+    Ok(StaticSnapshotState::new(Arc::new(
+        StaticSnapshot::identical(committed_version, Arc::new(parsed), zip),
+    )))
 }
 
 fn fallback_snapshot_version(now: SystemTime) -> String {
@@ -562,7 +576,7 @@ fn platform_refresh_delay(
 /// Periodically stages standards-valid replacements without publishing them.
 ///
 /// With `platforms`, a newly observed track also wakes this loop (after a debounce, and at most
-/// once per [`PLATFORM_REFRESH_MIN_GAP`]) so the platform stop is published before the next daily
+/// once per 10 minutes) so the platform stop is published before the next daily
 /// static poll. Each staged snapshot also refreshes which stations may be observed.
 ///
 /// The first attempt waits one `interval`, except when the active snapshot was built for a
@@ -605,6 +619,9 @@ pub async fn run_snapshot_refresh(
             }
         } else {
             ticker.tick().await;
+        }
+        if let Some(platforms) = &platforms {
+            platforms.reload_observed();
         }
         let tables = platforms
             .as_ref()
@@ -669,12 +686,29 @@ async fn validate_with_mobility_data(
             .arg("--skip_validator_update")
             .stdout(Stdio::null())
             .stderr(Stdio::null());
-        run_command_bounded(&mut command, timeout).await?;
-        let report = std::fs::read(report_dir.join("report.json"))
-            .map_err(|error| StaticValidationError(format!("validator report missing: {error}")))?;
-        validate_report(&report)
+        let command_result = run_command_bounded(&mut command, timeout).await;
+        let report = std::fs::read(report_dir.join("report.json")).ok();
+        validator_outcome(command_result, report.as_deref())
     }
     .await
+}
+
+/// Decides whether a validator run is acceptable.
+///
+/// OGNL 3.4.13 removes `ognl.DefaultMemberAccess`. Thymeleaf 3.0, which writes the HTML report,
+/// aborts after `report.json` is already complete, and the process exits non-zero. The JSON report
+/// is the acceptance gate: zero `ERROR` notices pass, even when that HTML export crashes.
+fn validator_outcome(
+    command: Result<(), StaticValidationError>,
+    report: Option<&[u8]>,
+) -> Result<(), StaticValidationError> {
+    if let Some(bytes) = report {
+        return validate_report(bytes);
+    }
+    match command {
+        Err(error) => Err(error),
+        Ok(()) => Err(StaticValidationError("validator report missing".into())),
+    }
 }
 
 struct TemporaryDirectoryGuard(PathBuf);
@@ -859,6 +893,28 @@ mod tests {
         assert!(validate_report(br#"{"notices":[]}"#).is_ok());
         assert!(validate_report(br#"{"notices":[{"severity":"WARNING"}]}"#).is_ok());
         assert!(validate_report(br#"{"notices":[{"severity":"ERROR"}]}"#).is_err());
+        let clean = br#"{"notices":[{"severity":"WARNING"}]}"#;
+        assert!(validator_outcome(
+            Err(StaticValidationError(
+                "validator exited unsuccessfully".into()
+            )),
+            Some(clean),
+        )
+        .is_ok());
+        assert!(validator_outcome(
+            Err(StaticValidationError(
+                "validator exited unsuccessfully".into()
+            )),
+            Some(br#"{"notices":[{"severity":"ERROR"}]}"#),
+        )
+        .is_err());
+        assert!(validator_outcome(
+            Err(StaticValidationError(
+                "validator exited unsuccessfully".into()
+            )),
+            None,
+        )
+        .is_err());
         assert!(validate_report(br#"{}"#).is_err());
         assert!(validate_report(b"not-json").is_err());
     }

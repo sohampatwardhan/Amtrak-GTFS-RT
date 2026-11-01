@@ -39,80 +39,94 @@
 name: amtrak-gtfs-rt
 
 services:
-  advisory-fetcher:
-    build:
-      context: ./advisory-fetcher
-      dockerfile: Dockerfile
-      args:
-        BROWSER_BUNDLE: ${FETCHER_BROWSER_BUNDLE:-headless-shell}
-    image: ghcr.io/sohampatwardhan/amtrak-gtfs-rt-advisory-fetcher:${AMTRAK_IMAGE_TAG:-0.7.1}
-    restart: unless-stopped
-    # Chromium is launched with --disable-dev-shm-usage, so it does not need a 1 GB /dev/shm.
-    shm_size: "64mb"
-    environment:
-      POLL_INTERVAL_SECS: "900"
-      BROWSER_MODE: ${FETCHER_BROWSER_MODE:-headless-shell}
-      BLOCK_SUBRESOURCES: "true"
-    volumes:
-      - advisory-snapshots:/snapshot
-    networks: [amtrak]
-
-  track-fetcher:
-    build:
-      context: ./track-fetcher
-      dockerfile: Dockerfile
-      args:
-        BROWSER_BUNDLE: ${FETCHER_BROWSER_BUNDLE:-headless-shell}
-    image: ghcr.io/sohampatwardhan/amtrak-gtfs-rt-track-fetcher:${AMTRAK_IMAGE_TAG:-0.7.1}
-    restart: unless-stopped
-    shm_size: "64mb"
-    # Chromium runs Amtrak's page scripts without its own sandbox, so the container is the
-    # boundary: read-only root, no capabilities, bounded memory and processes, and no published
-    # port (only amtrak-gtfs-rt reaches it on the internal network).
-    read_only: true
-    tmpfs:
-      - /tmp
-      - /home/fetcher
-    cap_drop: [ALL]
-    security_opt: ["no-new-privileges:true"]
-    init: true
-    mem_limit: 768m
-    pids_limit: 256
-    environment:
-      POLL_INTERVAL_SECS: "60"
-      BROWSER_MODE: ${FETCHER_BROWSER_MODE:-headless-shell}
-      BLOCK_SUBRESOURCES: "true"
-      BLOCK_THIRD_PARTY: "true"
-    networks: [amtrak]
-
-  amtrak-gtfs-rt:
+  vehicle-positions:
     build:
       context: .
       dockerfile: Dockerfile
       target: runtime
     image: ghcr.io/sohampatwardhan/amtrak-gtfs-rt:${AMTRAK_IMAGE_TAG:-0.7.1}
     restart: unless-stopped
-    depends_on: [advisory-fetcher]
     environment:
-      AMTRAK_ADVISORIES: "on"
-      AMTRAK_ADVISORIES_URL: http://advisory-fetcher:8080/service-alerts-and-notices
-      # On unless the operator sets `off`.
+      AMTRAK_ROLE: vehicle-positions
       AMTRAK_TRACKS: ${AMTRAK_TRACKS:-on}
-      # Amtrak's own track numbers and gates, from the track-fetcher sidecar. Read only while
-      # tracks are on. Set it explicitly empty to skip Amtrak's status and use only the other boards.
-      AMTRAK_TRACKS_AMTRAK_URL: ${AMTRAK_TRACKS_AMTRAK_URL-http://track-fetcher:8081/tracks.json}
-      # Published on host loopback port 8090 (8080 is often taken on the host).
-      # The container sees that traffic from the bridge gateway of the pinned
-      # subnet below, not from 127.0.0.1.
+      AMTRAK_TRACKS_AMTRAK_URL: ""
       AMTRAK_BIND_ADDR: 0.0.0.0:8080
-      AMTRAK_ALLOWED_PEER_IPS: 172.31.240.1
-      # What the startup banner prints as the base URL; the container cannot see the host port.
+      # 172.31.240.1 is the Compose gateway (the host). 172.31.240.10 is the optional
+      # proxy. The service still ignores X-Forwarded-For and serves 127.0.0.1:8090 directly.
+      AMTRAK_ALLOWED_PEER_IPS: 172.31.240.1,172.31.240.10
       AMTRAK_PUBLIC_URL: http://127.0.0.1:8090
     ports:
       - "127.0.0.1:8090:8080"
     volumes:
       - amtrak-data:/data
     networks: [amtrak]
+
+  trip-updates:
+    build:
+      context: .
+      dockerfile: trip-updates.Dockerfile
+      args:
+        BROWSER_BUNDLE: ${FETCHER_BROWSER_BUNDLE:-headless-shell}
+    image: ghcr.io/sohampatwardhan/amtrak-gtfs-rt-trip-updates:${AMTRAK_IMAGE_TAG:-0.7.1}
+    restart: unless-stopped
+    shm_size: "64mb"
+    init: true
+    mem_limit: 768m
+    pids_limit: 256
+    environment:
+      AMTRAK_ROLE: trip-updates
+      AMTRAK_TRACKS: ${AMTRAK_TRACKS:-on}
+      AMTRAK_TRACKS_AMTRAK_URL: http://127.0.0.1:8081/tracks.json
+      AMTRAK_TRACKS_BASE_INTERVAL_SECS: "900"
+      POLL_INTERVAL_SECS: "60"
+      BROWSER_MODE: ${FETCHER_BROWSER_MODE:-headless-shell}
+      BLOCK_SUBRESOURCES: "true"
+      BLOCK_THIRD_PARTY: "true"
+    volumes:
+      - amtrak-data:/data
+    networks: [amtrak]
+
+  alerts:
+    build:
+      context: .
+      dockerfile: alerts.Dockerfile
+      args:
+        BROWSER_BUNDLE: ${FETCHER_BROWSER_BUNDLE:-headless-shell}
+    image: ghcr.io/sohampatwardhan/amtrak-gtfs-rt-alerts:${AMTRAK_IMAGE_TAG:-0.7.1}
+    restart: unless-stopped
+    shm_size: "64mb"
+    environment:
+      AMTRAK_ROLE: alerts
+      AMTRAK_ADVISORIES: "on"
+      AMTRAK_ADVISORIES_URL: http://127.0.0.1:8080/service-alerts-and-notices
+      POLL_INTERVAL_SECS: "900"
+      BROWSER_MODE: ${FETCHER_BROWSER_MODE:-headless-shell}
+      BLOCK_SUBRESOURCES: "true"
+    volumes:
+      - amtrak-data:/data
+    networks: [amtrak]
+
+  # Optional edge. Off unless started with `docker compose --profile proxy up`.
+  # Vehicle-positions keeps publishing 127.0.0.1:8090. This does not replace it.
+  proxy:
+    profiles: ["proxy"]
+    build:
+      context: proxy
+    image: amtrak-gtfs-rt-proxy:${AMTRAK_IMAGE_TAG:-0.7.1}
+    restart: unless-stopped
+    depends_on:
+      - vehicle-positions
+    environment:
+      AMTRAK_PROXY_TLS: ${AMTRAK_PROXY_TLS:-off}
+      AMTRAK_PROXY_DOMAIN: ${AMTRAK_PROXY_DOMAIN:-}
+      AMTRAK_PROXY_RATE_EVENTS: ${AMTRAK_PROXY_RATE_EVENTS:-120}
+      AMTRAK_PROXY_RATE_WINDOW: ${AMTRAK_PROXY_RATE_WINDOW:-1m}
+    ports:
+      - "127.0.0.1:8091:8080"
+      - "127.0.0.1:8443:8443"
+    networks:
+      amtrak:
+        ipv4_address: 172.31.240.10
 
 networks:
   amtrak:

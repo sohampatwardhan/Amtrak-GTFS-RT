@@ -38,6 +38,11 @@ jobs:
         # deterministic and offline. They run in the validate-feeds workflow.
         run: cargo test --verbose
 
+      - name: Rustdoc
+        run: cargo doc --locked --no-deps
+        env:
+          RUSTDOCFLAGS: -D warnings
+
   advisory-fetcher-tests:
     name: Advisory fetcher offline tests
     # ubuntu-latest moved to 26.04, which has no CPython 3.12.11 build. Stay on 24.04,
@@ -170,4 +175,5 @@ jobs:
         run: |
           docker compose -f docker-compose.yml config >/dev/null
           docker compose -f advisory-fetcher/docker-compose.yml config >/dev/null
+          scripts/test-proxy-compose.sh
           docker buildx bake --print >/dev/null

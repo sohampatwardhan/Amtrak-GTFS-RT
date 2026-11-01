@@ -146,7 +146,7 @@ Train  Service date  Station  Side       Track  Gate  Scheduled                 
 ```
 
 `--json` prints one object per track instead. Locally it needs Playwright and its headless shell
-(`python -m pip install playwright==1.64.0`, then `python -m playwright install --only-shell
+(`python -m pip install playwright==1.64.1`, then `python -m playwright install --only-shell
 chromium`). The image already has both:
 
 ```bash

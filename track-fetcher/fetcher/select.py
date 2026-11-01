@@ -44,6 +44,7 @@ class DueTrain:
     soonest_secs: float
     next_secs: float | None = None
     upcoming: frozenset[str] = frozenset()
+    hot_limit: float | None = None
 
     @property
     def key(self) -> tuple[str, str]:
@@ -56,6 +57,8 @@ def due_trains(
     *,
     before: timedelta,
     after: timedelta,
+    lead=None,
+    hot: timedelta | None = None,
 ) -> list[DueTrain]:
     """Trains with a rail stop whose ETA is between ``now - after`` and ``now + before``.
 
@@ -66,6 +69,7 @@ def due_trains(
         raise ValueError("now must be timezone-aware")
     before_secs = before.total_seconds()
     after_secs = after.total_seconds()
+    default_hot = hot.total_seconds() if hot is not None else None
     found: dict[tuple[str, str], DueTrain] = {}
     for feature in geojson.get("features") or []:
         properties = feature.get("properties") or {}
@@ -76,18 +80,24 @@ def due_trains(
         distances: list[float] = []
         ahead: list[float] = []
         upcoming: set[str] = set()
+        hot_limits: list[float] = []
         for station in _stations(properties):
             if station.get("bus") is True:
                 continue
             code = _station_code(station)
+            station_before = (
+                lead.before_secs(code, before_secs) if lead is not None else before_secs
+            )
             for moment in _event_times(station):
                 delta = (moment - now).total_seconds()
-                if -after_secs <= delta <= before_secs:
+                if -after_secs <= delta <= station_before:
                     distances.append(abs(delta))
                     if delta >= 0:
                         ahead.append(delta)
                         if code is not None:
                             upcoming.add(code)
+                            if default_hot is not None and lead is not None:
+                                hot_limits.append(lead.hot_secs(code, default_hot))
         if not distances:
             continue
         train = DueTrain(
@@ -96,6 +106,7 @@ def due_trains(
             min(distances),
             min(ahead) if ahead else None,
             frozenset(upcoming),
+            min(hot_limits) if hot_limits else None,
         )
         current = found.get(train.key)
         if current is None or train.soonest_secs < current.soonest_secs:
@@ -105,7 +116,8 @@ def due_trains(
 
 def is_hot(train: DueTrain, tracked: Mapping[tuple[str, str], frozenset[str]], hot_secs: float) -> bool:
     """Whether ``train`` reaches a stop within ``hot_secs`` and an upcoming stop lacks a track."""
-    if train.next_secs is None or train.next_secs > hot_secs:
+    limit = train.hot_limit if train.hot_limit is not None else hot_secs
+    if train.next_secs is None or train.next_secs > limit:
         return False
     known = tracked.get(train.key, frozenset())
     return not train.upcoming or not train.upcoming <= known

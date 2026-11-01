@@ -11,11 +11,37 @@ use std::str::FromStr;
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-/// One accepted static schedule and the exact ZIP bytes that produced it.
+/// One accepted static schedule and the ZIP bytes published for it.
+///
+/// `zip` is the combined feed at `static.zip`. `official_zip` is Amtrak's download, byte for
+/// byte. `addon_zip` is the overlay that turns the official zip into `zip`.
 pub struct StaticSnapshot {
     pub version: String,
     pub parsed: Arc<Gtfs>,
     pub zip: Arc<[u8]>,
+    /// Untouched official GTFS download.
+    pub official_zip: Arc<[u8]>,
+    /// Overlay named by `addon_version`.
+    pub addon_zip: Arc<[u8]>,
+    /// `amtrak-platform-addon/v1`, plus a digest when the overlay changes a file.
+    pub addon_version: String,
+}
+
+impl StaticSnapshot {
+    /// A snapshot whose served ZIP is also the official ZIP.
+    ///
+    /// The add-on then changes no GTFS file. Tests and recovery of a combined-only ZIP use this.
+    pub fn identical(version: impl Into<String>, parsed: Arc<Gtfs>, zip: Arc<[u8]>) -> Self {
+        let (addon_zip, addon_version) = crate::static_addon::build_addon(&zip, &zip);
+        Self {
+            version: version.into(),
+            parsed,
+            zip: zip.clone(),
+            official_zip: zip,
+            addon_zip: Arc::from(addon_zip),
+            addon_version,
+        }
+    }
 }
 
 /// A non-empty realtime batch paired with the source that supplied it.
@@ -121,6 +147,10 @@ pub struct EntityCounts {
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct ArtifactUrls {
     pub static_zip: String,
+    /// Untouched official GTFS for this generation.
+    pub official_static_zip: String,
+    /// Platform and missing-stop overlay for this generation.
+    pub platform_addon_zip: String,
     pub trip_updates: String,
     pub vehicle_positions: String,
     pub alerts: String,
@@ -132,6 +162,8 @@ pub struct FeedSetManifest {
     pub generation_id: GenerationId,
     pub generated_at_unix: u64,
     pub static_version: String,
+    /// Version of the platform add-on that rebuilds `static.zip` from the official zip.
+    pub platform_addon_version: String,
     pub source: String,
     pub entity_counts: EntityCounts,
     pub urls: ArtifactUrls,
@@ -169,6 +201,7 @@ impl ValidatedGeneration {
             generation_id,
             generated_at_unix: self.generated_at_unix,
             static_version: self.static_snapshot.version.clone(),
+            platform_addon_version: self.static_snapshot.addon_version.clone(),
             source: self.source_name.to_string(),
             entity_counts: self.entity_counts,
             urls,
@@ -1085,11 +1118,11 @@ mod tests {
                 ..Default::default()
             },
         );
-        Arc::new(StaticSnapshot {
-            version: "STATIC-V1".into(),
-            parsed: Arc::new(gtfs),
-            zip: Arc::from(&b"zip"[..]),
-        })
+        Arc::new(StaticSnapshot::identical(
+            "STATIC-V1",
+            Arc::new(gtfs),
+            Arc::from(&b"zip"[..]),
+        ))
     }
 
     fn descriptor() -> TripDescriptor {
@@ -1235,6 +1268,8 @@ mod tests {
             GenerationId("generation-1".into()),
             ArtifactUrls {
                 static_zip: "/static.zip".into(),
+                official_static_zip: "/official-static.zip".into(),
+                platform_addon_zip: "/platform-addon.zip".into(),
                 trip_updates: "/trip-updates.pb".into(),
                 vehicle_positions: "/vehicle-positions.pb".into(),
                 alerts: "/alerts.pb".into(),
@@ -1588,11 +1623,11 @@ mod tests {
     }
 
     fn pending_snapshot(active: &Arc<StaticSnapshot>) -> Arc<StaticSnapshot> {
-        Arc::new(StaticSnapshot {
-            version: "STATIC-V2".into(),
-            parsed: active.parsed.clone(),
-            zip: Arc::from(&b"zip-v2"[..]),
-        })
+        Arc::new(StaticSnapshot::identical(
+            "STATIC-V2",
+            active.parsed.clone(),
+            Arc::from(&b"zip-v2"[..]),
+        ))
     }
 
     fn output_directory() -> PathBuf {
@@ -1746,11 +1781,7 @@ mod tests {
             .filter_map(|info| info.version.clone())
             .find(|value| !value.trim().is_empty())
             .unwrap();
-        let snapshot = Arc::new(StaticSnapshot {
-            version,
-            parsed: Arc::new(parsed),
-            zip,
-        });
+        let snapshot = Arc::new(StaticSnapshot::identical(version, Arc::new(parsed), zip));
         let sources: Vec<Box<dyn RtSource>> = vec![Box::new(AmtrakSource::new())];
         let selected = select_batch(&sources, &snapshot.parsed).await.unwrap();
         let candidate = GenerationBuilder::build(snapshot, selected, SystemTime::now()).unwrap();

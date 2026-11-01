@@ -975,11 +975,11 @@ mod tests {
             cfg(&url),
         );
         let batch = deco.fetch(&gtfs).await.unwrap();
-        let snapshot = std::sync::Arc::new(StaticSnapshot {
-            version: "FIXTURE".into(),
-            parsed: std::sync::Arc::new(gtfs),
-            zip: std::sync::Arc::from(&b"zip"[..]),
-        });
+        let snapshot = std::sync::Arc::new(StaticSnapshot::identical(
+            "FIXTURE",
+            std::sync::Arc::new(gtfs),
+            std::sync::Arc::from(&b"zip"[..]),
+        ));
         let candidate = GenerationBuilder::build(
             snapshot,
             SelectedBatch {

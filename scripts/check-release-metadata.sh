@@ -19,7 +19,7 @@ grep -Fqx 'license = "AGPL-3.0-only"' "$ROOT/Cargo.toml"
 test -s "$ROOT/THIRD_PARTY_LICENSES.html"
 
 # The root compose file and bake default to this release's GHCR images.
-for image in amtrak-gtfs-rt amtrak-gtfs-rt-advisory-fetcher amtrak-gtfs-rt-track-fetcher; do
+for image in amtrak-gtfs-rt amtrak-gtfs-rt-trip-updates amtrak-gtfs-rt-alerts; do
   grep -Fqx "    image: ghcr.io/sohampatwardhan/${image}:\${AMTRAK_IMAGE_TAG:-${VERSION}}" \
     "$ROOT/docker-compose.yml"
 done

@@ -1,0 +1,118 @@
+# syntax=docker/dockerfile:1
+FROM rust:1.96-alpine@sha256:a41f7740f8b45d45795624eec13a8b42263cc700f19f7e4e86e04d3dda08a479 AS rustbin
+RUN apk add --no-cache build-base ca-certificates openssl-dev openssl-libs-static pkgconf protobuf-dev
+WORKDIR /build
+COPY Cargo.toml Cargo.lock ./
+COPY src ./src
+RUN OPENSSL_STATIC=1 \
+    OPENSSL_LIB_DIR="$(pkg-config --variable=libdir openssl)" \
+    OPENSSL_INCLUDE_DIR="$(pkg-config --variable=includedir openssl)" \
+    cargo build --locked --release --bin amtrak-gtfs-rt-service \
+    && mkdir -p /out \
+    && cp /build/target/release/amtrak-gtfs-rt-service /out/amtrak-gtfs-rt-service
+
+# Track-fetcher image (linux/amd64 and linux/arm64, including Raspberry Pi).
+#
+# Same browser shape as advisory-fetcher: slim Debian Python plus Playwright's
+# chromium-headless-shell, or full Chromium and Xvfb too with BROWSER_BUNDLE=full. One process
+# stays up between polls. The maps train feed is decrypted in Python; only www.amtrak.com status
+# calls go through the browser.
+FROM python:3.12-slim-bookworm
+
+# 1.64.1 bundles Node 24.22.1. 1.64.0's Node 24.21.0 has fixable High advisories
+# (CVE-2026-105482, CVE-2026-105483, CVE-2026-106069, CVE-2026-111497) that fail the sidecar gate.
+ARG PLAYWRIGHT_VERSION=1.64.1
+# `headless-shell` (default) installs only chromium-headless-shell. `full` also installs full
+# Chromium and Xvfb for BROWSER_MODE=xvfb-headful, the fallback if Amtrak blocks the headless shell.
+# It makes the image larger, so build it only when that mode is needed:
+#   docker build --build-arg BROWSER_BUNDLE=full .
+ARG BROWSER_BUNDLE=headless-shell
+ARG CRYPTOGRAPHY_VERSION=50.0.2
+
+ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright \
+    PIP_NO_CACHE_DIR=1 \
+    PYTHONUNBUFFERED=1
+
+# Upgrade distro packages before the install. The release gate fails a fixable Critical or High,
+# and the python slim tag can lag Debian security updates.
+RUN apt-get update \
+    && apt-get upgrade --yes --no-install-recommends \
+    && apt-get install --yes --no-install-recommends \
+        ca-certificates \
+        fonts-liberation \
+        libasound2 \
+        libatk-bridge2.0-0 \
+        libatk1.0-0 \
+        libatspi2.0-0 \
+        libcairo2 \
+        libcups2 \
+        libdbus-1-3 \
+        libdrm2 \
+        libfontconfig1 \
+        libfreetype6 \
+        libgbm1 \
+        libglib2.0-0 \
+        libnspr4 \
+        libnss3 \
+        libpango-1.0-0 \
+        libx11-6 \
+        libxcb1 \
+        libxcomposite1 \
+        libxdamage1 \
+        libxext6 \
+        libxfixes3 \
+        libxkbcommon0 \
+        libxrandr2 \
+    && if [ "${BROWSER_BUNDLE}" = "full" ]; then \
+        apt-get install --yes --no-install-recommends xvfb; \
+    elif [ "${BROWSER_BUNDLE}" != "headless-shell" ]; then \
+        echo "BROWSER_BUNDLE must be headless-shell or full" >&2; exit 1; \
+    fi \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN pip install --no-cache-dir \
+        "playwright==${PLAYWRIGHT_VERSION}" \
+        "cryptography==${CRYPTOGRAPHY_VERSION}" \
+    && if [ "${BROWSER_BUNDLE}" = "full" ]; then \
+        python -m playwright install chromium \
+        && full="$(find /ms-playwright -type f -name chrome -path '*chrome-linux*' -print -quit)" \
+        && test -n "${full}" \
+        && ! ldd "${full}" | grep 'not found' \
+        && command -v Xvfb; \
+    else \
+        python -m playwright install --only-shell chromium; \
+    fi \
+    && shell="$(find /ms-playwright -type f \( -name chrome-headless-shell -o -name headless_shell \) -print -quit)" \
+    && test -n "${shell}" \
+    && ldd "${shell}" \
+    && ! ldd "${shell}" | grep 'not found' \
+    && useradd --create-home --uid 10001 fetcher \
+    && chmod -R a+rX /ms-playwright
+
+WORKDIR /app
+COPY track-fetcher/fetcher/ /app/fetcher/
+
+# Set by the release workflow; local builds keep the defaults.
+ARG OCI_VERSION=dev
+ARG OCI_REVISION=unknown
+
+LABEL org.opencontainers.image.title="Amtrak GTFS-RT track-fetcher" \
+      org.opencontainers.image.description="Amtrak train-status sidecar (tracks and boarding gates) for Amtrak GTFS-RT" \
+      org.opencontainers.image.source="https://github.com/sohampatwardhan/Amtrak-GTFS-RT" \
+      org.opencontainers.image.documentation="https://github.com/sohampatwardhan/Amtrak-GTFS-RT/tree/main/track-fetcher" \
+      org.opencontainers.image.licenses="AGPL-3.0-only" \
+      org.opencontainers.image.version="$OCI_VERSION" \
+      org.opencontainers.image.revision="$OCI_REVISION"
+
+USER fetcher
+EXPOSE 8081
+
+# /healthz turns 503 when no poll has finished within LIVENESS_SECS, or after three polls in a
+# row fail. A wedged loop and a feed Amtrak keeps rejecting are both restarted. It probes
+# loopback, so LISTEN_HOST must stay 0.0.0.0 or 127.0.0.1.
+HEALTHCHECK --interval=60s --timeout=10s --start-period=120s --retries=3 \
+    CMD ["python", "-c", "import os, urllib.request; urllib.request.urlopen('http://127.0.0.1:' + os.environ.get('LISTEN_PORT', '8081') + '/healthz', timeout=5)"]
+
+COPY --from=rustbin /out/amtrak-gtfs-rt-service /usr/local/bin/amtrak-gtfs-rt-service
+ENV AMTRAK_ROLE=trip-updates
+ENTRYPOINT ["/usr/local/bin/amtrak-gtfs-rt-service"]

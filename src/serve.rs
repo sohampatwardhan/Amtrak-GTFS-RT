@@ -2,8 +2,8 @@ use crate::config::{authorize, AccessDecision, AccessPolicy};
 use crate::orchestrator::{ArtifactUrls, FeedSetManifest, GenerationId};
 use crate::writer::{GenerationStore, PublishedGeneration};
 use axum::{
-    extract::{ConnectInfo, Path, State},
-    http::{header, StatusCode},
+    extract::{ConnectInfo, Path, RawQuery, State},
+    http::{header, HeaderMap, StatusCode},
     response::{IntoResponse, Response},
     routing::get,
     Json, Router,
@@ -13,6 +13,20 @@ use std::net::SocketAddr;
 use std::str::FromStr;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
+/// Train or station a feed client asked about.
+///
+/// Recording one does not fetch a track. A background scheduler drains these.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct TripInterest {
+    /// Train numbers from a `train` query, comma-separated in the request.
+    pub trains: Vec<String>,
+    /// Station codes from a `station` query.
+    pub stations: Vec<String>,
+}
+
+/// Called after a trip-update response is chosen, never before it is returned.
+pub type TripInterestHook = Arc<dyn Fn(TripInterest) + Send + Sync>;
 
 /// Injectable wall clock used to make freshness boundaries deterministic.
 pub trait Clock: Send + Sync {
@@ -41,6 +55,8 @@ pub struct AppState {
     pub access_policy: AccessPolicy,
     pub freshness_limit: Duration,
     pub clock: Arc<dyn Clock>,
+    /// Background hint recorded when a client names a train or station.
+    pub trip_interest: TripInterestHook,
 }
 
 impl AppState {
@@ -67,7 +83,22 @@ impl AppState {
             access_policy,
             freshness_limit,
             clock,
+            trip_interest: Arc::new(|_interest| {}),
         }
+    }
+
+    /// Replaces the trip-interest hook.
+    ///
+    /// # Arguments
+    ///
+    /// * `hook` - Invoked from a spawned task so the HTTP response does not wait.
+    ///
+    /// # Returns
+    ///
+    /// The same state, for chaining.
+    pub fn with_trip_interest(mut self, hook: TripInterestHook) -> Self {
+        self.trip_interest = hook;
+        self
     }
 }
 
@@ -197,6 +228,8 @@ pub async fn artifact(
     State(state): State<AppState>,
     peer: Peer,
     Path((id, artifact)): Path<(String, String)>,
+    RawQuery(raw_query): RawQuery,
+    headers: HeaderMap,
 ) -> Response {
     if let Some(response) = denied_peer(
         &state.access_policy,
@@ -218,12 +251,210 @@ pub async fn artifact(
         return StatusCode::NOT_FOUND.into_response();
     };
     let (content_type, bytes) = artifact.bytes(&generation);
+    if bytes.is_empty() {
+        return StatusCode::NOT_FOUND.into_response();
+    }
+    let interest = interest_from_query(raw_query.as_deref().unwrap_or(""));
+    if matches!(artifact, Artifact::TripUpdates)
+        && (!interest.trains.is_empty() || !interest.stations.is_empty())
+    {
+        let hook = state.trip_interest.clone();
+        tokio::spawn(async move {
+            hook(interest);
+        });
+    }
+    cached_bytes(
+        content_type,
+        bytes.as_ref(),
+        generation.manifest.generated_at_unix,
+        &headers,
+    )
+}
+
+fn interest_from_query(query: &str) -> TripInterest {
+    let mut trains = String::new();
+    let mut stations = String::new();
+    for pair in query.split('&') {
+        let Some((key, value)) = pair.split_once('=') else {
+            continue;
+        };
+        let value = value.replace('+', " ");
+        if key == "train" {
+            trains = value;
+        } else if key == "station" {
+            stations = value;
+        }
+    }
+    let split = |value: &str| {
+        value
+            .split(|byte: char| byte == ',' || byte.is_whitespace())
+            .filter(|item| !item.is_empty())
+            .map(str::to_string)
+            .collect::<Vec<_>>()
+    };
+    TripInterest {
+        trains: split(&trains),
+        stations: split(&stations),
+    }
+}
+
+fn cached_bytes(
+    content_type: &'static str,
+    bytes: &[u8],
+    modified_unix: u64,
+    headers: &HeaderMap,
+) -> Response {
+    use sha2::{Digest, Sha256};
+    let mut hasher = Sha256::new();
+    hasher.update(bytes);
+    let etag = format!("\"{}\"", hex_encode(&hasher.finalize()));
+    let modified = http_date(modified_unix);
+    if headers
+        .get(header::IF_NONE_MATCH)
+        .and_then(|value| value.to_str().ok())
+        .is_some_and(|value| value.split(',').any(|part| part.trim() == etag))
+        || headers
+            .get(header::IF_MODIFIED_SINCE)
+            .and_then(|value| value.to_str().ok())
+            .and_then(parse_http_date)
+            .is_some_and(|since| since >= modified_unix)
+    {
+        return (
+            StatusCode::NOT_MODIFIED,
+            [
+                (header::ETAG, etag),
+                (header::LAST_MODIFIED, modified),
+                (header::CACHE_CONTROL, "private, no-cache".to_string()),
+            ],
+        )
+            .into_response();
+    }
     (
         StatusCode::OK,
-        [(header::CONTENT_TYPE, content_type)],
-        bytes.as_ref().to_vec(),
+        [
+            (header::CONTENT_TYPE, content_type.to_string()),
+            (header::ETAG, etag),
+            (header::LAST_MODIFIED, modified),
+            (header::CACHE_CONTROL, "private, no-cache".to_string()),
+        ],
+        bytes.to_vec(),
     )
         .into_response()
+}
+
+fn hex_encode(bytes: &[u8]) -> String {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    let mut out = String::with_capacity(bytes.len() * 2);
+    for byte in bytes {
+        out.push(HEX[(byte >> 4) as usize] as char);
+        out.push(HEX[(byte & 0x0f) as usize] as char);
+    }
+    out
+}
+
+fn http_date(unix: u64) -> String {
+    let days = unix / 86_400;
+    let seconds = unix % 86_400;
+    let weekday = ["Thu", "Fri", "Sat", "Sun", "Mon", "Tue", "Wed"][(days % 7) as usize];
+    let (year, month, day) = civil_date(days);
+    let month_name = [
+        "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+    ][month as usize - 1];
+    format!(
+        "{weekday}, {day:02} {month_name} {year:04} {:02}:{:02}:{:02} GMT",
+        seconds / 3600,
+        (seconds % 3600) / 60,
+        seconds % 60
+    )
+}
+
+fn civil_date(mut days: u64) -> (i32, u32, u32) {
+    let mut year = 1970;
+    loop {
+        let year_days = if is_leap(year) { 366 } else { 365 };
+        if days < year_days {
+            break;
+        }
+        days -= year_days;
+        year += 1;
+    }
+    let months: [u64; 12] = [
+        31,
+        if is_leap(year) { 29 } else { 28 },
+        31,
+        30,
+        31,
+        30,
+        31,
+        31,
+        30,
+        31,
+        30,
+        31,
+    ];
+    let mut month = 1u32;
+    for length in months {
+        if days < length {
+            return (year, month, days as u32 + 1);
+        }
+        days -= length;
+        month += 1;
+    }
+    (year, 12, 31)
+}
+
+fn is_leap(year: i32) -> bool {
+    year % 4 == 0 && (year % 100 != 0 || year % 400 == 0)
+}
+
+fn parse_http_date(value: &str) -> Option<u64> {
+    let mut parts = value.split_whitespace();
+    let _weekday = parts.next()?;
+    let day: u64 = parts.next()?.trim_end_matches(',').parse().ok()?;
+    let month = match parts.next()? {
+        "Jan" => 1,
+        "Feb" => 2,
+        "Mar" => 3,
+        "Apr" => 4,
+        "May" => 5,
+        "Jun" => 6,
+        "Jul" => 7,
+        "Aug" => 8,
+        "Sep" => 9,
+        "Oct" => 10,
+        "Nov" => 11,
+        "Dec" => 12,
+        _ => return None,
+    };
+    let year: i32 = parts.next()?.parse().ok()?;
+    let time = parts.next()?;
+    let mut clock = time.split(':');
+    let hour: u64 = clock.next()?.parse().ok()?;
+    let minute: u64 = clock.next()?.parse().ok()?;
+    let second: u64 = clock.next()?.parse().ok()?;
+    let mut days = 0u64;
+    for past in 1970..year {
+        days += if is_leap(past) { 366 } else { 365 };
+    }
+    let months: [u64; 12] = [
+        31,
+        if is_leap(year) { 29 } else { 28 },
+        31,
+        30,
+        31,
+        30,
+        31,
+        31,
+        30,
+        31,
+        30,
+        31,
+    ];
+    for length in months.iter().take((month - 1) as usize) {
+        days += u64::from(*length);
+    }
+    days += day - 1;
+    Some(days * 86_400 + hour * 3600 + minute * 60 + second)
 }
 
 fn denied_peer(policy: &AccessPolicy, peer: Peer, route: &'static str) -> Option<Response> {
@@ -259,6 +490,8 @@ fn readiness_response(
 fn manifest_json(manifest: &FeedSetManifest) -> Value {
     let ArtifactUrls {
         static_zip,
+        official_static_zip,
+        platform_addon_zip,
         trip_updates,
         vehicle_positions,
         alerts,
@@ -267,6 +500,7 @@ fn manifest_json(manifest: &FeedSetManifest) -> Value {
         "generation_id": manifest.generation_id.0,
         "generated_at_unix": manifest.generated_at_unix,
         "static_version": manifest.static_version,
+        "platform_addon_version": manifest.platform_addon_version,
         "source": manifest.source,
         "entity_counts": {
             "trip_updates": manifest.entity_counts.trip_updates,
@@ -275,6 +509,8 @@ fn manifest_json(manifest: &FeedSetManifest) -> Value {
         },
         "urls": {
             "static_zip": static_zip,
+            "official_static_zip": official_static_zip,
+            "platform_addon_zip": platform_addon_zip,
             "trip_updates": trip_updates,
             "vehicle_positions": vehicle_positions,
             "alerts": alerts,
@@ -285,6 +521,8 @@ fn manifest_json(manifest: &FeedSetManifest) -> Value {
 #[derive(Clone, Copy)]
 enum Artifact {
     Static,
+    OfficialStatic,
+    PlatformAddon,
     TripUpdates,
     VehiclePositions,
     Alerts,
@@ -296,6 +534,8 @@ impl FromStr for Artifact {
     fn from_str(value: &str) -> Result<Self, Self::Err> {
         match value {
             "static.zip" => Ok(Self::Static),
+            "official-static.zip" => Ok(Self::OfficialStatic),
+            "platform-addon.zip" => Ok(Self::PlatformAddon),
             "trip-updates.pb" => Ok(Self::TripUpdates),
             "vehicle-positions.pb" => Ok(Self::VehiclePositions),
             "alerts.pb" => Ok(Self::Alerts),
@@ -308,6 +548,8 @@ impl Artifact {
     fn bytes(self, generation: &PublishedGeneration) -> (&'static str, Arc<[u8]>) {
         match self {
             Self::Static => ("application/zip", generation.static_zip.clone()),
+            Self::OfficialStatic => ("application/zip", generation.official_zip.clone()),
+            Self::PlatformAddon => ("application/zip", generation.addon_zip.clone()),
             Self::TripUpdates => ("application/x-protobuf", generation.trip_updates.clone()),
             Self::VehiclePositions => (
                 "application/x-protobuf",
@@ -331,8 +573,9 @@ mod tests {
         extract::connect_info::MockConnectInfo,
         http::Request,
     };
-    use gtfs_realtime::{FeedEntity, FeedMessage};
+    use gtfs_realtime::{feed_header, FeedEntity, FeedMessage};
     use gtfs_structures::Gtfs;
+    use prost::Message;
     use std::collections::BTreeSet;
     use std::path::PathBuf;
     use tower::ServiceExt;
@@ -370,11 +613,11 @@ mod tests {
                 ..Default::default()
             });
             let candidate = GenerationBuilder::build(
-                Arc::new(StaticSnapshot {
-                    version: "STATIC-V1".into(),
-                    parsed: Arc::new(Gtfs::default()),
-                    zip: Arc::from(&b"PK fixture"[..]),
-                }),
+                Arc::new(StaticSnapshot::identical(
+                    "STATIC-V1",
+                    Arc::new(Gtfs::default()),
+                    Arc::from(&b"PK fixture"[..]),
+                )),
                 SelectedBatch {
                     source_name: "fixture",
                     batch: RtBatch {
@@ -540,11 +783,11 @@ mod tests {
         );
 
         let candidate = GenerationBuilder::build(
-            Arc::new(StaticSnapshot {
-                version: "STATIC-V2".into(),
-                parsed: Arc::new(Gtfs::default()),
-                zip: Arc::from(&b"PK fixture 2"[..]),
-            }),
+            Arc::new(StaticSnapshot::identical(
+                "STATIC-V2",
+                Arc::new(Gtfs::default()),
+                Arc::from(&b"PK fixture 2"[..]),
+            )),
             SelectedBatch {
                 source_name: "fixture",
                 batch: RtBatch {
@@ -590,8 +833,14 @@ mod tests {
         assert_eq!(manifest["generated_at_unix"], 100);
         assert_eq!(manifest["source"], "fixture");
         assert_eq!(manifest["entity_counts"]["trip_updates"], 0);
+        assert!(!manifest["platform_addon_version"]
+            .as_str()
+            .unwrap()
+            .is_empty());
         for (key, content_type, expected_prefix) in [
             ("static_zip", "application/zip", b"PK".as_slice()),
+            ("official_static_zip", "application/zip", b"PK".as_slice()),
+            ("platform_addon_zip", "application/zip", b"PK".as_slice()),
             ("trip_updates", "application/x-protobuf", b"\n".as_slice()),
             (
                 "vehicle_positions",
@@ -609,6 +858,178 @@ mod tests {
             assert!(bytes.starts_with(expected_prefix));
         }
         std::fs::remove_dir_all(output).unwrap();
+    }
+
+    /// Pins the public contract for gtfs-mcp and Trackside.
+    ///
+    /// Both read `feed-set.json`, then `official-static.zip`, `platform-addon.zip`, and the three
+    /// protobufs. A new URL or field is an addition and must be added here. Removing or renaming a
+    /// pinned name fails this test.
+    #[tokio::test]
+    async fn public_contract_pins_urls_content_types_and_cache_headers() {
+        const ARTIFACTS: &[(&str, &str, &str)] = &[
+            ("static_zip", "static.zip", "application/zip"),
+            (
+                "official_static_zip",
+                "official-static.zip",
+                "application/zip",
+            ),
+            (
+                "platform_addon_zip",
+                "platform-addon.zip",
+                "application/zip",
+            ),
+            ("trip_updates", "trip-updates.pb", "application/x-protobuf"),
+            (
+                "vehicle_positions",
+                "vehicle-positions.pb",
+                "application/x-protobuf",
+            ),
+            ("alerts", "alerts.pb", "application/x-protobuf"),
+        ];
+        const FEED_SET_FIELDS: &[&str] = &[
+            "entity_counts",
+            "generated_at_unix",
+            "generation_id",
+            "platform_addon_version",
+            "source",
+            "static_version",
+            "urls",
+        ];
+        const COUNT_FIELDS: &[&str] = &["alerts", "trip_updates", "vehicle_positions"];
+        const CACHE_HEADERS: &[header::HeaderName] = &[
+            header::CACHE_CONTROL,
+            header::CONTENT_TYPE,
+            header::ETAG,
+            header::LAST_MODIFIED,
+        ];
+
+        let (state, output) = fixture_state("contract", 100, Some(100)).await;
+        let app = router(state).layer(MockConnectInfo(SocketAddr::from(([127, 0, 0, 1], 10))));
+
+        let live = app.clone().oneshot(request("/livez")).await.unwrap();
+        assert_eq!(live.status(), StatusCode::OK);
+        assert_eq!(live.headers()[header::CONTENT_TYPE], "application/json");
+        assert_eq!(body_json(live).await["live"], true);
+
+        let ready = app.clone().oneshot(request("/readyz")).await.unwrap();
+        assert_eq!(ready.status(), StatusCode::OK);
+        assert_eq!(ready.headers()[header::CONTENT_TYPE], "application/json");
+        let ready_body = body_json(ready).await;
+        assert_eq!(
+            object_keys(&ready_body),
+            [
+                "age_seconds",
+                "generation_id",
+                "latest_success_unix",
+                "ready",
+                "reason"
+            ]
+            .into_iter()
+            .map(str::to_string)
+            .collect::<BTreeSet<_>>()
+        );
+
+        let manifest_response = app
+            .clone()
+            .oneshot(request("/v1/feed-set.json"))
+            .await
+            .unwrap();
+        assert_eq!(manifest_response.status(), StatusCode::OK);
+        assert_eq!(
+            manifest_response.headers()[header::CONTENT_TYPE],
+            "application/json"
+        );
+        let manifest = body_json(manifest_response).await;
+        assert_eq!(
+            object_keys(&manifest),
+            FEED_SET_FIELDS
+                .iter()
+                .map(|field| (*field).to_string())
+                .collect::<BTreeSet<_>>()
+        );
+        assert_eq!(
+            object_keys(&manifest["entity_counts"]),
+            COUNT_FIELDS
+                .iter()
+                .map(|field| (*field).to_string())
+                .collect::<BTreeSet<_>>()
+        );
+        assert_eq!(
+            object_keys(&manifest["urls"]),
+            ARTIFACTS
+                .iter()
+                .map(|(key, _, _)| (*key).to_string())
+                .collect::<BTreeSet<_>>()
+        );
+        let id = manifest["generation_id"].as_str().unwrap();
+        let static_version = manifest["static_version"].as_str().unwrap();
+        let generated_at = manifest["generated_at_unix"].as_u64().unwrap();
+
+        for (key, file_name, content_type) in ARTIFACTS {
+            let url = manifest["urls"][*key].as_str().unwrap();
+            assert_eq!(url, &format!("/v1/generations/{id}/{file_name}"));
+            let response = app.clone().oneshot(request(url)).await.unwrap();
+            assert_eq!(response.status(), StatusCode::OK, "{url}");
+            assert_eq!(response.headers()[header::CONTENT_TYPE], *content_type);
+            assert_eq!(
+                response.headers()[header::CACHE_CONTROL],
+                "private, no-cache"
+            );
+            let etag = response.headers()[header::ETAG]
+                .to_str()
+                .unwrap()
+                .to_string();
+            assert!(
+                etag.starts_with('"') && etag.ends_with('"') && etag.len() == 66,
+                "{url} etag {etag}"
+            );
+            let modified = response.headers()[header::LAST_MODIFIED]
+                .to_str()
+                .unwrap()
+                .to_string();
+            assert!(modified.ends_with(" GMT"), "{url} last-modified {modified}");
+            for name in CACHE_HEADERS {
+                assert!(
+                    response.headers().contains_key(name),
+                    "{url} missing {name}"
+                );
+            }
+            if content_type == &"application/x-protobuf" {
+                let bytes = to_bytes(response.into_body(), 1_000_000).await.unwrap();
+                let message = FeedMessage::decode(bytes.as_ref()).unwrap();
+                assert_eq!(message.header.gtfs_realtime_version, "2.0");
+                assert_eq!(
+                    message.header.incrementality,
+                    Some(feed_header::Incrementality::FullDataset as i32)
+                );
+                assert_eq!(message.header.feed_version.as_deref(), Some(static_version));
+                assert_eq!(message.header.timestamp, Some(generated_at));
+                let again = Request::builder()
+                    .uri(url)
+                    .header(header::IF_NONE_MATCH, &etag)
+                    .body(Body::empty())
+                    .unwrap();
+                let not_modified = app.clone().oneshot(again).await.unwrap();
+                assert_eq!(not_modified.status(), StatusCode::NOT_MODIFIED, "{url}");
+                assert_eq!(not_modified.headers()[header::ETAG], etag);
+                assert_eq!(not_modified.headers()[header::LAST_MODIFIED], modified);
+                assert_eq!(
+                    not_modified.headers()[header::CACHE_CONTROL],
+                    "private, no-cache"
+                );
+                assert!(to_bytes(not_modified.into_body(), 1_000_000)
+                    .await
+                    .unwrap()
+                    .is_empty());
+            }
+        }
+
+        std::fs::remove_dir_all(output).unwrap();
+    }
+
+    fn object_keys(value: &Value) -> BTreeSet<String> {
+        value.as_object().unwrap().keys().cloned().collect()
     }
 
     #[tokio::test]
@@ -644,6 +1065,74 @@ mod tests {
                 .status(),
             StatusCode::SERVICE_UNAVAILABLE
         );
+        std::fs::remove_dir_all(output).unwrap();
+    }
+
+    #[tokio::test]
+    async fn repeated_feed_reads_stay_under_100ms_and_revalidate_with_etag() {
+        let (state, output) = fixture_state("latency", 100, Some(100)).await;
+        let app = router(state).layer(MockConnectInfo(SocketAddr::from(([127, 0, 0, 1], 40))));
+        let manifest = body_json(
+            app.clone()
+                .oneshot(request("/v1/feed-set.json"))
+                .await
+                .unwrap(),
+        )
+        .await;
+        let url = manifest["urls"]["trip_updates"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        let mut samples = Vec::new();
+        let first = app.clone().oneshot(request(&url)).await.unwrap();
+        let etag = first.headers()[header::ETAG].to_str().unwrap().to_string();
+        assert!(first.headers().contains_key(header::LAST_MODIFIED));
+        samples.push(0);
+        for _ in 0..199 {
+            let started = std::time::Instant::now();
+            let response = app.clone().oneshot(request(&url)).await.unwrap();
+            samples.push(started.elapsed().as_micros() as u64);
+            assert_eq!(response.status(), StatusCode::OK);
+        }
+        samples.sort_unstable();
+        let p99 = samples[(samples.len() * 99) / 100];
+        assert!(p99 < 100_000, "p99 {p99} microseconds exceeds 100 ms");
+        let conditional = Request::builder()
+            .uri(format!("{url}?train=167&station=PVD"))
+            .header(header::IF_NONE_MATCH, etag)
+            .body(Body::empty())
+            .unwrap();
+        let response = app.oneshot(conditional).await.unwrap();
+        assert_eq!(response.status(), StatusCode::NOT_MODIFIED);
+        std::fs::remove_dir_all(output).unwrap();
+    }
+
+    #[tokio::test]
+    async fn trip_interest_does_not_block_the_cached_response() {
+        let (state, output) = fixture_state("nonblocking", 100, Some(100)).await;
+        let started_hook = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let flag = started_hook.clone();
+        let state = state.with_trip_interest(Arc::new(move |_interest| {
+            std::thread::sleep(Duration::from_secs(2));
+            flag.store(true, std::sync::atomic::Ordering::SeqCst);
+        }));
+        let app = router(state).layer(MockConnectInfo(SocketAddr::from(([127, 0, 0, 1], 41))));
+        let manifest = body_json(
+            app.clone()
+                .oneshot(request("/v1/feed-set.json"))
+                .await
+                .unwrap(),
+        )
+        .await;
+        let url = manifest["urls"]["trip_updates"].as_str().unwrap();
+        let started = std::time::Instant::now();
+        let response = app
+            .oneshot(request(&format!("{url}?train=167")))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        assert!(started.elapsed() < Duration::from_millis(100));
+        assert!(!started_hook.load(std::sync::atomic::Ordering::SeqCst));
         std::fs::remove_dir_all(output).unwrap();
     }
 }

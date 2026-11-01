@@ -48,6 +48,10 @@ class Config:
     browser_mode: str = "headless-shell"
     block_subresources: bool = True
     block_third_party: bool = True
+    lead_time_file: str = ""
+    base_interval_secs: int = 900
+    debounce_secs: int = 5
+    min_gap_secs: int = 90
 
     @staticmethod
     def from_env(env: Mapping[str, str]) -> "Config":
@@ -74,6 +78,10 @@ class Config:
             browser_mode=_browser_mode(env),
             block_subresources=_bool(env, "BLOCK_SUBRESOURCES", True),
             block_third_party=_bool(env, "BLOCK_THIRD_PARTY", True),
+            lead_time_file=env.get("AMTRAK_TRACKS_LEAD_TIME_FILE", ""),
+            base_interval_secs=_pos_int(env, "AMTRAK_TRACKS_BASE_INTERVAL_SECS", 900),
+            debounce_secs=_pos_int(env, "AMTRAK_TRACKS_DEBOUNCE_SECS", 5),
+            min_gap_secs=_pos_int(env, "AMTRAK_TRACKS_MIN_GAP_SECS", 90),
         )
 
 

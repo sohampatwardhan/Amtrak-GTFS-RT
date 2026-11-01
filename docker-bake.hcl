@@ -51,6 +51,20 @@ target "advisory-fetcher" {
   args       = { BROWSER_BUNDLE = FETCHER_BROWSER_BUNDLE }
 }
 
+target "trip-updates" {
+  context    = "."
+  dockerfile = "trip-updates.Dockerfile"
+  tags       = ["trip-updates:local", "${REGISTRY}/amtrak-gtfs-rt-trip-updates:${AMTRAK_IMAGE_TAG}"]
+  args       = { BROWSER_BUNDLE = FETCHER_BROWSER_BUNDLE }
+}
+
+target "alerts" {
+  context    = "."
+  dockerfile = "alerts.Dockerfile"
+  tags       = ["alerts:local", "${REGISTRY}/amtrak-gtfs-rt-alerts:${AMTRAK_IMAGE_TAG}"]
+  args       = { BROWSER_BUNDLE = FETCHER_BROWSER_BUNDLE }
+}
+
 target "track-fetcher" {
   context    = "track-fetcher"
   dockerfile = "Dockerfile"

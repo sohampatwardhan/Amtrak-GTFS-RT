@@ -28,6 +28,10 @@ pub struct PublishedGeneration {
     pub id: GenerationId,
     pub manifest: FeedSetManifest,
     pub static_zip: Arc<[u8]>,
+    /// Untouched official GTFS. Empty when a generation was written before the add-on split.
+    pub official_zip: Arc<[u8]>,
+    /// Platform add-on. Empty when a generation was written before the add-on split.
+    pub addon_zip: Arc<[u8]>,
     pub trip_updates: Arc<[u8]>,
     pub vehicle_positions: Arc<[u8]>,
     pub alerts: Arc<[u8]>,
@@ -252,12 +256,17 @@ impl GenerationStore {
             .map_err(|_| "generation map lock poisoned".to_string())?;
         for generation in generations.values() {
             let directory = self.output_dir.join(GENERATIONS_DIR).join(&generation.id.0);
-            install_static_zip(
-                self.output_dir.as_path(),
-                &directory,
-                &generation.static_zip,
-            )
-            .map_err(|error| error.to_string())?;
+            for (name, zip) in [
+                (STATIC_FILE, generation.static_zip.as_ref()),
+                ("official-static.zip", generation.official_zip.as_ref()),
+                ("platform-addon.zip", generation.addon_zip.as_ref()),
+            ] {
+                if zip.is_empty() {
+                    continue;
+                }
+                install_shared_zip(self.output_dir.as_path(), &directory, name, zip)
+                    .map_err(|error| error.to_string())?;
+            }
         }
         Ok(())
     }
@@ -367,11 +376,13 @@ impl GenerationStore {
             fs::remove_dir_all(&directory).map_err(|error| error.to_string())?;
         }
         if let Some(generation) = removed {
-            unintern_static(
-                &self.static_intern,
-                &self.generations,
+            for zip in [
                 &generation.static_zip,
-            );
+                &generation.official_zip,
+                &generation.addon_zip,
+            ] {
+                unintern_static(&self.static_intern, &self.generations, zip);
+            }
             tracing::info!(
                 stage = "retention",
                 generation_id = %generation.id.0,
@@ -450,7 +461,24 @@ fn publish_inner(
 
     let urls = artifact_urls(&id);
     let manifest = candidate.manifest(id.clone(), urls);
-    install_static_zip(output_dir, &temporary_dir, &candidate.static_snapshot.zip)?;
+    install_shared_zip(
+        output_dir,
+        &temporary_dir,
+        "official-static.zip",
+        &candidate.static_snapshot.official_zip,
+    )?;
+    install_shared_zip(
+        output_dir,
+        &temporary_dir,
+        "platform-addon.zip",
+        &candidate.static_snapshot.addon_zip,
+    )?;
+    install_shared_zip(
+        output_dir,
+        &temporary_dir,
+        STATIC_FILE,
+        &candidate.static_snapshot.zip,
+    )?;
     fail_at(failure, FailurePoint::StaticArtifact)?;
     write_synced(
         &temporary_dir.join("trip-updates.pb"),
@@ -467,6 +495,8 @@ fn publish_inner(
     let manifest_bytes = encode_manifest(
         &manifest,
         &candidate.static_snapshot.zip,
+        &candidate.static_snapshot.official_zip,
+        &candidate.static_snapshot.addon_zip,
         &candidate.trip_updates,
         &candidate.vehicle_positions,
         &candidate.alerts,
@@ -493,7 +523,15 @@ fn publish_inner(
     if loaded.static_zip.as_ref() == candidate.static_snapshot.zip.as_ref() {
         loaded.static_zip = candidate.static_snapshot.zip.clone();
     }
+    if loaded.official_zip.as_ref() == candidate.static_snapshot.official_zip.as_ref() {
+        loaded.official_zip = candidate.static_snapshot.official_zip.clone();
+    }
+    if loaded.addon_zip.as_ref() == candidate.static_snapshot.addon_zip.as_ref() {
+        loaded.addon_zip = candidate.static_snapshot.addon_zip.clone();
+    }
     loaded.static_zip = intern_static(&store.static_intern, loaded.static_zip);
+    loaded.official_zip = intern_static(&store.static_intern, loaded.official_zip);
+    loaded.addon_zip = intern_static(&store.static_intern, loaded.addon_zip);
     let generation = Arc::new(loaded);
     store.commit(generation.clone())?;
     store.enforce_retention(0).map_err(PublishError)?;
@@ -650,9 +688,11 @@ fn unintern_static(
     let still_used = generations
         .read()
         .map(|guard| {
-            guard
-                .values()
-                .any(|generation| Arc::ptr_eq(&generation.static_zip, zip))
+            guard.values().any(|generation| {
+                Arc::ptr_eq(&generation.static_zip, zip)
+                    || Arc::ptr_eq(&generation.official_zip, zip)
+                    || Arc::ptr_eq(&generation.addon_zip, zip)
+            })
         })
         .unwrap_or(true);
     if still_used {
@@ -663,12 +703,17 @@ fn unintern_static(
 }
 
 fn estimate_incoming_bytes(output_dir: &Path, candidate: &ValidatedGeneration) -> u64 {
-    let zip = candidate.static_snapshot.zip.as_ref();
-    let static_bytes = if blob_ready(&blob_path(output_dir, zip), zip) {
-        0
-    } else {
-        zip.len() as u64
-    };
+    let snapshot = &candidate.static_snapshot;
+    let mut static_bytes: u64 = 0;
+    for zip in [
+        snapshot.zip.as_ref(),
+        snapshot.official_zip.as_ref(),
+        snapshot.addon_zip.as_ref(),
+    ] {
+        if !blob_ready(&blob_path(output_dir, zip), zip) {
+            static_bytes = static_bytes.saturating_add(zip.len() as u64);
+        }
+    }
     static_bytes
         .saturating_add(candidate.trip_updates.len() as u64)
         .saturating_add(candidate.vehicle_positions.len() as u64)
@@ -690,18 +735,28 @@ fn blob_ready(path: &Path, zip: &[u8]) -> bool {
         .unwrap_or(false)
 }
 
-fn install_static_zip(output_dir: &Path, directory: &Path, zip: &[u8]) -> std::io::Result<()> {
-    if try_share_static(output_dir, directory, zip).is_ok() {
+fn install_shared_zip(
+    output_dir: &Path,
+    directory: &Path,
+    file_name: &str,
+    zip: &[u8],
+) -> std::io::Result<()> {
+    if try_share_static(output_dir, directory, file_name, zip).is_ok() {
         return Ok(());
     }
-    let dest = directory.join(STATIC_FILE);
+    let dest = directory.join(file_name);
     if dest.exists() {
         return Ok(());
     }
     write_synced(&dest, zip)
 }
 
-fn try_share_static(output_dir: &Path, directory: &Path, zip: &[u8]) -> std::io::Result<()> {
+fn try_share_static(
+    output_dir: &Path,
+    directory: &Path,
+    file_name: &str,
+    zip: &[u8],
+) -> std::io::Result<()> {
     let blobs = output_dir.join(BLOBS_DIR);
     fs::create_dir_all(&blobs)?;
     make_directory_private(&blobs)?;
@@ -713,7 +768,7 @@ fn try_share_static(output_dir: &Path, directory: &Path, zip: &[u8]) -> std::io:
         fs::rename(&temporary, &blob)?;
         sync_directory(&blobs)?;
     }
-    let dest = directory.join(STATIC_FILE);
+    let dest = directory.join(file_name);
     if same_file(&dest, &blob) {
         return Ok(());
     }
@@ -989,6 +1044,8 @@ fn artifact_urls(id: &GenerationId) -> ArtifactUrls {
     let prefix = format!("/v1/generations/{}", id.0);
     ArtifactUrls {
         static_zip: format!("{prefix}/static.zip"),
+        official_static_zip: format!("{prefix}/official-static.zip"),
+        platform_addon_zip: format!("{prefix}/platform-addon.zip"),
         trip_updates: format!("{prefix}/trip-updates.pb"),
         vehicle_positions: format!("{prefix}/vehicle-positions.pb"),
         alerts: format!("{prefix}/alerts.pb"),
@@ -1271,15 +1328,18 @@ fn hex_decode(value: &str) -> Result<String, String> {
 fn encode_manifest(
     manifest: &FeedSetManifest,
     static_zip: &[u8],
+    official_zip: &[u8],
+    addon_zip: &[u8],
     trip_updates: &[u8],
     vehicle_positions: &[u8],
     alerts: &[u8],
 ) -> Vec<u8> {
     format!(
-        "amtrak-generation-v1\nid={}\ngenerated={}\nstatic={}\nsource={}\ncounts={},{},{}\nchecksums={:016x},{:016x},{:016x},{:016x}\n",
+        "amtrak-generation-v2\nid={}\ngenerated={}\nstatic={}\naddon={}\nsource={}\ncounts={},{},{}\nchecksums={:016x},{:016x},{:016x},{:016x},{:016x},{:016x}\n",
         manifest.generation_id.0,
         manifest.generated_at_unix,
         hex_encode(&manifest.static_version),
+        hex_encode(&manifest.platform_addon_version),
         hex_encode(&manifest.source),
         manifest.entity_counts.trip_updates,
         manifest.entity_counts.vehicle_positions,
@@ -1288,6 +1348,8 @@ fn encode_manifest(
         checksum(trip_updates),
         checksum(vehicle_positions),
         checksum(alerts),
+        checksum(official_zip),
+        checksum(addon_zip),
     )
     .into_bytes()
 }
@@ -1309,6 +1371,8 @@ fn load_interned(
     tests::LOADS.with(|loads| loads.set(loads.get() + 1));
     let mut generation = load_generation_at(parent, parent_path, name).ok()?;
     generation.static_zip = intern_static(intern, generation.static_zip);
+    generation.official_zip = intern_static(intern, generation.official_zip);
+    generation.addon_zip = intern_static(intern, generation.addon_zip);
     Some(Arc::new(generation))
 }
 
@@ -1331,7 +1395,9 @@ fn load_generation_from_handle(
         String::from_utf8(read_regular_at(directory_handle, directory, MANIFEST_FILE)?)
             .map_err(|_| "generation manifest is not UTF-8")?;
     let lines: Vec<_> = manifest_text.lines().collect();
-    if lines.len() != 7 || lines[0] != "amtrak-generation-v1" {
+    let version_two = lines.len() == 8 && lines[0] == "amtrak-generation-v2";
+    let version_one = lines.len() == 7 && lines[0] == "amtrak-generation-v1";
+    if !version_one && !version_two {
         return Err("invalid generation manifest shape".into());
     }
     let id_value = manifest_field(lines[1], "id=")?;
@@ -1343,23 +1409,51 @@ fn load_generation_from_handle(
         .parse::<u64>()
         .map_err(|_| "invalid generation timestamp")?;
     let static_version = hex_decode(manifest_field(lines[3], "static=")?)?;
-    let source = hex_decode(manifest_field(lines[4], "source=")?)?;
-    let counts = parse_numbers::<usize, 3>(manifest_field(lines[5], "counts=")?)?;
-    let expected_checksums = parse_hex_numbers::<4>(manifest_field(lines[6], "checksums=")?)?;
-
+    let (platform_addon_version, source_line, counts_line, checksum_line) = if version_two {
+        (
+            hex_decode(manifest_field(lines[4], "addon=")?)?,
+            lines[5],
+            lines[6],
+            lines[7],
+        )
+    } else {
+        (String::new(), lines[4], lines[5], lines[6])
+    };
+    let source = hex_decode(manifest_field(source_line, "source=")?)?;
+    let counts = parse_numbers::<usize, 3>(manifest_field(counts_line, "counts=")?)?;
     let static_zip = read_arc_at(directory_handle, directory, "static.zip")?;
     let trip_updates = read_arc_at(directory_handle, directory, "trip-updates.pb")?;
     let vehicle_positions = read_arc_at(directory_handle, directory, "vehicle-positions.pb")?;
     let alerts = read_arc_at(directory_handle, directory, "alerts.pb")?;
-    let actual_checksums = [
-        checksum(&static_zip),
-        checksum(&trip_updates),
-        checksum(&vehicle_positions),
-        checksum(&alerts),
-    ];
-    if expected_checksums != actual_checksums || static_zip.is_empty() {
-        return Err("artifact checksum mismatch or empty static feed".into());
-    }
+    let (official_zip, addon_zip) = if version_two {
+        let official = read_arc_at(directory_handle, directory, "official-static.zip")?;
+        let addon = read_arc_at(directory_handle, directory, "platform-addon.zip")?;
+        let expected = parse_hex_numbers::<6>(manifest_field(checksum_line, "checksums=")?)?;
+        let actual = [
+            checksum(&static_zip),
+            checksum(&trip_updates),
+            checksum(&vehicle_positions),
+            checksum(&alerts),
+            checksum(&official),
+            checksum(&addon),
+        ];
+        if expected != actual || static_zip.is_empty() || official.is_empty() || addon.is_empty() {
+            return Err("artifact checksum mismatch or empty static feed".into());
+        }
+        (official, addon)
+    } else {
+        let expected = parse_hex_numbers::<4>(manifest_field(checksum_line, "checksums=")?)?;
+        let actual = [
+            checksum(&static_zip),
+            checksum(&trip_updates),
+            checksum(&vehicle_positions),
+            checksum(&alerts),
+        ];
+        if expected != actual || static_zip.is_empty() {
+            return Err("artifact checksum mismatch or empty static feed".into());
+        }
+        (Arc::from([]), Arc::from([]))
+    };
 
     for (bytes, expected_count) in [
         (&trip_updates, counts[0]),
@@ -1384,6 +1478,7 @@ fn load_generation_from_handle(
         generation_id: id.clone(),
         generated_at_unix,
         static_version,
+        platform_addon_version,
         source,
         entity_counts,
         urls: artifact_urls(&id),
@@ -1392,6 +1487,8 @@ fn load_generation_from_handle(
         id,
         manifest,
         static_zip,
+        official_zip,
+        addon_zip,
         trip_updates,
         vehicle_positions,
         alerts,
@@ -1459,11 +1556,11 @@ mod tests {
         }
         .encode_to_vec();
         ValidatedGeneration {
-            static_snapshot: Arc::new(StaticSnapshot {
-                version: "STATIC-V1".into(),
-                parsed: Arc::new(Gtfs::default()),
-                zip: Arc::from(vec![b'z', marker]),
-            }),
+            static_snapshot: Arc::new(StaticSnapshot::identical(
+                "STATIC-V1",
+                Arc::new(Gtfs::default()),
+                Arc::from(vec![b'z', marker]),
+            )),
             generated_at_unix,
             source_name: "fixture",
             trip_updates: Arc::from(feed.clone()),
@@ -1831,7 +1928,8 @@ mod tests {
             &store.get(&second.id).await.unwrap().static_zip
         ));
         let blob_count = fs::read_dir(dir.join(BLOBS_DIR)).unwrap().count();
-        assert_eq!(blob_count, 1);
+        // The identical schedule and official zip share one blob. The add-on is the other.
+        assert_eq!(blob_count, 2);
         let changed = GenerationPublisher::publish(&dir, &store, candidate(3, 8))
             .await
             .unwrap();
@@ -1839,7 +1937,7 @@ mod tests {
             fs::metadata(path(&changed.id)).unwrap().ino(),
             first_meta.ino()
         );
-        assert_eq!(fs::read_dir(dir.join(BLOBS_DIR)).unwrap().count(), 2);
+        assert_eq!(fs::read_dir(dir.join(BLOBS_DIR)).unwrap().count(), 3);
 
         let bytes = fs::read(path(&first.id)).unwrap();
         fs::remove_file(path(&first.id)).unwrap();
@@ -1899,11 +1997,11 @@ mod tests {
         let generations = dir.join(GENERATIONS_DIR);
         fs::create_dir_all(&generations).unwrap();
         let mut generation = candidate(1_000 + index, 1);
-        generation.static_snapshot = Arc::new(StaticSnapshot {
-            version: "STATIC-V1".into(),
-            parsed: Arc::new(Gtfs::default()),
-            zip: Arc::from(static_zip.to_vec()),
-        });
+        generation.static_snapshot = Arc::new(StaticSnapshot::identical(
+            "STATIC-V1",
+            Arc::new(Gtfs::default()),
+            Arc::from(static_zip.to_vec()),
+        ));
         let id = GenerationId(format!(
             "{}-{index}",
             (1_000 + u128::from(index)) * 1_000_000_000
@@ -1913,6 +2011,16 @@ mod tests {
         fs::create_dir(&directory).unwrap();
         make_directory_private(&directory).unwrap();
         fs::write(directory.join(STATIC_FILE), static_zip).unwrap();
+        fs::write(
+            directory.join("official-static.zip"),
+            generation.static_snapshot.official_zip.as_ref(),
+        )
+        .unwrap();
+        fs::write(
+            directory.join("platform-addon.zip"),
+            generation.static_snapshot.addon_zip.as_ref(),
+        )
+        .unwrap();
         fs::write(directory.join("trip-updates.pb"), &generation.trip_updates).unwrap();
         fs::write(
             directory.join("vehicle-positions.pb"),
@@ -1925,6 +2033,8 @@ mod tests {
             encode_manifest(
                 &manifest,
                 static_zip,
+                &generation.static_snapshot.official_zip,
+                &generation.static_snapshot.addon_zip,
                 &generation.trip_updates,
                 &generation.vehicle_positions,
                 &generation.alerts,
@@ -2166,8 +2276,8 @@ mod tests {
             store.current().await.unwrap().id.0,
             survivors.last().unwrap().clone()
         );
-        // The private copies were relinked to one blob.
-        assert_eq!(fs::read_dir(dir.join(BLOBS_DIR)).unwrap().count(), 1);
+        // The private static copies share one blob. The add-on is the second.
+        assert_eq!(fs::read_dir(dir.join(BLOBS_DIR)).unwrap().count(), 2);
 
         // Every directory is recent: the count cap alone bounds what is read.
         let dir = test_dir("hundreds-recent");
