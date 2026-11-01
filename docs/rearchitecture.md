@@ -227,52 +227,67 @@ This proposal only uses his work as background. The implementation must still be
 
 ## What Amtrak's Track Your Train page actually loads
 
-Checked 2026-11-01. A plain GET of `https://www.amtrak.com/track-your-train` and `https://www.amtrak.com/track-your-train.html`, with an identifying user agent and no cookies, returned **403 from Akamai**. This survey did not retry with a browser, did not solve the challenge, and did not read the HTML. The map application those pages load is published on its own as static files under `https://maps.amtrak.com/rttl/js/` (directory listing and `mapApplication.js`, plus the small config script that file calls). That host answers ordinary GETs. `https://maps.amtrak.com/` itself only redirects to `https://www.amtrak.com`.
+Two looks on 2026-11-01, and they disagree only about who can fetch the HTML.
 
-The map is **Google Maps** (`google.maps` in `mapApplication.js`). It is not an ArcGIS feature layer. There is no `FeatureServer` or `MapServer` URL in that script. FEMA publishes a separate layer, `Partner/Amtrak_Train_Status`, and describes it as Amtrak and Via status copied from `asm.transitdocs.com` about every 15 minutes. That layer is not what Track Your Train requests.
+A plain GET of `https://www.amtrak.com/track-your-train` and `https://www.amtrak.com/track-your-train.html`, with an identifying user agent and no cookies, returned **403 from Akamai**. This work did not retry that host with a browser and did not try to pass the check. A separate normal browser session opened the same URL with no challenge. In that session the page's only Amtrak data requests were:
 
-Endpoints named by the public map script, confirmed with a HEAD or a small GET on 2026-11-01:
-
-| Endpoint | What came back | Role on the tracker |
+| Request | What the browser saw | What it feeds in the UI |
 | --- | --- | --- |
-| `GET /services/MapDataService/trains/getTrainsData` | `200`, `text/plain`. No `cache-control` on this HEAD. Body not saved and not decrypted here. | Fleet reload. The script's comment sets `train_refresh_interval` to **300 seconds**, and the map schedules the next reload with that value times 1000. |
-| `GET /services/MapDataService/stations/trainStations` | `200`, `text/plain`. | Station layer for the map. Same ciphertext style as the fleet feed. Not a second realtime product. |
-| `GET /services/MapDataService/stations/AllTTMTrains` | `200`, `application/json`, about 354 KB, `cache-control: max-age=9229` (about 2.5 hours). | Plaintext GeoJSON the script calls `vAllTrainsURL`. 313 features this morning: 78 `Active`, 235 `Predeparture`. Point geometry, `velocity`, `heading`, route and train number, and `station1`…`station42` JSON blobs. |
-| `GET /services/MapDataService/stations/nationalRoute?routeName=` | `200`, `application/json`, `max-age` about 11 hours on this HEAD. | Line geometry for the selected route. The script builds a query against `national_route_shape_v16`. Static. |
-| `GET /rttl/js/RoutesList.json` | `200`, 38 routes, keys `Name`, `CMSID`, `ZoomLevel`. `last-modified` 2025-11-03, `max-age` about 8 hours. | Route picker. |
-| `GET /rttl/js/route_properties.json` | `200`, GeoJSON, 83 features, bounding boxes (`NAME`, `SEGMENTID`, `NORTH`, `SOUTH`, `EAST`, `WEST`). `last-modified` 2025-11-03. | Map labels. |
-| `GET /rttl/js/RoutesList.v.json` | `200`, `last-modified` 2025-04-02. | File the map loads beside the ciphertext. Contents not copied into this document. |
+| `maps.amtrak.com/services/MapDataService/trains/getTrainsData` | `text/plain`, encoded, and polled | The train list, the train panel (speed, next station, ETA, lateness), and the full stop-by-stop Detailed Train Status. Opening a train does not fire another request. |
+| `maps.amtrak.com/services/MapDataService/stations/trainStations` | `text/plain`, about 357 KB | Station layer for the map. |
+| `maps.amtrak.com/services/MapDataService/stations/nationalRoute?routeName=<name>` | Route geometry JSON. An empty `routeName` is the whole network, about 2.38 MB. | The lines on the map. |
+| `maps.amtrak.com/services/MapDataService/stations/AllTTMTrains` | Plain JSON, about 136 KB on the wire | Fired when a station's arrivals/departures board is opened. Not part of the train-list poll. |
+| `maps.amtrak.com/rttl/js/RoutesList.json`, `RoutesList.v.json`, `route_properties.json` | Small static JSON | Route list, the file the map loads beside the ciphertext, and label boxes. |
+| `www.amtrak.com/services/staticmappingjson` | One configuration document | Booking-form labels, not a train, track, or alert feed. This repo's earlier notes already treat it that way. |
 
-No `Retry-After` or rate-limit header was present on these responses. That is not a promise that Amtrak allows polling. The tracker HTML and Amtrak's terms page were not readable on this pass, because both sit on the host that returned 403. The existing track-fetcher README already says to check Amtrak's terms before sending status traffic. This proposal does not raise that volume.
+No track, platform, gate, or service-alert payload showed up in that session, in the UI or in the request list. The map drawing is Google Maps (`google.maps` in the public `mapApplication.js` on `maps.amtrak.com`). It is not an ArcGIS feature layer. FEMA's `Partner/Amtrak_Train_Status` layer is a separate copy of TransitDocs, about every 15 minutes, and the tracker did not call it.
 
-### Fields the tracker source does and does not have
+The public map script agrees with that session. `getStationStatus()` GETs `AllTTMTrains` with no query string when it builds a station board. Route geometry uses `nationalRoute?routeName=`, and an empty name is the network-wide file. The fleet reload timer in that script is 300 seconds. `maps.amtrak.com` itself answers a plain GET; the HTML page does not, from this environment.
 
-`AllTTMTrains` was read far enough to list keys. Each station blob has `code`, `tz`, `bus`, scheduled / estimated / posted arrival and departure, comments, and `autoarr` / `autodep`. Across 4,949 station rows, none of the blobs contained a track, platform, or gate field. `lat` on the properties object was empty; the position is the GeoJSON point. Alerts are not a feed on this map. The popup copy for a failed estimate is a static "service disruption" string in the script.
+No `Retry-After` or rate-limit header was present on the map responses below. That is not permission to poll. Amtrak's terms page sits on the host that returned 403 here, so it was not re-read. The track-fetcher README already says to check those terms before sending status traffic. This proposal does not raise that volume.
 
-So the official tracker, by itself, is a position and estimate map. Track, gate, and the notices page are other Amtrak surfaces. Those live on `www.amtrak.com`, which this survey left alone.
+### Freshness: `getTrainsData` moves, `AllTTMTrains` does not
+
+An earlier note in this section treated `AllTTMTrains` as one object cached for about 2.5 hours. That was one `max-age`, not the age of the train times. Three plain GETs, at 04:39:58, 04:40:33, and 04:41:08 UTC, checked both feeds. Nothing was saved into the repo.
+
+`getTrainsData` sent no `cache-control`. The ciphertext was about 630 KB and its SHA-256 changed on every poll. One following response was decoded only long enough to read clocks and field names, then dropped. It had 62 features (61 `Active`, one `Completed`). `updated_at` and `created_at` were `11/1/2026 12:40 AM`, and `LastValTS` ran up to `11/1/2026 12:40:04 AM`. At 04:40 UTC that is the current minute on US Eastern time. Station blobs in that payload use the same keys as below. None of them named a track, platform, or gate.
+
+`AllTTMTrains` alternated between two cached bodies, and neither one advanced:
+
+| Body | Size | `cache-control` | Trains inside | Stamps |
+| --- | --- | --- | --- | --- |
+| The one the browser's 136 KB matches | 1,738,696 bytes of JSON. With `Accept-Encoding: gzip` the `content-length` was **136,376**. | `max-age` about 27,100 seconds (about 7.5 hours), `expires` 12:15 UTC. Same SHA-256 on the first and third polls. | 313 features, 78 `Active`, 235 `Predeparture` | `updated_at` on every active feature was `10/31/2026 8:13:02 AM`. `lastvalts` values were also on Oct 31, not Nov 1. |
+| The smaller cached object | 354,313 bytes | `max-age` 8,694 seconds (about 2.4 hours), `expires` 07:05 UTC. This is the old "2.5 hour" reading. | 40 features | `updated_at` around `10/31/2026 3:00 AM` |
+
+So the 136 KB figure is the compressed size of the larger stale snapshot, not a third, fresher feed. The CDN lifetime is real and it is not a single 2.5 hour number. The train times inside both snapshots sat still across the three polls and were many hours behind `getTrainsData` (8:13 AM on Oct 31, against 12:40 AM on Nov 1 in the fleet feed). The station board really is this endpoint. The copy a plain GET receives is not live in the way the fleet feed is.
+
+### Fields
+
+On both feeds, each station blob has `code`, `tz`, `bus`, scheduled / estimated / posted arrival and departure, comments, and `autoarr` / `autodep`. On the 313-feature `AllTTMTrains` body that was 4,949 station rows, and on the decoded fleet response 1,474 rows. No row mentioned a track, platform, or gate. Position on the fleet feed is `lat` / `lon` plus `Velocity` and `Heading`. On `AllTTMTrains` the point is the GeoJSON geometry; the `lat` property was empty. There is no alerts array on either payload. The "service disruption" sentence in the map script is fixed popup copy.
+
+Track, gate, and the notices page are other Amtrak surfaces, on `www.amtrak.com`, which this environment left alone after the 403.
 
 ### Comparison
 
-| | Track Your Train's map | This repo | Piero's stack |
+| | Track Your Train | This repo | Piero's stack |
 | --- | --- | --- | --- |
-| Fleet | `getTrainsData`, reload every 300s, plus plaintext `AllTTMTrains` | `getTrainsData` every 45s, decrypted in-process by catenary / `amtk`, matched to official GTFS | `amtraker-v3` / `store` decrypt the same map feed (about every 15–30s) and also fold in Via and Brightline. The npm library only reads `api.amtraker.com`. |
-| Stations | `trainStations` ciphertext, plus static route GeoJSON | Official GTFS `stops.txt`, plus platform stops we add | `gtfs.piemadd.com` stops JSON and his own station files |
-| Delays | Estimated and posted times inside the station blobs | TripUpdates from that same map feed | Same map feed, then his own JSON model |
-| Position | GeoJSON point, heading, velocity | VehiclePositions from that feed | `lat` / `lon` / velocity on his `Train` object |
-| Track and gate | Not in the map payloads inspected here | Status documents, NJ Transit, Hartford board, written as `assigned_stop_id` | Merged platform boards, including Moynihan, served as a `platform` string |
-| Alerts | Not a map endpoint | ASM, Pacific Surfliner, and the notices HTML | His alerts job and the notices he proxies |
-| ArcGIS | Not used by this map | Not used | Not used |
-| Access | Map host allows a plain GET. The HTML page does not. | Same split. Browser only for `www.amtrak.com`. | Proxies and a hosted API in front of the same split |
+| Train list, panel, and stop-by-stop status | Polled `getTrainsData`. Opening a train adds no request. | Same URL, every 45s, decoded in-process by catenary / `amtk`, matched to official GTFS | `amtraker-v3` / `store` decode the same map feed (about every 15–30s) and also fold in Via and Brightline. The npm library only reads `api.amtraker.com`. |
+| Station board | `AllTTMTrains`, on open, plaintext, and the copies checked here were hours behind the fleet feed | Not used. Station times in our TripUpdates come from `getTrainsData`. | His collector also knows this URL |
+| Map chrome | `trainStations`, `nationalRoute`, `RoutesList.json`, `route_properties.json`, `staticmappingjson` | Official GTFS for stops. We do not republish route geometry. | `gtfs.piemadd.com` stops JSON and his own station files |
+| Track and gate | Absent from the tracker UI and from every request it made | Status documents, NJ Transit, Hartford board, written as `assigned_stop_id` | Merged platform boards, including Moynihan, as a `platform` string |
+| Alerts | Absent from the tracker | ASM, Pacific Surfliner, and the notices HTML | His alerts job and the notices he proxies |
+| ArcGIS | Not requested | Not used | Not used |
+| Access | The browser session loaded the HTML. A plain GET from here got 403. The map host answers a plain GET. | Same split. Browser only for `www.amtrak.com`. | Proxies and a hosted API in front of the same split |
 
 ### Recommendation
 
-Keep `getTrainsData` as the fleet source. It is the reload the official map schedules, it is already what this publisher polls, and a plain GET of that URL works without a browser. Leave decryption where it is, inside the existing crate. Do not add a second decryptor, and do not start polling `www.amtrak.com` from the Rust process.
+Keep `getTrainsData` as the fleet source. It is the request the tracker polls for the train list, the train panel, and Detailed Train Status, and a plain GET of it was current at the minute of the check. Leave decoding where it is, inside the existing crate. Do not add a second decoder, and do not start polling `www.amtrak.com` from the Rust process.
 
-Do not switch the poll to `AllTTMTrains`. It is the same family of fields in plaintext, which is attractive, and it is a poor realtime source: the response cached for about 2.5 hours, it still has no track or gate, and it does not remove the need to match `trip_id`s. It can stay a documented cousin of the feed, not the feed.
+Do not switch that poll to `AllTTMTrains`. The tracker uses it for the station board only. It is plaintext, which is attractive, and the bodies served during this check were cached snapshots whose `updated_at` did not move and lagged the fleet feed by many hours. It still has no track, gate, or alert, and it does not remove the need to match `trip_id`s. `staticmappingjson`, `trainStations`, and `nationalRoute` are map chrome and configuration, not a second realtime product.
 
-Do not use the FEMA ArcGIS layer. It is a 15-minute copy of TransitDocs, which is coarser than a direct read of the map feed, and it is not Amtrak's tracker.
+Do not use the FEMA ArcGIS layer. It is a 15-minute copy of TransitDocs, and the tracker does not call it.
 
-Track, gate, and service-alert HTML stay on the one browser worker, at the same polite caps as today. The map's own timer is 300 seconds for the whole fleet; this service's 45-second fleet poll is one request per cycle, which is the same shape as the tracker and more frequent than the tracker's timer. Per-train status fetches stay capped (24 per minute in the current sidecar) and still need a terms check by the operator. No login, no credential, and no Akamai bypass is part of this design.
+Track, gate, and service-alert HTML stay on the one browser worker, at the same polite caps as today, because the tracker never had them. The map's own fleet timer is 300 seconds; this service's 45-second poll is one request per cycle and, on this check, the origin was already changing inside that window. Per-train status fetches stay capped (24 per minute in the current sidecar) and still need a terms check by the operator. No login, no credential, and no attempt to get past the 403 is part of this design.
 
 ## Proposed architecture
 
@@ -500,4 +515,4 @@ No step deploys to a device from CI. Rollback is the previous Compose file and t
 - Catenary `amtrak-gtfs-rt` 0.9.1 README and public source layout (map feed, ASM URL, Surfliner URL, `fetch_amtrak_gtfs_rt`). AGPL-3.0. https://github.com/catenarytransit/amtrak-gtfs-rt
 - Piero Maddaleni, `amtrak` 3.0.17, `src/index.ts`, `src/types.ts`, `readme.md`, `package.json`, `LICENSE`. AGPL-3.0 code. README states ODC-By for Amtraker API data. https://github.com/piemadd/amtrak
 - Same author's public profile and the repositories named in the table above, including `transitstatus/store` and `transitstatus/gtfs-schedule-data`. No source from those trees is copied here.
-- Amtrak Track Your Train, surveyed 2026-11-01 with unauthenticated GETs only. Page HTML on `www.amtrak.com` returned 403. Public map script and JSON: `https://maps.amtrak.com/rttl/js/mapApplication.js`, `https://maps.amtrak.com/rttl/js/_$$_666.js` (endpoint names and the 300-second reload only), `RoutesList.json`, `route_properties.json`, and `AllTTMTrains` field names. Ciphertext bodies and `RoutesList.v.json` values were not copied.
+- Amtrak Track Your Train, 2026-11-01. A plain GET of the HTML returned 403. A normal browser session on that URL (no challenge) supplied the request list above. Three polite polls of `getTrainsData` and `AllTTMTrains` compared hashes, `cache-control`, and timestamps. Ciphertext, `RoutesList.v.json` values, and decoded train rows were not copied into this file.
