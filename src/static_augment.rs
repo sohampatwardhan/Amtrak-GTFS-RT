@@ -379,6 +379,47 @@ impl SharedPlatforms {
     pub fn changed(&self) -> Arc<Notify> {
         self.changed.clone()
     }
+
+    /// Reloads observed platforms written by another process.
+    ///
+    /// TripUpdates records new labels in the shared file. VehiclePositions, which
+    /// rebuilds the static ZIP, calls this before each refresh so those labels
+    /// are not stuck in the other process's memory.
+    ///
+    /// # Returns
+    ///
+    /// `true` when the in-memory observations changed.
+    pub fn reload_observed(&self) -> bool {
+        let Some(path) = self.path.clone() else {
+            return false;
+        };
+        let saved = match std::fs::read_to_string(&path) {
+            Ok(text) => match PlatformTable::parse(text.trim()) {
+                Ok(table) => table,
+                Err(_) => return false,
+            },
+            Err(_) => PlatformTable::default(),
+        };
+        let mut incoming = PlatformTable::default();
+        {
+            let state = self.read();
+            for (stop, tracks) in &saved.stations {
+                for track in tracks {
+                    if !state.configured.contains(stop, track)
+                        && incoming.label_count() < MAX_OBSERVED_PLATFORMS
+                    {
+                        incoming.insert_track(stop, track);
+                    }
+                }
+            }
+            if incoming == state.observed {
+                return false;
+            }
+        }
+        self.write().observed = incoming;
+        self.changed.notify_one();
+        true
+    }
 }
 
 fn write_atomically(path: &std::path::Path, contents: &str) -> std::io::Result<()> {

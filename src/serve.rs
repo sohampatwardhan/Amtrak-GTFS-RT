@@ -2,8 +2,8 @@ use crate::config::{authorize, AccessDecision, AccessPolicy};
 use crate::orchestrator::{ArtifactUrls, FeedSetManifest, GenerationId};
 use crate::writer::{GenerationStore, PublishedGeneration};
 use axum::{
-    extract::{ConnectInfo, Path, State},
-    http::{header, StatusCode},
+    extract::{ConnectInfo, Path, RawQuery, State},
+    http::{header, HeaderMap, StatusCode},
     response::{IntoResponse, Response},
     routing::get,
     Json, Router,
@@ -13,6 +13,20 @@ use std::net::SocketAddr;
 use std::str::FromStr;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
+/// Train or station a feed client asked about.
+///
+/// Recording one does not fetch a track. A background scheduler drains these.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct TripInterest {
+    /// Train numbers from a `train` query, comma-separated in the request.
+    pub trains: Vec<String>,
+    /// Station codes from a `station` query.
+    pub stations: Vec<String>,
+}
+
+/// Called after a trip-update response is chosen, never before it is returned.
+pub type TripInterestHook = Arc<dyn Fn(TripInterest) + Send + Sync>;
 
 /// Injectable wall clock used to make freshness boundaries deterministic.
 pub trait Clock: Send + Sync {
@@ -41,6 +55,8 @@ pub struct AppState {
     pub access_policy: AccessPolicy,
     pub freshness_limit: Duration,
     pub clock: Arc<dyn Clock>,
+    /// Background hint recorded when a client names a train or station.
+    pub trip_interest: TripInterestHook,
 }
 
 impl AppState {
@@ -67,7 +83,22 @@ impl AppState {
             access_policy,
             freshness_limit,
             clock,
+            trip_interest: Arc::new(|_interest| {}),
         }
+    }
+
+    /// Replaces the trip-interest hook.
+    ///
+    /// # Arguments
+    ///
+    /// * `hook` - Invoked from a spawned task so the HTTP response does not wait.
+    ///
+    /// # Returns
+    ///
+    /// The same state, for chaining.
+    pub fn with_trip_interest(mut self, hook: TripInterestHook) -> Self {
+        self.trip_interest = hook;
+        self
     }
 }
 
@@ -197,6 +228,8 @@ pub async fn artifact(
     State(state): State<AppState>,
     peer: Peer,
     Path((id, artifact)): Path<(String, String)>,
+    RawQuery(raw_query): RawQuery,
+    headers: HeaderMap,
 ) -> Response {
     if let Some(response) = denied_peer(
         &state.access_policy,
@@ -218,12 +251,207 @@ pub async fn artifact(
         return StatusCode::NOT_FOUND.into_response();
     };
     let (content_type, bytes) = artifact.bytes(&generation);
+    let interest = interest_from_query(raw_query.as_deref().unwrap_or(""));
+    if matches!(artifact, Artifact::TripUpdates)
+        && (!interest.trains.is_empty() || !interest.stations.is_empty())
+    {
+        let hook = state.trip_interest.clone();
+        tokio::spawn(async move {
+            hook(interest);
+        });
+    }
+    cached_bytes(
+        content_type,
+        bytes.as_ref(),
+        generation.manifest.generated_at_unix,
+        &headers,
+    )
+}
+
+fn interest_from_query(query: &str) -> TripInterest {
+    let mut trains = String::new();
+    let mut stations = String::new();
+    for pair in query.split('&') {
+        let Some((key, value)) = pair.split_once('=') else {
+            continue;
+        };
+        let value = value.replace('+', " ");
+        if key == "train" {
+            trains = value;
+        } else if key == "station" {
+            stations = value;
+        }
+    }
+    let split = |value: &str| {
+        value
+            .split(|byte: char| byte == ',' || byte.is_whitespace())
+            .filter(|item| !item.is_empty())
+            .map(str::to_string)
+            .collect::<Vec<_>>()
+    };
+    TripInterest {
+        trains: split(&trains),
+        stations: split(&stations),
+    }
+}
+
+fn cached_bytes(
+    content_type: &'static str,
+    bytes: &[u8],
+    modified_unix: u64,
+    headers: &HeaderMap,
+) -> Response {
+    use sha2::{Digest, Sha256};
+    let mut hasher = Sha256::new();
+    hasher.update(bytes);
+    let etag = format!("\"{}\"", hex_encode(&hasher.finalize()));
+    let modified = http_date(modified_unix);
+    if headers
+        .get(header::IF_NONE_MATCH)
+        .and_then(|value| value.to_str().ok())
+        .is_some_and(|value| value.split(',').any(|part| part.trim() == etag))
+        || headers
+            .get(header::IF_MODIFIED_SINCE)
+            .and_then(|value| value.to_str().ok())
+            .and_then(parse_http_date)
+            .is_some_and(|since| since >= modified_unix)
+    {
+        return (
+            StatusCode::NOT_MODIFIED,
+            [
+                (header::ETAG, etag),
+                (header::LAST_MODIFIED, modified),
+                (header::CACHE_CONTROL, "private, no-cache".to_string()),
+            ],
+        )
+            .into_response();
+    }
     (
         StatusCode::OK,
-        [(header::CONTENT_TYPE, content_type)],
-        bytes.as_ref().to_vec(),
+        [
+            (header::CONTENT_TYPE, content_type.to_string()),
+            (header::ETAG, etag),
+            (header::LAST_MODIFIED, modified),
+            (header::CACHE_CONTROL, "private, no-cache".to_string()),
+        ],
+        bytes.to_vec(),
     )
         .into_response()
+}
+
+fn hex_encode(bytes: &[u8]) -> String {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    let mut out = String::with_capacity(bytes.len() * 2);
+    for byte in bytes {
+        out.push(HEX[(byte >> 4) as usize] as char);
+        out.push(HEX[(byte & 0x0f) as usize] as char);
+    }
+    out
+}
+
+fn http_date(unix: u64) -> String {
+    let days = unix / 86_400;
+    let seconds = unix % 86_400;
+    let weekday = ["Thu", "Fri", "Sat", "Sun", "Mon", "Tue", "Wed"][(days % 7) as usize];
+    let (year, month, day) = civil_date(days);
+    let month_name = [
+        "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+    ][month as usize - 1];
+    format!(
+        "{weekday}, {day:02} {month_name} {year:04} {:02}:{:02}:{:02} GMT",
+        seconds / 3600,
+        (seconds % 3600) / 60,
+        seconds % 60
+    )
+}
+
+fn civil_date(mut days: u64) -> (i32, u32, u32) {
+    let mut year = 1970;
+    loop {
+        let year_days = if is_leap(year) { 366 } else { 365 };
+        if days < year_days {
+            break;
+        }
+        days -= year_days;
+        year += 1;
+    }
+    let months: [u64; 12] = [
+        31,
+        if is_leap(year) { 29 } else { 28 },
+        31,
+        30,
+        31,
+        30,
+        31,
+        31,
+        30,
+        31,
+        30,
+        31,
+    ];
+    let mut month = 1u32;
+    for length in months {
+        if days < length {
+            return (year, month, days as u32 + 1);
+        }
+        days -= length;
+        month += 1;
+    }
+    (year, 12, 31)
+}
+
+fn is_leap(year: i32) -> bool {
+    year % 4 == 0 && (year % 100 != 0 || year % 400 == 0)
+}
+
+fn parse_http_date(value: &str) -> Option<u64> {
+    let mut parts = value.split_whitespace();
+    let _weekday = parts.next()?;
+    let day: u64 = parts.next()?.trim_end_matches(',').parse().ok()?;
+    let month = match parts.next()? {
+        "Jan" => 1,
+        "Feb" => 2,
+        "Mar" => 3,
+        "Apr" => 4,
+        "May" => 5,
+        "Jun" => 6,
+        "Jul" => 7,
+        "Aug" => 8,
+        "Sep" => 9,
+        "Oct" => 10,
+        "Nov" => 11,
+        "Dec" => 12,
+        _ => return None,
+    };
+    let year: i32 = parts.next()?.parse().ok()?;
+    let time = parts.next()?;
+    let mut clock = time.split(':');
+    let hour: u64 = clock.next()?.parse().ok()?;
+    let minute: u64 = clock.next()?.parse().ok()?;
+    let second: u64 = clock.next()?.parse().ok()?;
+    let mut days = 0u64;
+    for past in 1970..year {
+        days += if is_leap(past) { 366 } else { 365 };
+    }
+    let months: [u64; 12] = [
+        31,
+        if is_leap(year) { 29 } else { 28 },
+        31,
+        30,
+        31,
+        30,
+        31,
+        31,
+        30,
+        31,
+        30,
+        31,
+    ];
+    for length in months.iter().take((month - 1) as usize) {
+        days += u64::from(*length);
+    }
+    days += day - 1;
+    Some(days * 86_400 + hour * 3600 + minute * 60 + second)
 }
 
 fn denied_peer(policy: &AccessPolicy, peer: Peer, route: &'static str) -> Option<Response> {
@@ -644,6 +872,74 @@ mod tests {
                 .status(),
             StatusCode::SERVICE_UNAVAILABLE
         );
+        std::fs::remove_dir_all(output).unwrap();
+    }
+
+    #[tokio::test]
+    async fn repeated_feed_reads_stay_under_100ms_and_revalidate_with_etag() {
+        let (state, output) = fixture_state("latency", 100, Some(100)).await;
+        let app = router(state).layer(MockConnectInfo(SocketAddr::from(([127, 0, 0, 1], 40))));
+        let manifest = body_json(
+            app.clone()
+                .oneshot(request("/v1/feed-set.json"))
+                .await
+                .unwrap(),
+        )
+        .await;
+        let url = manifest["urls"]["trip_updates"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        let mut samples = Vec::new();
+        let first = app.clone().oneshot(request(&url)).await.unwrap();
+        let etag = first.headers()[header::ETAG].to_str().unwrap().to_string();
+        assert!(first.headers().contains_key(header::LAST_MODIFIED));
+        samples.push(0);
+        for _ in 0..199 {
+            let started = std::time::Instant::now();
+            let response = app.clone().oneshot(request(&url)).await.unwrap();
+            samples.push(started.elapsed().as_micros() as u64);
+            assert_eq!(response.status(), StatusCode::OK);
+        }
+        samples.sort_unstable();
+        let p99 = samples[(samples.len() * 99) / 100];
+        assert!(p99 < 100_000, "p99 {p99} microseconds exceeds 100 ms");
+        let conditional = Request::builder()
+            .uri(format!("{url}?train=167&station=PVD"))
+            .header(header::IF_NONE_MATCH, etag)
+            .body(Body::empty())
+            .unwrap();
+        let response = app.oneshot(conditional).await.unwrap();
+        assert_eq!(response.status(), StatusCode::NOT_MODIFIED);
+        std::fs::remove_dir_all(output).unwrap();
+    }
+
+    #[tokio::test]
+    async fn trip_interest_does_not_block_the_cached_response() {
+        let (state, output) = fixture_state("nonblocking", 100, Some(100)).await;
+        let started_hook = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let flag = started_hook.clone();
+        let state = state.with_trip_interest(Arc::new(move |_interest| {
+            std::thread::sleep(Duration::from_secs(2));
+            flag.store(true, std::sync::atomic::Ordering::SeqCst);
+        }));
+        let app = router(state).layer(MockConnectInfo(SocketAddr::from(([127, 0, 0, 1], 41))));
+        let manifest = body_json(
+            app.clone()
+                .oneshot(request("/v1/feed-set.json"))
+                .await
+                .unwrap(),
+        )
+        .await;
+        let url = manifest["urls"]["trip_updates"].as_str().unwrap();
+        let started = std::time::Instant::now();
+        let response = app
+            .oneshot(request(&format!("{url}?train=167")))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        assert!(started.elapsed() < Duration::from_millis(100));
+        assert!(!started_hook.load(std::sync::atomic::Ordering::SeqCst));
         std::fs::remove_dir_all(output).unwrap();
     }
 }

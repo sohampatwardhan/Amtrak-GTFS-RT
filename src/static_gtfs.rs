@@ -562,7 +562,7 @@ fn platform_refresh_delay(
 /// Periodically stages standards-valid replacements without publishing them.
 ///
 /// With `platforms`, a newly observed track also wakes this loop (after a debounce, and at most
-/// once per [`PLATFORM_REFRESH_MIN_GAP`]) so the platform stop is published before the next daily
+/// once per 10 minutes) so the platform stop is published before the next daily
 /// static poll. Each staged snapshot also refreshes which stations may be observed.
 ///
 /// The first attempt waits one `interval`, except when the active snapshot was built for a
@@ -605,6 +605,9 @@ pub async fn run_snapshot_refresh(
             }
         } else {
             ticker.tick().await;
+        }
+        if let Some(platforms) = &platforms {
+            platforms.reload_observed();
         }
         let tables = platforms
             .as_ref()

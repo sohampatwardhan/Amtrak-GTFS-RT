@@ -16,6 +16,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 import time
 import urllib.request
 from collections import Counter
@@ -24,6 +25,8 @@ from datetime import datetime, timedelta, timezone
 from urllib.parse import urlsplit
 
 from .config import Config
+from .lead_time import LeadProfile
+from .select import is_hot
 from .decrypt import DecryptError, decrypt_payload
 from .select import DueTrain, choose_fetches, due_trains
 from .store import TrackStore
@@ -256,6 +259,7 @@ async def poll_once(
     now: datetime,
     trains_fetcher: TrainsFetcher,
     status_fetcher: StatusFetcher,
+    full: bool = True,
 ) -> bool:
     """One cycle. Raises when the train list itself cannot be read; status misses are skipped.
 
@@ -264,12 +268,26 @@ async def poll_once(
     still due.
     """
     geojson = await trains_fetcher(cfg)
+    profile = LeadProfile.load(
+        cfg.lead_time_file or None,
+        default_before=cfg.window_before_secs,
+        default_hot=cfg.hot_window_secs,
+    )
     due = due_trains(
         geojson,
         now,
         before=timedelta(seconds=cfg.window_before_secs),
         after=timedelta(seconds=cfg.window_after_secs),
+        lead=profile,
+        hot=timedelta(seconds=cfg.hot_window_secs),
     )
+    early = _early_train_numbers()
+    if not full:
+        due = [
+            train
+            for train in due
+            if train.train_number in early or is_hot(train, store.tracked(), cfg.hot_window_secs)
+        ]
     due_keys = {train.key for train in due}
     for key in [key for key in last_fetched if key not in due_keys]:
         del last_fetched[key]
@@ -314,6 +332,22 @@ async def poll_once(
     return succeeded
 
 
+def _early_train_numbers() -> set[str]:
+    """Train numbers written by the HTTP hint flusher. Missing file means none."""
+    root = os.environ.get("AMTRAK_OUTPUT_DIR", "")
+    if not root:
+        return set()
+    path = os.path.join(root, "tracks", "early-refresh.json")
+    try:
+        body = json.loads(open(path, encoding="utf-8").read())
+    except (OSError, json.JSONDecodeError):
+        return set()
+    trains = body.get("trains") if isinstance(body, dict) else None
+    if not isinstance(trains, list):
+        return set()
+    return {str(train) for train in trains if str(train).isdigit()}
+
+
 async def run_forever(
     store: TrackStore,
     cfg: Config,
@@ -334,8 +368,10 @@ async def run_forever(
     now_of = clock or (lambda: datetime.now(timezone.utc))
     last_fetched: dict[tuple[str, str], float] = {}
     count = 0
+    elapsed = 0
     try:
         while iterations is None or count < iterations:
+            full = elapsed == 0 or elapsed >= cfg.base_interval_secs
             try:
                 succeeded = await poll_once(
                     store,
@@ -344,6 +380,7 @@ async def run_forever(
                     now=now_of(),
                     trains_fetcher=trains,
                     status_fetcher=status,
+                    full=full,
                 )
             except Exception:  # noqa: BLE001 — a failed cycle must not crash the sidecar
                 logger.exception("track poll failed; keeping the last snapshot")
@@ -354,5 +391,6 @@ async def run_forever(
             if iterations is not None and count >= iterations:
                 break
             await sleep(cfg.poll_interval_secs)
+            elapsed = cfg.poll_interval_secs if full else elapsed + cfg.poll_interval_secs
     finally:
         await browser.close()

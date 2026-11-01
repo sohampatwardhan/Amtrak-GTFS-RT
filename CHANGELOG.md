@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- **Three feed containers.** `AMTRAK_ROLE=vehicle-positions` is the only `getTrainsData` poller and the public HTTP front. `trip-updates` stamps tracks and gates. `alerts` merges notices. `/v1/feed-set.json` advances only when both contributions for that poll are on disk. Artifact responses send `ETag` and `Last-Modified` and answer `304` from memory.
+- **Track schedule.** Full track polls default to every 15 minutes (`AMTRAK_TRACKS_BASE_INTERVAL_SECS`). A `train` or `station` query on trip updates enqueues a debounced background refresh and still returns the cached protobuf. `AMTRAK_TRACKS_LEAD_TIME_FILE` loads an `amtrak-station-lead-time/v1` profile. `observed` stations marked `wider` use their suggested windows. Other stations keep the global window. Hot checks still run between base polls.
+
 ## [0.7.1] - 2026-10-21
 
 ### Fixed
