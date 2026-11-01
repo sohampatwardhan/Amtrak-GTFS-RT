@@ -6,10 +6,21 @@
  * reported by the release scan. The container build applies this as a Gradle init script, then
  * runs the validator test suite and scans the resulting JAR before it can reach the runtime.
  */
-allprojects {
+allprojects { project ->
     tasks.withType(org.gradle.api.tasks.bundling.AbstractArchiveTask).configureEach {
         preserveFileTimestamps = false
         reproducibleFileOrder = true
+    }
+
+    // Guava 33 publishes jsr305 as optional, so the pinned sources lose javax.annotation.Nullable.
+    // Restore it as a transitive dependency of Guava. A direct dependency breaks :app:pkg, which
+    // wraps one uber-jar as a Java module and cannot transform jsr305.
+    project.dependencies.components.withModule("com.google.guava:guava") {
+        allVariants {
+            withDependencies {
+                add("com.google.code.findbugs:jsr305:3.0.2")
+            }
+        }
     }
 
     configurations.configureEach {
@@ -18,7 +29,8 @@ allprojects {
                 'org.apache.commons:commons-compress:1.26.0',
                 'org.apache.commons:commons-lang3:3.18.0',
                 'com.google.code.gson:gson:2.8.9',
-                'com.google.guava:guava:32.0.0-jre',
+                'com.google.guava:guava:33.7.2-jre',
+                'ognl:ognl:3.4.13',
                 'org.apache.httpcomponents.client5:httpclient5:5.6.3',
                 'org.apache.httpcomponents.core5:httpcore5:5.4.3',
                 'org.apache.httpcomponents.core5:httpcore5-h2:5.4.3',

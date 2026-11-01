@@ -88,7 +88,7 @@ RUN --mount=type=cache,target=/root/.gradle \
       --dependency-verification=strict \
       --init-script /opt/amtrak/validator-dependency-overrides.gradle \
       test :cli:shadowJar && \
-    echo "bc3ec6fb672fe45e96fd28e559301c075c752d10172e7b90e5ec3c1f29011a15  cli/build/libs/gtfs-validator-8.0.1-cli.jar" \
+    echo "30de704a8fbd0a81e119f3afa45eaa158fd224275659bc4d3685b3156c443b64  cli/build/libs/gtfs-validator-8.0.1-cli.jar" \
       | sha256sum --check --strict && \
     mkdir -p /out && \
     cp cli/build/libs/gtfs-validator-8.0.1-cli.jar \

@@ -19,7 +19,9 @@ RUN OPENSSL_STATIC=1 \
 # calls go through the browser.
 FROM python:3.12-slim-bookworm
 
-ARG PLAYWRIGHT_VERSION=1.64.0
+# 1.64.1 bundles Node 24.22.1. 1.64.0's Node 24.21.0 has fixable High advisories
+# (CVE-2026-105482, CVE-2026-105483, CVE-2026-106069, CVE-2026-111497) that fail the sidecar gate.
+ARG PLAYWRIGHT_VERSION=1.64.1
 # `headless-shell` (default) installs only chromium-headless-shell. `full` also installs full
 # Chromium and Xvfb for BROWSER_MODE=xvfb-headful, the fallback if Amtrak blocks the headless shell.
 # It makes the image larger, so build it only when that mode is needed:

@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- **Sidecar images ship Node 24.22.1.** Playwright is pinned to 1.64.1. 1.64.0 bundled Node 24.21.0, which has fixable High advisories CVE-2026-105482, CVE-2026-105483, CVE-2026-106069, and CVE-2026-111497.
+- **The validator JAR forces Guava 33.7.2 and OGNL 3.4.13.** Those are the fixed releases for GHSA-xxph-c9ww-hj94 (Guava 32.0.0-jre) and GHSA-crwc-vw2r-qr6m (OGNL 3.1.26). The service image keeps the zero-match Grype policy.
 - **Three feed containers.** `AMTRAK_ROLE=vehicle-positions` is the only `getTrainsData` poller and the public HTTP front. `trip-updates` stamps tracks and gates. `alerts` merges notices. `/v1/feed-set.json` advances only when both contributions for that poll are on disk. Artifact responses send `ETag` and `Last-Modified` and answer `304` from memory.
 - **Track schedule.** Full track polls default to every 15 minutes (`AMTRAK_TRACKS_BASE_INTERVAL_SECS`). A `train` or `station` query on trip updates enqueues a debounced background refresh and still returns the cached protobuf. `AMTRAK_TRACKS_LEAD_TIME_FILE` loads an `amtrak-station-lead-time/v1` profile. `observed` stations marked `wider` use their suggested windows. Other stations keep the global window. Hot checks still run between base polls.
 
