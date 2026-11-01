@@ -26,12 +26,12 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from .config import DEFAULT_PAGE_URL
 from .poller import _FETCH_JS, _LAUNCH_ARGS, StatusMiss, document_from_eval, is_first_party
 from .poller import should_block, status_url
+from .status_parse import posted_track_rows
 
 MAX_REQUESTS = 40
 """Status requests one run may make unless ``--max-requests`` raises it."""
 
 _TRAIN = re.compile(r"[0-9]{1,4}")
-_SIDES = ("arrival", "departure")
 _COLUMNS = (
     ("train", "Train"),
     ("service_date", "Service date"),
@@ -50,44 +50,7 @@ def posted_tracks(train: str, service_date: str, document: dict) -> list[dict]:
 
     A track Amtrak has not assigned yet (an empty number or ``TBD``) is left out.
     """
-    rows = []
-    for service in document.get("data") or []:
-        if not isinstance(service, dict):
-            continue
-        for stop in service.get("stops") or []:
-            if not isinstance(stop, dict):
-                continue
-            station = stop.get("station") if isinstance(stop.get("station"), dict) else {}
-            code = station.get("code") or stop.get("code") or ""
-            for side in _SIDES:
-                event = stop.get(side)
-                if not isinstance(event, dict):
-                    continue
-                track = event.get("track")
-                if not isinstance(track, dict):
-                    continue
-                number = str(track.get("number") or "").strip()
-                if not number or number.upper() == "TBD":
-                    continue
-                gate = event.get("gate") or track.get("gate")
-                schedule = event.get("schedule")
-                rows.append(
-                    {
-                        "train": train,
-                        "service_date": service_date,
-                        "station": code,
-                        "station_name": station.get("name") or "",
-                        "side": side,
-                        "track": number,
-                        "gate": (gate.get("number") if isinstance(gate, dict) else gate) or "",
-                        "scheduled": (
-                            schedule.get("dateTime") if isinstance(schedule, dict) else None
-                        )
-                        or "",
-                        "as_of": track.get("asOf") or "",
-                    }
-                )
-    return rows
+    return posted_track_rows(train, service_date, document)
 
 
 def format_table(rows: Sequence[dict]) -> str:

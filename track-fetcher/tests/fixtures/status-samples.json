@@ -1,0 +1,97 @@
+{
+  "train_66": {
+    "data": [
+      {
+        "travelService": {
+          "number": "66",
+          "date": "2026-10-31",
+          "type": {"code": "TRN", "description": "Intercity Train"}
+        },
+        "stops": [
+          {
+            "station": {"code": "KIN", "name": "Kingston, RI"},
+            "arrival": {
+              "schedule": {"dateTime": "2026-11-01T05:18:00-04:00"},
+              "statusInfo": {
+                "status": "ON TIME",
+                "dateTimeType": "ESTIMATE",
+                "dateTime": "2026-11-01T05:28:00-04:00",
+                "asOf": "2026-11-01T05:00:00-04:00"
+              },
+              "track": {"number": "1", "asOf": "2026-11-01T01:18:00-04:00"}
+            }
+          },
+          {
+            "station": {"code": "PVD", "name": "Providence, RI"},
+            "arrival": {"schedule": {"dateTime": "2026-11-01T06:10:00-04:00"}},
+            "departure": {
+              "schedule": {"dateTime": "2026-11-01T06:14:00-04:00"},
+              "track": {"number": "TBD", "asOf": "2026-11-01T06:00:00-04:00"}
+            }
+          },
+          {
+            "station": {"code": "WAS", "name": "Washington, DC"},
+            "arrival": {
+              "schedule": {"dateTime": "2026-11-01T09:55:00-04:00"},
+              "track": {"number": "25", "asOf": "2026-11-01T04:00:00-04:00"},
+              "gate": {"number": "G", "asOf": "2026-11-01T04:00:00-04:00"}
+            },
+            "departure": {
+              "schedule": {"dateTime": "2026-11-01T10:05:00-04:00"},
+              "track": {"number": "24", "asOf": "2026-11-01T09:50:00-04:00"},
+              "gate": {"number": "H", "asOf": "2026-11-01T09:50:00-04:00"}
+            }
+          },
+          {
+            "station": {"code": "BOS", "name": "Boston, MA"},
+            "departure": {
+              "schedule": {"dateTime": "2026-11-01T12:00:00-05:00"},
+              "statusInfo": {"status": "CANCELED", "displayStatus": "Canceled"}
+            }
+          },
+          {
+            "station": {"code": "NYP", "name": "New York, NY"},
+            "arrival": {"schedule": {"dateTime": "2026-11-01T08:00:00-04:00"}}
+          },
+          {
+            "station": {"code": "bwi", "name": "BWI Marshall Airport, MD"},
+            "departure": {
+              "schedule": {"dateTime": "2026-11-01T07:00:00-04:00"},
+              "track": {"number": " 3 ", "asOf": "2026-11-01T01:00:00-04:00"}
+            }
+          }
+        ]
+      },
+      {
+        "travelService": {"number": "3821", "type": {"code": "BUS"}},
+        "stops": [
+          {
+            "station": {"code": "OKC", "name": "Oklahoma City, OK"},
+            "departure": {"schedule": {"dateTime": "2026-11-01T09:00:00-05:00"}}
+          }
+        ]
+      }
+    ]
+  },
+  "canceled_821": {
+    "data": [
+      {
+        "travelService": {"number": "821", "type": {"code": "TRN"}},
+        "stops": [
+          {
+            "station": {"code": "OKC", "name": "Oklahoma City, OK"},
+            "arrival": {
+              "schedule": {"dateTime": "2026-11-01T08:40:00-05:00"},
+              "statusInfo": {"status": "CANCELED"}
+            },
+            "departure": {
+              "schedule": {"dateTime": "2026-11-01T09:00:00-05:00"},
+              "statusInfo": {"status": "CANCELED", "displayStatus": "Canceled"},
+              "track": {"number": "1", "asOf": "2026-10-02T08:17:12-05:00"}
+            }
+          }
+        ]
+      }
+    ]
+  }
+}

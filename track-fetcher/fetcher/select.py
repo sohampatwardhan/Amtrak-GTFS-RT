@@ -64,6 +64,9 @@ def due_trains(
 
     An estimated time replaces the scheduled time for that arrival or departure. Bus stops are
     ignored. ``soonest_secs`` is the absolute distance from ``now`` to the closest such event.
+    When ``lead`` is set, each stop uses that station's lookahead and hot window from an
+    ``amtrak-station-lead-time/v1`` profile, and ``hot`` is the global hot window those
+    per-station values fall back to.
     """
     if now.tzinfo is None:
         raise ValueError("now must be timezone-aware")
@@ -179,7 +182,13 @@ def _train_number(raw: object) -> str | None:
     return text.lstrip("0") or "0"
 
 
-def _service_date(properties: dict) -> str | None:
+def origin_service_date(properties: dict) -> str | None:
+    """The ``service-date`` for this train: the calendar day it left its origin.
+
+    ``OrigSchDep`` is that instant. A stop after midnight still uses the origin day, which is
+    what ``/statuses/{train}?service-date=`` expects. When the feed has no origin time, the
+    first station time's calendar day is the fallback :func:`due_trains` already used.
+    """
     raw = properties.get("OrigSchDep")
     if isinstance(raw, str) and len(raw) >= 10:
         parsed = _parse_date(raw[:10])
@@ -193,6 +202,10 @@ def _service_date(properties: dict) -> str | None:
                 if parsed is not None:
                     return parsed
     return None
+
+
+def _service_date(properties: dict) -> str | None:
+    return origin_service_date(properties)
 
 
 def _parse_date(text: str) -> str | None:
@@ -242,6 +255,62 @@ def _event_times(station: dict) -> list[datetime]:
             if moment is not None:
                 moments.append(moment)
     return moments
+
+
+@dataclass(frozen=True)
+class FleetTrain:
+    """One train-day in the maps feed, with its rail station codes in feed order.
+
+    ``service_date`` is :func:`origin_service_date`. Bus-only features are not listed.
+    """
+
+    train_number: str
+    service_date: str
+    station_codes: tuple[str, ...]
+
+
+def list_fleet(geojson: dict) -> tuple[list[FleetTrain], int]:
+    """Rail train-days in ``geojson``, sorted by origin date then train number.
+
+    The second value is how many features were skipped because every stop was a bus. The first
+    feature wins when the same train-day appears twice. Order does not follow the feed.
+    """
+    found: dict[tuple[str, str], FleetTrain] = {}
+    bus_only = 0
+    features = geojson.get("features") if isinstance(geojson, dict) else None
+    for feature in features if isinstance(features, list) else []:
+        if not isinstance(feature, dict):
+            continue
+        properties = feature.get("properties")
+        if not isinstance(properties, dict):
+            continue
+        number = _train_number(properties.get("TrainNum"))
+        service_date = origin_service_date(properties)
+        if number is None or service_date is None or number == "0":
+            continue
+        codes: list[str] = []
+        rail = False
+        bus = False
+        for station in _stations(properties):
+            if station.get("bus") is True:
+                bus = True
+                continue
+            rail = True
+            code = _station_code(station)
+            if code and code not in codes:
+                codes.append(code)
+        if not rail:
+            if bus:
+                bus_only += 1
+            continue
+        key = (number, service_date)
+        if key not in found:
+            found[key] = FleetTrain(number, service_date, tuple(codes))
+    trains = sorted(
+        found.values(),
+        key=lambda train: (train.service_date, int(train.train_number), train.train_number),
+    )
+    return trains, bus_only
 
 
 def _parse_local(text: str, zone: ZoneInfo) -> datetime | None:

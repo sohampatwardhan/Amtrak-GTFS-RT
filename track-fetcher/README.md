@@ -160,3 +160,99 @@ Offline tests (no browser, no network):
 python -m pip install --requirement requirements.txt
 python -m pytest tests -q
 ```
+
+## Station coverage
+
+`python -m fetcher.coverage` answers two questions: what track and gate Amtrak has posted for a train, and which stations publish that information and how far ahead. It is a one-shot (or a time-boxed watch). It does not poll or serve `/tracks.json`.
+
+The profile it writes is the `amtrak-station-lead-time/v1` file `AMTRAK_TRACKS_LEAD_TIME_FILE` loads. An `observed` station marked `wider` uses that station's suggested lookahead and hot window. `sparse`, `no_track`, `none`, `covered`, `unknown`, and missing stations keep `TRACK_WINDOW_BEFORE_SECS` (30 minutes) and `TRACK_HOT_WINDOW_SECS` (12 minutes). Kingston posting a track overnight is the `wider` case. Providence posting one about ten minutes before the stop stays on the global window.
+
+### What it requests
+
+Same calls as the train-status page, through one headless Chromium session on `https://www.amtrak.com/tickets/train-status.html`, then `fetch` from that page. Image, font, stylesheet, media, and every host outside `amtrak.com` are blocked. There is no second client, no cookie copy, and no retry.
+
+| Call | Role |
+|---|---|
+| `GET https://maps.amtrak.com/services/MapDataService/trains/getTrainsData` | Active train numbers and each train's origin departure time. Plain HTTP. Decrypted with the sidecar's `decrypt.py`. Not used when `tracks` is given an explicit `--date`. |
+| `GET https://www.amtrak.com/dotcom/travel-service/statuses/{train}?service-date=` | The only source of the rows. `service-date` is the origin departure date, including for stops after midnight. |
+| `GET https://www.amtrak.com/dotcom/travel-service/statuses/stations?origin-code=&destination-code=&departure-date=` | One corridor-board probe per survey (default NYP to WAS). Recorded only as whether the body still contains track and gate numbers. Not copied into the stop rows. `tracks` does not call it. `--no-board` skips it. |
+| `GET /dotcom/travel-service/statuses/stops/{station}?service-numbers=&departure-date=` | Not called. The page fires it and a check on 2026-11-01 found no track or gate fields. The report says so. |
+
+A track is `departure.track.number` when that number is assigned, otherwise `arrival.track.number`. Blank and `TBD` are not numbers. Gates are `gate.number` on that side. Lead time is the event time minus `track.asOf`, in seconds. The event time is `statusInfo.dateTime` when Amtrak sent one, otherwise `schedule.dateTime`. The station table's **Ahead** columns use the earlier of the two sides. The **Track** column uses the side the sidecar would publish.
+
+Requests run in a fixed order: origin date, then train number. The delay between www.amtrak.com requests is fixed (default 2 seconds, minimum 1, no jitter). Survey's default cap is 300 requests including the one board probe; `tracks` defaults to 40. The hard maximum is 500. A run that hits the cap sets `truncated` and lists the trains left for `--offset`. A 403, 401, 429, or a dropped connection stops the run, writes whatever it already collected, and exits 3 with the reason. It does not fall through to `curl`.
+
+### Commands
+
+From `track-fetcher/`, with Playwright's headless shell installed the same way as `fetcher.dump`:
+
+```bash
+python -m pip install --requirement requirements.txt
+python -m pip install playwright==1.64.1
+python -m playwright install --only-shell chromium
+
+# Train 66, origin date 2026-10-31, only Kingston's stop.
+python -m fetcher.coverage tracks 66 --date 2026-10-31 --station KIN --out train66-kin.json
+
+# Omit --date to use each train's origin date from the maps feed.
+python -m fetcher.coverage tracks 66 --station KIN --out train66-kin.json
+
+# Every active rail train, plus the NYP-WAS board probe.
+python -m fetcher.coverage survey --out survey.json
+
+# Repeat for an hour, one survey every 15 minutes, then merge.
+python -m fetcher.coverage survey --interval 900 --duration 3600 --out-dir snapshots
+python -m fetcher.coverage merge snapshots --out coverage.json
+```
+
+`--station` may be repeated. On `survey`, and on `tracks` without `--date`, it limits which trains are fetched to those whose maps-feed stops include that code. On `tracks --date` the named trains are still fetched and the filter only drops rows, because the feed is not consulted.
+
+Each `--out` path (and `snapshots/merged.json` after a watch) is accompanied by:
+
+| File | Contents |
+|---|---|
+| `survey.json` | Stops, per-station stats, the profile, and the request log (`fetched_at`, HTTP status, error) |
+| `survey.csv` | One row per stop, same columns every time |
+| `survey.stations.csv` | The station table |
+| `survey.profile.json` | The `amtrak-station-lead-time/v1` profile. Set `AMTRAK_TRACKS_LEAD_TIME_FILE` to this path |
+
+Stdout is the station table (and, for `tracks`, the per-stop tracks above it). Counts and errors go to stderr. Exit 0 means at least one status document or a successful board probe. Exit 1 means the run finished and Amtrak had nothing to give. Exit 3 means the browser or Akamai stopped it.
+
+Do not commit survey output. It is public train data, and it goes stale within hours.
+
+A full fleet at the default 2 second delay is on the order of ten minutes. Check that volume against Amtrak's terms of use before leaving a watch or a cron job running.
+
+### Cron
+
+A directory of hourly snapshots, merged each morning. `merge` on a directory reads `*.json` and skips `*.profile.json` and any file whose `kind` is `merged`, so the previous `coverage.json` in that directory is not folded in again.
+
+```cron
+15 6-22 * * * cd /path/to/track-fetcher && python -m fetcher.coverage survey --out /var/lib/amtrak-coverage/survey-$(date -u +\%Y\%m\%dT\%H\%M\%SZ).json
+30 7 * * * cd /path/to/track-fetcher && python -m fetcher.coverage merge /var/lib/amtrak-coverage --out /var/lib/amtrak-coverage/coverage.json
+```
+
+`--interval` is the in-process version of that first line, bounded by `--duration` (at most 24 hours) and `--max-cycles` (default 24). A cycle that has started runs to its own cap; the next one does not start after the deadline.
+
+### How trip updates load the profile
+
+`survey.profile.json` has `schema` `amtrak-station-lead-time/v1`. For each station it carries `stops_seen`, `pct_with_track`, `lead_min_secs`, `lead_median_secs`, `lead_max_secs`, the same three numbers for the sidecar's chosen side (`chosen_lead_*`), `suggested_window_before_secs`, `suggested_hot_window_secs`, `compared_to_default` (`wider`, `covered`, or `unknown`), and `confidence` (`none`, `no_track`, `sparse` when fewer than three measurable leads, or `observed`).
+
+`suggested_window_before_secs` is the longest measured lead, plus 10 percent (at least a minute), rounded up to a minute, and clamped between 10 minutes and 12 hours. It is null when that lead is zero or negative: the stamp is not before the event, which is common for a train that has already arrived, and `compared_to_default` is then `unknown`. It is `wider` when the suggestion is longer than the global 1800 seconds and `covered` when the tracks already show up inside that global window. `suggested_hot_window_secs` widens past 720 only when the median chosen lead is 15 minutes or less.
+
+`AMTRAK_TRACKS_LEAD_TIME_FILE` points at this file. The Rust loader and `fetcher/lead_time.py` apply it the same way:
+
+1. Adopt a station only when `confidence` is `observed` and `compared_to_default` is `wider`. That station's lookahead becomes `suggested_window_before_secs`, and its hot window becomes `suggested_hot_window_secs` when that value is a positive integer.
+2. Leave `sparse` stations on the global windows even when their suggestion is `wider`. Three measurable leads are required before a station changes the poll.
+3. Leave `covered`, `unknown`, `no_track`, `none`, and missing stations on `TRACK_WINDOW_BEFORE_SECS` and `TRACK_HOT_WINDOW_SECS`. A `covered` station is not narrowed: Providence posting about ten minutes ahead stays inside the 30-minute window.
+4. Leave `TRACK_WINDOW_AFTER_SECS` global.
+5. Prefer `merge` of several snapshots over one survey. Lead time comes from Amtrak's `asOf`, so a single fetch is enough when the track is already posted. It is not enough for a station that posts only in the last minutes, because a too-early fetch has no `asOf` to measure.
+
+`store.tracked_codes` is intentionally not shared with this parser. The hot set still treats any non-empty number, including `TBD`, as a track already seen. This report does not.
+
+### Seeing the same JSON in Chrome
+
+1. Open `https://www.amtrak.com/tickets/train-status.html`.
+2. DevTools → Network → Fetch/XHR. Filter by `statuses`.
+3. Search the train and the date it left its origin. An overnight train still running on November 1 uses October 31 if that is the day it departed.
+4. Open `statuses/{number}?service-date=YYYY-MM-DD`. In the JSON, each `data[0].stops[]` entry has `arrival` and `departure`. The track is `track.number` and `track.asOf`. The gate is `gate.number` and `gate.asOf`.
+5. The page may also request `statuses/stations?origin-code=&destination-code=&departure-date=` and `statuses/stops/{STATION}`. The per-train document is the one this tool records stop by stop. The stations response is only checked for whether `track` and `gate` numbers are present.
