@@ -35,6 +35,10 @@
   - Off by default. Gzip, per-IP rate limit, access logs, ETag forwarding, TLS only from `AMTRAK_PROXY_TLS`. Digest-pinned upstream images. The release gate scans the built image.
   - _Requirements: 4.5, 4.6_
 
+- [x] 7. Consumer contract
+  - Name gtfs-mcp and Trackside. Pin the public URL list, `feed-set.json` fields, content types, and artifact cache headers. Additions update the pin. Removals and renames fail the test.
+  - _Requirements: 5.1, 5.2, 5.3, 5.4, 5.5_
+
 ## Task graph
 
 Arrows mean depends-on. Critical path is the publication gate through cached HTTP. Profile parsing can proceed beside the snapshot once the library exists.
@@ -62,6 +66,7 @@ flowchart TB
   subgraph phase4 [Phase 4 Packaging]
     t5["5. Compose bake CI and docs"]
     t6["6. Official zip and platform add-on"]
+    t7["7. Consumer contract"]
   end
   subgraph legend [Legend]
     legCrit["Critical path"]
@@ -76,10 +81,11 @@ flowchart TB
   t3 --> t42
   t42 --> t5
   t5 --> t6
+  t6 --> t7
   classDef critical fill:#fde68a,stroke:#b45309,color:#1c1917
   classDef parallel fill:#dbeafe,stroke:#1d4ed8,color:#1e3a8a
   classDef blocked fill:#fecaca,stroke:#b91c1c,color:#7f1d1d
-  class t1,t21,t22,t3,t42,t5,t6 critical
+  class t1,t21,t22,t3,t42,t5,t6,t7 critical
   class t41 parallel
   class legCrit critical
   class legPar parallel

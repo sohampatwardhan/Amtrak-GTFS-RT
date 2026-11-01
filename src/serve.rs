@@ -573,8 +573,9 @@ mod tests {
         extract::connect_info::MockConnectInfo,
         http::Request,
     };
-    use gtfs_realtime::{FeedEntity, FeedMessage};
+    use gtfs_realtime::{feed_header, FeedEntity, FeedMessage};
     use gtfs_structures::Gtfs;
+    use prost::Message;
     use std::collections::BTreeSet;
     use std::path::PathBuf;
     use tower::ServiceExt;
@@ -857,6 +858,178 @@ mod tests {
             assert!(bytes.starts_with(expected_prefix));
         }
         std::fs::remove_dir_all(output).unwrap();
+    }
+
+    /// Pins the public contract for gtfs-mcp and Trackside.
+    ///
+    /// Both read `feed-set.json`, then `official-static.zip`, `platform-addon.zip`, and the three
+    /// protobufs. A new URL or field is an addition and must be added here. Removing or renaming a
+    /// pinned name fails this test.
+    #[tokio::test]
+    async fn public_contract_pins_urls_content_types_and_cache_headers() {
+        const ARTIFACTS: &[(&str, &str, &str)] = &[
+            ("static_zip", "static.zip", "application/zip"),
+            (
+                "official_static_zip",
+                "official-static.zip",
+                "application/zip",
+            ),
+            (
+                "platform_addon_zip",
+                "platform-addon.zip",
+                "application/zip",
+            ),
+            ("trip_updates", "trip-updates.pb", "application/x-protobuf"),
+            (
+                "vehicle_positions",
+                "vehicle-positions.pb",
+                "application/x-protobuf",
+            ),
+            ("alerts", "alerts.pb", "application/x-protobuf"),
+        ];
+        const FEED_SET_FIELDS: &[&str] = &[
+            "entity_counts",
+            "generated_at_unix",
+            "generation_id",
+            "platform_addon_version",
+            "source",
+            "static_version",
+            "urls",
+        ];
+        const COUNT_FIELDS: &[&str] = &["alerts", "trip_updates", "vehicle_positions"];
+        const CACHE_HEADERS: &[header::HeaderName] = &[
+            header::CACHE_CONTROL,
+            header::CONTENT_TYPE,
+            header::ETAG,
+            header::LAST_MODIFIED,
+        ];
+
+        let (state, output) = fixture_state("contract", 100, Some(100)).await;
+        let app = router(state).layer(MockConnectInfo(SocketAddr::from(([127, 0, 0, 1], 10))));
+
+        let live = app.clone().oneshot(request("/livez")).await.unwrap();
+        assert_eq!(live.status(), StatusCode::OK);
+        assert_eq!(live.headers()[header::CONTENT_TYPE], "application/json");
+        assert_eq!(body_json(live).await["live"], true);
+
+        let ready = app.clone().oneshot(request("/readyz")).await.unwrap();
+        assert_eq!(ready.status(), StatusCode::OK);
+        assert_eq!(ready.headers()[header::CONTENT_TYPE], "application/json");
+        let ready_body = body_json(ready).await;
+        assert_eq!(
+            object_keys(&ready_body),
+            [
+                "age_seconds",
+                "generation_id",
+                "latest_success_unix",
+                "ready",
+                "reason"
+            ]
+            .into_iter()
+            .map(str::to_string)
+            .collect::<BTreeSet<_>>()
+        );
+
+        let manifest_response = app
+            .clone()
+            .oneshot(request("/v1/feed-set.json"))
+            .await
+            .unwrap();
+        assert_eq!(manifest_response.status(), StatusCode::OK);
+        assert_eq!(
+            manifest_response.headers()[header::CONTENT_TYPE],
+            "application/json"
+        );
+        let manifest = body_json(manifest_response).await;
+        assert_eq!(
+            object_keys(&manifest),
+            FEED_SET_FIELDS
+                .iter()
+                .map(|field| (*field).to_string())
+                .collect::<BTreeSet<_>>()
+        );
+        assert_eq!(
+            object_keys(&manifest["entity_counts"]),
+            COUNT_FIELDS
+                .iter()
+                .map(|field| (*field).to_string())
+                .collect::<BTreeSet<_>>()
+        );
+        assert_eq!(
+            object_keys(&manifest["urls"]),
+            ARTIFACTS
+                .iter()
+                .map(|(key, _, _)| (*key).to_string())
+                .collect::<BTreeSet<_>>()
+        );
+        let id = manifest["generation_id"].as_str().unwrap();
+        let static_version = manifest["static_version"].as_str().unwrap();
+        let generated_at = manifest["generated_at_unix"].as_u64().unwrap();
+
+        for (key, file_name, content_type) in ARTIFACTS {
+            let url = manifest["urls"][*key].as_str().unwrap();
+            assert_eq!(url, &format!("/v1/generations/{id}/{file_name}"));
+            let response = app.clone().oneshot(request(url)).await.unwrap();
+            assert_eq!(response.status(), StatusCode::OK, "{url}");
+            assert_eq!(response.headers()[header::CONTENT_TYPE], *content_type);
+            assert_eq!(
+                response.headers()[header::CACHE_CONTROL],
+                "private, no-cache"
+            );
+            let etag = response.headers()[header::ETAG]
+                .to_str()
+                .unwrap()
+                .to_string();
+            assert!(
+                etag.starts_with('"') && etag.ends_with('"') && etag.len() == 66,
+                "{url} etag {etag}"
+            );
+            let modified = response.headers()[header::LAST_MODIFIED]
+                .to_str()
+                .unwrap()
+                .to_string();
+            assert!(modified.ends_with(" GMT"), "{url} last-modified {modified}");
+            for name in CACHE_HEADERS {
+                assert!(
+                    response.headers().contains_key(name),
+                    "{url} missing {name}"
+                );
+            }
+            if content_type == &"application/x-protobuf" {
+                let bytes = to_bytes(response.into_body(), 1_000_000).await.unwrap();
+                let message = FeedMessage::decode(bytes.as_ref()).unwrap();
+                assert_eq!(message.header.gtfs_realtime_version, "2.0");
+                assert_eq!(
+                    message.header.incrementality,
+                    Some(feed_header::Incrementality::FullDataset as i32)
+                );
+                assert_eq!(message.header.feed_version.as_deref(), Some(static_version));
+                assert_eq!(message.header.timestamp, Some(generated_at));
+                let again = Request::builder()
+                    .uri(url)
+                    .header(header::IF_NONE_MATCH, &etag)
+                    .body(Body::empty())
+                    .unwrap();
+                let not_modified = app.clone().oneshot(again).await.unwrap();
+                assert_eq!(not_modified.status(), StatusCode::NOT_MODIFIED, "{url}");
+                assert_eq!(not_modified.headers()[header::ETAG], etag);
+                assert_eq!(not_modified.headers()[header::LAST_MODIFIED], modified);
+                assert_eq!(
+                    not_modified.headers()[header::CACHE_CONTROL],
+                    "private, no-cache"
+                );
+                assert!(to_bytes(not_modified.into_body(), 1_000_000)
+                    .await
+                    .unwrap()
+                    .is_empty());
+            }
+        }
+
+        std::fs::remove_dir_all(output).unwrap();
+    }
+
+    fn object_keys(value: &Value) -> BTreeSet<String> {
+        value.as_object().unwrap().keys().cloned().collect()
     }
 
     #[tokio::test]

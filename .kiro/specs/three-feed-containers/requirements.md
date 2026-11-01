@@ -4,6 +4,21 @@
 
 The feed is three containers that share one library and one `getTrainsData` poll. VehiclePositions serves the existing public URLs from memory. TripUpdates stamps tracks and gates. Alerts merges notices. A request never waits on a browser or an upstream fetch. Track checks run every 15 minutes, with debounced early refreshes and per-station lead-time profiles in the `amtrak-station-lead-time/v1` shape.
 
+Two consumers read this feed. **gtfs-mcp** is an MCP server that fetches the GTFS and GTFS-Realtime URLs on demand. **Trackside** is Soham's app. Both start at `/v1/feed-set.json`, then read the untouched Amtrak zip (`official-static.zip`), the platform add-on (`platform-addon.zip`), and the three protobufs `trip-updates.pb`, `vehicle-positions.pb`, and `alerts.pb`.
+
+```mermaid
+---
+config:
+  layout: elk
+---
+flowchart LR
+  mcp["gtfs-mcp"] --> manifest["feed-set.json"]
+  trackside["Trackside"] --> manifest
+  manifest --> official["official-static.zip"]
+  manifest --> addon["platform-addon.zip"]
+  manifest --> pb["three protobuf feeds"]
+```
+
 ```mermaid
 ---
 config:
@@ -95,3 +110,15 @@ stateDiagram-v2
 4. IF the vehicle-positions image is built THEN the system SHALL keep the Java validator in that image, and SHALL keep serving the public URLs on that container.
 5. IF Compose is started without the `proxy` profile THEN the system SHALL NOT start a reverse proxy.
 6. IF Compose is started with `--profile proxy` THEN the system SHALL start a Caddy proxy that gzips, rate-limits per client IP, writes access logs, forwards `ETag` and `304`, and enables TLS only when `AMTRAK_PROXY_TLS` is set.
+
+### Requirement 5
+
+**User Story:** As gtfs-mcp and Trackside, I want the public contract to grow only by addition, so that a release does not rename or drop a URL, content type, manifest field, or protobuf meaning I already use.
+
+#### Acceptance Criteria
+
+1. WHEN gtfs-mcp or Trackside fetches the feed THEN the system SHALL offer `/v1/feed-set.json`, `official-static.zip` (Amtrak's zip, byte for byte), `platform-addon.zip`, `trip-updates.pb`, `vehicle-positions.pb`, and `alerts.pb`.
+2. IF the public contract changes THEN the system SHALL only add URLs, content types, `feed-set.json` fields, or protobuf fields, and SHALL NOT remove or rename any of those that already exist. `static.zip` stays the combined feed at its current URL and `application/zip` content type.
+3. WHEN a client GETs a generation artifact THEN the response SHALL include `Content-Type`, `ETag`, `Last-Modified`, and `Cache-Control: private, no-cache`, and SHALL answer `304` with those cache headers when `If-None-Match` equals the `ETag`.
+4. WHEN a client GETs a protobuf THEN the header SHALL remain GTFS-Realtime 2.0 `FULL_DATASET`, with `feed_version` equal to `static_version` and `timestamp` equal to `generated_at_unix`.
+5. WHEN the contract test runs THEN it SHALL fail if a pinned public URL or response header is missing or renamed.
