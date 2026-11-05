@@ -14,17 +14,72 @@
   },
   "realtime": {
     "allowed_errors": [
-      {"code":"E003","upstream_cause":"Amtrak operates extra sections and trains absent from the published schedule.","owner":"amtrak-gtfs-rt maintainers","review_on":"2026-11-01"},
-      {"code":"E004","upstream_cause":"Realtime route identifiers accompany trips absent from the published schedule.","owner":"amtrak-gtfs-rt maintainers","review_on":"2026-11-01"},
-      {"code":"E011","upstream_cause":"Live data references stations missing from the static feed.","owner":"amtrak-gtfs-rt maintainers","review_on":"2026-11-01"},
-      {"code":"E022","upstream_cause":"Upstream Amtrak estimates are not always temporally increasing.","owner":"amtrak-gtfs-rt maintainers","review_on":"2026-11-01"},
-      {"code":"E025","upstream_cause":"Upstream Amtrak estimates can place departure before arrival.","owner":"amtrak-gtfs-rt maintainers","review_on":"2026-11-01"},
-      {"code":"E029","upstream_cause":"Vehicle coordinates can be far from the published trip shape.","owner":"amtrak-gtfs-rt maintainers","review_on":"2026-11-01"},
-      {"code":"E035","upstream_cause":"Upstream trip and route matching can disagree with the static schedule.","owner":"amtrak-gtfs-rt maintainers","review_on":"2026-11-01"},
-      {"code":"E039","upstream_cause":"The legacy transform retained deletion markers in a FULL_DATASET feed.","owner":"amtrak-gtfs-rt maintainers","review_on":"2026-11-01"},
-      {"code":"E041","upstream_cause":"The legacy transform emitted trains with no remaining predicted stops.","owner":"amtrak-gtfs-rt maintainers","review_on":"2026-11-01"},
-      {"code":"E043","upstream_cause":"Some upstream stop updates omit both arrival and departure predictions.","owner":"amtrak-gtfs-rt maintainers","review_on":"2026-11-01"},
-      {"code":"E049","upstream_cause":"The legacy transform omitted explicit feed incrementality.","owner":"amtrak-gtfs-rt maintainers","review_on":"2026-11-01"}
+      {
+        "code": "E003",
+        "upstream_cause": "Amtrak operates extra sections and trains absent from the published schedule.",
+        "owner": "amtrak-gtfs-rt maintainers",
+        "review_on": "2026-12-05"
+      },
+      {
+        "code": "E004",
+        "upstream_cause": "Realtime route identifiers accompany trips absent from the published schedule.",
+        "owner": "amtrak-gtfs-rt maintainers",
+        "review_on": "2026-12-05"
+      },
+      {
+        "code": "E011",
+        "upstream_cause": "Live data references stations missing from the static feed.",
+        "owner": "amtrak-gtfs-rt maintainers",
+        "review_on": "2026-12-05"
+      },
+      {
+        "code": "E022",
+        "upstream_cause": "Upstream Amtrak estimates are not always temporally increasing.",
+        "owner": "amtrak-gtfs-rt maintainers",
+        "review_on": "2026-12-05"
+      },
+      {
+        "code": "E025",
+        "upstream_cause": "Upstream Amtrak estimates can place departure before arrival.",
+        "owner": "amtrak-gtfs-rt maintainers",
+        "review_on": "2026-12-05"
+      },
+      {
+        "code": "E029",
+        "upstream_cause": "Vehicle coordinates can be far from the published trip shape.",
+        "owner": "amtrak-gtfs-rt maintainers",
+        "review_on": "2026-12-05"
+      },
+      {
+        "code": "E035",
+        "upstream_cause": "Upstream trip and route matching can disagree with the static schedule.",
+        "owner": "amtrak-gtfs-rt maintainers",
+        "review_on": "2026-12-05"
+      },
+      {
+        "code": "E039",
+        "upstream_cause": "The legacy transform retained deletion markers in a FULL_DATASET feed. Re-check after three-container deploy.",
+        "owner": "amtrak-gtfs-rt maintainers",
+        "review_on": "2026-12-05"
+      },
+      {
+        "code": "E041",
+        "upstream_cause": "The legacy transform emitted trains with no remaining predicted stops. Re-check after three-container deploy.",
+        "owner": "amtrak-gtfs-rt maintainers",
+        "review_on": "2026-12-05"
+      },
+      {
+        "code": "E043",
+        "upstream_cause": "Some upstream stop updates omit both arrival and departure predictions.",
+        "owner": "amtrak-gtfs-rt maintainers",
+        "review_on": "2026-12-05"
+      },
+      {
+        "code": "E049",
+        "upstream_cause": "The legacy transform omitted explicit feed incrementality. Re-check after three-container deploy.",
+        "owner": "amtrak-gtfs-rt maintainers",
+        "review_on": "2026-12-05"
+      }
     ]
   }
 }
