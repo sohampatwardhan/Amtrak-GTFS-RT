@@ -6,12 +6,12 @@
 FROM caddy:2.11.7-builder-alpine@sha256:95a5e7e2692b5eb9545aadc5b90a39f6f509bee59c9508a493f83ee902eaef63 AS builder
 
 WORKDIR /src
-# Caddy 2.11.7 still vendors golang.org/x/net v0.59.0 and go-jose v4.1.5.
-# Those have fixable advisories (GO-2026-6612 and GHSA-mgcc-cww5-fp2q). Replace
+# Caddy 2.11.7 still vendors older golang.org/x/net and go-jose.
+# Fixable advisories (GO-2026-6612, GO-2026-6860, GHSA-mgcc-cww5-fp2q): replace
 # them with the fixed releases while building the same Caddy tag.
 RUN xcaddy build v2.11.7 \
       --with github.com/mholt/caddy-ratelimit@5625512f24f6f59d6f64fb3aafe5eecff0b286db \
-      --replace golang.org/x/net=golang.org/x/net@v0.60.0 \
+      --replace golang.org/x/net=golang.org/x/net@v0.62.0 \
       --replace github.com/go-jose/go-jose/v4=github.com/go-jose/go-jose/v4@v4.1.6 \
     && ./caddy list-modules | grep -q '^http.handlers.rate_limit$'
 

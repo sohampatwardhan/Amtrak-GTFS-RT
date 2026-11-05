@@ -840,6 +840,10 @@ Stations where Amtrak's status documents carried a track on 2026-10-17:
 > twelve-train sample, the Lake Shore Limited (train 49), and the New York–Washington board. The
 > sidecar reads whatever Amtrak posts, so a station not listed here is picked up as soon as Amtrak
 > shows a track for it.
+> [`python -m fetcher.coverage`](track-fetcher/README.md#station-coverage) surveys the active fleet
+> and writes an `amtrak-station-lead-time/v1` profile. `AMTRAK_TRACKS_LEAD_TIME_FILE` loads it:
+> `observed` stations marked `wider` use their suggested windows, and every other station keeps
+> the global window.
 
 Amtrak posted no track that day for train 167 at Westerly (`WLY`), New Haven (`NHV`), or its New
 York arrival, and none for train 1164 at Princeton Junction (`PJC`). New Haven comes from the
