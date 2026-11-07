@@ -651,6 +651,22 @@ impl Config {
         self.validate_with_probe(probe_validator_runtime)
     }
 
+    /// Validates configuration for a role that only contributes to the shared volume.
+    ///
+    /// TripUpdates and Alerts read the fleet snapshot and write one contribution
+    /// each. They never validate static GTFS or bind a listener, so they need
+    /// neither the validator JAR nor Java. Only the output directory is checked.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ConfigError`] for an empty `AMTRAK_OUTPUT_DIR`.
+    pub fn validate_contributor(self) -> Result<PathBuf, ConfigError> {
+        if self.output_dir.as_os_str().is_empty() {
+            return Err(ConfigError::new("AMTRAK_OUTPUT_DIR", "must not be empty"));
+        }
+        Ok(self.output_dir)
+    }
+
     fn validate_with_probe<P>(self, probe: P) -> Result<ValidatedConfig, ConfigError>
     where
         P: FnOnce(&Path) -> Result<(), ConfigError>,
@@ -1337,6 +1353,26 @@ mod tests {
         assert!(validator_digest_is_approved(OFFICIAL_VALIDATOR_SHA256));
         assert!(validator_digest_is_approved(HARDENED_VALIDATOR_SHA256));
         assert!(!validator_digest_is_approved(&"0".repeat(64)));
+    }
+
+    #[test]
+    fn contributor_roles_validate_without_a_validator_runtime() {
+        let config = Config::from_map(map(&[
+            ("AMTRAK_OUTPUT_DIR", "/data"),
+            ("AMTRAK_GTFS_VALIDATOR_JAR", "/nonexistent/validator.jar"),
+        ]))
+        .unwrap();
+        assert_eq!(
+            config.validate_contributor().unwrap(),
+            PathBuf::from("/data")
+        );
+    }
+
+    #[test]
+    fn contributor_roles_reject_an_empty_output_dir() {
+        let config = Config::from_map(map(&[("AMTRAK_OUTPUT_DIR", "")])).unwrap();
+        let error = config.validate_contributor().unwrap_err();
+        assert!(error.to_string().contains("AMTRAK_OUTPUT_DIR"));
     }
 
     #[test]
