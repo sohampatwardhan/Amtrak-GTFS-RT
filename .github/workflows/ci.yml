@@ -31,12 +31,12 @@ jobs:
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
 
       - name: Build
-        run: cargo build --verbose
+        run: cargo build --locked --all-targets --all-features --verbose
 
       - name: Test
         # Live tests against Amtrak's endpoints are #[ignore]d, so this job stays
         # deterministic and offline. They run in the validate-feeds workflow.
-        run: cargo test --verbose
+        run: cargo test --locked --all-targets --all-features --verbose
 
       - name: Rustdoc
         run: cargo doc --locked --no-deps

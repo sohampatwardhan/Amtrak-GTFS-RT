@@ -1762,30 +1762,58 @@ mod tests {
     #[tokio::test]
     #[ignore = "requires current Amtrak static and realtime endpoints"]
     async fn live_candidate_builds_and_passes_semantic_validation() {
-        use crate::sources::amtrak::AmtrakSource;
-        use std::io::Cursor;
+        tokio::time::timeout(Duration::from_secs(180), async {
+            use crate::sources::amtrak::AmtrakSource;
+            use std::io::Cursor;
 
-        let response = reqwest::get("https://content.amtrak.com/content/gtfs/GTFS.zip")
-            .await
-            .unwrap()
-            .error_for_status()
-            .unwrap()
-            .bytes()
-            .await
-            .unwrap();
-        let zip: Arc<[u8]> = Arc::from(response.as_ref());
-        let parsed = Gtfs::from_reader(Cursor::new(zip.clone())).unwrap();
-        let version = parsed
-            .feed_info
-            .iter()
-            .filter_map(|info| info.version.clone())
-            .find(|value| !value.trim().is_empty())
-            .unwrap();
-        let snapshot = Arc::new(StaticSnapshot::identical(version, Arc::new(parsed), zip));
-        let sources: Vec<Box<dyn RtSource>> = vec![Box::new(AmtrakSource::new())];
-        let selected = select_batch(&sources, &snapshot.parsed).await.unwrap();
-        let candidate = GenerationBuilder::build(snapshot, selected, SystemTime::now()).unwrap();
-        CandidateValidator::validate(candidate)
-            .unwrap_or_else(|error| panic!("live semantic validation failed: {}", error.0));
+            let response = reqwest::get("https://content.amtrak.com/content/gtfs/GTFS.zip")
+                .await
+                .unwrap()
+                .error_for_status()
+                .unwrap()
+                .bytes()
+                .await
+                .unwrap();
+            let zip: Arc<[u8]> = Arc::from(response.as_ref());
+            let parsed = Gtfs::from_reader(Cursor::new(zip.clone())).unwrap();
+            let version = parsed
+                .feed_info
+                .iter()
+                .filter_map(|info| info.version.clone())
+                .find(|value| !value.trim().is_empty())
+                .unwrap();
+            let snapshot = Arc::new(StaticSnapshot::identical(version, Arc::new(parsed), zip));
+            let sources: Vec<Box<dyn RtSource>> = vec![Box::new(AmtrakSource::new())];
+            let selected = select_batch(&sources, &snapshot.parsed).await.unwrap();
+            let static_version = snapshot.version.clone();
+            let candidate = GenerationBuilder::build(snapshot, selected, SystemTime::now()).unwrap();
+            let generated_at = candidate.generated_at_unix;
+            let validated = CandidateValidator::validate(candidate)
+                .unwrap_or_else(|error| panic!("live semantic validation failed: {}", error.0));
+            assert!(validated.entity_counts.trip_updates > 0, "conversion dropped every trip update");
+            assert!(validated.entity_counts.vehicle_positions > 0, "conversion dropped every vehicle position");
+            // Alerts may legitimately be empty. Every product must still decode and
+            // describe the same static snapshot and FULL_DATASET generation.
+            for (name, bytes, count) in [
+                ("trip_updates", validated.trip_updates.as_ref(), validated.entity_counts.trip_updates),
+                ("vehicle_positions", validated.vehicle_positions.as_ref(), validated.entity_counts.vehicle_positions),
+                ("alerts", validated.alerts.as_ref(), validated.entity_counts.alerts),
+            ] {
+                let decoded = FeedMessage::decode(bytes).unwrap();
+                assert_eq!(decoded.header.gtfs_realtime_version, "2.0");
+                assert_eq!(decoded.header.timestamp, Some(generated_at));
+                assert_eq!(decoded.header.feed_version.as_deref(), Some(static_version.as_str()));
+                assert_eq!(decoded.header.incrementality, Some(feed_header::Incrementality::FullDataset as i32));
+                assert_eq!(decoded.entity.len(), count);
+                for entity in &decoded.entity {
+                    assert_eq!(entity.trip_update.is_some(), name == "trip_updates");
+                    assert_eq!(entity.vehicle.is_some(), name == "vehicle_positions");
+                    assert_eq!(entity.alert.is_some(), name == "alerts");
+                }
+                println!("{name}: entities={count}, bytes={}, static_version={static_version}, timestamp={generated_at}", bytes.len());
+            }
+        })
+        .await
+        .expect("live Amtrak conversion exceeded 180 seconds");
     }
 }

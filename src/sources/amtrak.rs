@@ -54,12 +54,29 @@ mod tests {
     #[tokio::test]
     #[ignore]
     async fn live_fetch_returns_batch() {
-        let gtfs = Gtfs::from_url_async("https://content.amtrak.com/content/gtfs/GTFS.zip")
-            .await
-            .unwrap();
-        let src = AmtrakSource::new();
-        let batch = src.fetch(&gtfs).await.unwrap();
-        // At virtually any hour some Amtrak trains are running.
-        assert!(!batch.is_empty(), "expected at least one live train");
+        tokio::time::timeout(std::time::Duration::from_secs(180), async {
+            let gtfs = Gtfs::from_url_async("https://content.amtrak.com/content/gtfs/GTFS.zip")
+                .await
+                .unwrap();
+            let src = AmtrakSource::new();
+            let batch = src.fetch(&gtfs).await.unwrap();
+            // At virtually any hour some Amtrak trains are running.
+            assert!(
+                !batch.trip_updates.entity.is_empty(),
+                "expected live trip updates"
+            );
+            assert!(
+                !batch.vehicle_positions.entity.is_empty(),
+                "expected live vehicle positions"
+            );
+            println!(
+                "Amtrak source: trip_updates={}, vehicle_positions={}, alerts={}",
+                batch.trip_updates.entity.len(),
+                batch.vehicle_positions.entity.len(),
+                batch.alerts.entity.len()
+            );
+        })
+        .await
+        .expect("live Amtrak fetch exceeded 180 seconds");
     }
 }

@@ -15,7 +15,7 @@ on:
       - "Dockerfile"
       - ".dockerignore"
       - "container/**"
-      - "src/config.rs"
+      - "src/**"
       - "Cargo.toml"
       - "Cargo.lock"
       - "scripts/test-container.sh"

@@ -994,6 +994,27 @@ cargo test -- --include-ignored     # also runs live tests against Amtrak's endp
 (cd track-fetcher && python -m pytest tests -q)
 ```
 
+Pull requests and pushes to `main` build and test all Rust targets and features with
+`--locked`, including the status CLI. The offline suite checks source fallback, conversion,
+Protobuf round-trips, atomic publication, and HTTP delivery without contacting Amtrak.
+
+The **Validate feeds / Live Amtrak ingestion and Protobuf conversion** job separately runs the
+two ignored core live tests daily, on relevant pushes to `main`, and on manual dispatch:
+
+```bash
+bash scripts/test-live-amtrak.sh
+```
+
+It fetches real Amtrak data using the checked-out service code, requires nonempty trip updates
+and vehicle positions after conversion, and decodes all three products with matching static
+versions, timestamps, and FULL_DATASET headers. Empty alerts are valid; no particular train
+number is required. Each live test has a three-minute deadline. The runner checks that both
+tests exist and saves logs in `validation-reports/live-amtrak/`, uploaded even after failure.
+Upstream failures fail this live job; they do not affect the offline Rust job. This job runs
+independently of the MobilityData validator job, so an expired validator baseline cannot prevent
+the ingestion test from running. It does not replace the external compliance gate or container
+smoke test.
+
 The feeds are verified two ways in the suite: RT protobuf round-trips through the decoder, and a
 live end-to-end test fetches real Amtrak data and asserts non-empty, statically-bound output.
 CI also builds both sidecar images, in both browser bundles, natively on amd64 and arm64.
@@ -1003,7 +1024,7 @@ image checks on pull requests before a tag is pushed: it builds the linux/amd64 
 [`scripts/test-container.sh`](scripts/test-container.sh), and scans it with the pinned syft and
 grype from [`scripts/install-release-scanners.sh`](scripts/install-release-scanners.sh) under the
 same zero-match policy. Because the smoke test fetches live Amtrak data, it runs only when a PR
-touches the image inputs (`Dockerfile`, `.dockerignore`, `container/`, `src/config.rs`,
+touches the image inputs (`Dockerfile`, `.dockerignore`, `container/`, any file in `src/`,
 `Cargo.toml`, `Cargo.lock`, or the smoke/scanner/policy scripts), which includes every release PR's
 version bump. It also runs weekly and on demand, so a new advisory against the current image shows
 up before release day. On failure the Grype report and smoke diagnostics are uploaded as an
