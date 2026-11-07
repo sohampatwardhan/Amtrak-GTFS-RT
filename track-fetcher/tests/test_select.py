@@ -185,3 +185,22 @@ def test_arizona_stops_keep_standard_time_through_summer():
     # 05:10 MST and 06:10 MDT are both 12:10 UTC.
     assert due[0].next_secs == 10 * 60
     assert due[0].upcoming == frozenset({"FLG", "DEN"})
+
+
+def test_the_fleet_train_list_is_read_like_the_map_feed():
+    # VehiclePositions writes amtrak-fleet-trains/v1 so TripUpdates never polls getTrainsData.
+    soon = int((NOW + timedelta(minutes=12)).timestamp())
+    far = int((NOW + timedelta(hours=3)).timestamp())
+    document = {
+        "schema": "amtrak-fleet-trains/v1",
+        "trains": [
+            {"train_number": "163", "service_date": "2026-10-17",
+             "stops": [{"code": "nhv", "times_unix": [soon]}, {"code": "NYP", "times_unix": [far]}]},
+            {"train_number": "66", "service_date": "2026-10-17",
+             "stops": [{"code": "BOS", "times_unix": [far]}]},
+        ],
+    }
+    due = due_trains(document, NOW, before=BEFORE, after=AFTER)
+    assert [(train.train_number, train.service_date) for train in due] == [("163", "2026-10-17")]
+    assert due[0].upcoming == frozenset({"NHV"})
+    assert due[0].next_secs == 12 * 60
