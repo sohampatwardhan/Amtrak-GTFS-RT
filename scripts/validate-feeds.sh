@@ -285,7 +285,7 @@ rm -f "$MANIFEST"
 SERVICE_PID=""
 if [ -z "$SERVICE_URL" ]; then
   log "Starting release candidate for manifest-first discovery"
-  cargo build --release
+  cargo build --locked --release
   SERVICE_URL="http://$VALIDATION_BIND_ADDR"
   if [ "$USE_DOCKER" -eq 1 ]; then
     JAVA_SHIM_DIR="$CACHE_DIR/docker-java-bin"
