@@ -1,0 +1,136 @@
+Cargo reachability review for issue #58, 2026-11-07
+Revision: 088104119f86c09b0073674791fd531115316ab3 (Cargo.lock as audited)
+Host toolchain: rustc 1.96, host aarch64-apple-darwin. The released images build the same
+lockfile for linux/amd64 and linux/arm64 musl. Their binaries were not symbol-inspected here.
+
+Each section heading below is the anchor used in 2026-11-cargo-reachability.json.
+
+
+## locked-not-built (atomic-polyfill 1.0.3, RUSTSEC-2023-0089)
+-----------------------------------------------------------------
+$ cargo tree --locked -i atomic-polyfill --target all --all-features -e all
+warning: nothing to print.
+$ cargo tree --locked -i heapless@0.7.17 --target all --all-features -e all
+warning: nothing to print.
+
+atomic-polyfill is recorded in Cargo.lock (heapless 0.7.17 <- older rstar versions that
+geo-types can select through optional features) but no package in any target or feature
+combination builds it. It is not compiled into any artifact.
+
+
+## build-time-only (gcc 0.3.55, RUSTSEC-2025-0121; derivative 2.2.0, RUSTSEC-2024-0388)
+-----------------------------------------------------------------------------------------
+$ cargo tree --locked -i gcc -e normal
+warning: nothing to print.            (gcc is only a [build-dependencies] edge of rust-crypto)
+$ cargo tree --locked -i derivative -e normal
+derivative v2.2.0 (proc-macro)
+└── gtfs-structures v0.46.1
+
+gcc runs only inside rust-crypto's build script. derivative is a proc-macro that runs inside
+rustc. Neither one's code is linked into the service binary.
+
+
+## rust-crypto-unreferenced (rust-crypto 0.2.36, rustc-serialize 0.3.25, time 0.1.45)
+---------------------------------------------------------------------------------------
+rust-crypto (crate name `crypto`) is declared in catenarytransit/amtrak-gtfs-rt's Cargo.toml,
+pinned at f3a83db0, and upstream main (b33dc280, 2026-11-07) still declares it. Nothing calls it:
+
+$ grep -rnw crypto ~/.cargo/git/checkouts/amtrak-gtfs-rt-*/f3a83db/src src
+(no matches; grep exit status 1)
+
+Amtrak's track-a-train payload is decrypted by `amtk::decrypt` (src/lib.rs:805 in the crate),
+and amtk uses the RustCrypto crates aes 0.7.5, block-modes 0.8.1, pbkdf2 0.8.0, and hmac 0.11.0,
+not rust-crypto. rustc-serialize 0.3.25 and time 0.1.45 have no reverse dependency other than
+rust-crypto:
+
+$ cargo tree --locked -i time@0.1.45 -e normal --target all --all-features
+time v0.1.45
+└── rust-crypto v0.2.36
+    └── amtrak-gtfs-rt v0.9.1 (https://github.com/catenarytransit/amtrak-gtfs-rt#f3a83db0)
+        └── amtrak-gtfs-rt-service v0.7.1
+
+Symbol check (v0 mangling: a crate root appears as Cs<disambiguator>_<len><name>):
+$ cargo build --locked --release
+$ nm -a target/release/amtrak-gtfs-rt-service | grep -cE "Cs[0-9A-Za-z]+_6crypto|rust_crypto_util|_15rustc_serialize"
+0
+$ nm -a target/debug/amtrak-gtfs-rt-service   | grep -cE "Cs[0-9A-Za-z]+_6crypto|rust_crypto_util|_15rustc_serialize"
+0
+Positive controls in the same release binary:
+$ nm -a target/release/amtrak-gtfs-rt-service | grep -cE "Cs[0-9A-Za-z]+_4amtk"
+17
+$ nm -a target/release/amtrak-gtfs-rt-service | grep -cE "Cs[0-9A-Za-z]+_3aes"
+12
+
+So the AES miscomputation (RUSTSEC-2022-0011), rustc-serialize's unbounded JSON recursion
+(RUSTSEC-2022-0004), and time 0.1's localtime_r/setenv race (RUSTSEC-2020-0071) are not in
+the linked program. The service itself never calls std::env::set_var or remove_var
+(grep -rn "set_var\|remove_var" src: no matches).
+
+
+## fxhash-reachable (fxhash 0.2.1, RUSTSEC-2025-0057)
+------------------------------------------------------
+fxhash is linked at runtime through scraper 0.22 -> selectors 0.26. scraper parses HTML in
+src/sources/advisories.rs (Amtrak notices, Alerts role), src/sources/tracks/hartford.rs (Hartford
+Line board, TripUpdates role), and the catenary crate's ASM and Pacific Surfliner readers
+(VehiclePositions role). RUSTSEC-2025-0057 is an unmaintained notice with no vulnerability claim.
+It is recorded as reachable.
+
+
+## enabled-zip-features (zip 6.0.0)
+------------------------------------
+$ cargo tree --locked -i zip@6.0.0 -e normal --depth 1 --prefix none
+amtrak-gtfs-rt-service v0.7.1     (direct: Cargo.toml `zip = { version = "6.0", default-features = false, features = ["deflate"] }`)
+gtfs-structures v0.46.1           (registry Cargo.toml `[dependencies.zip] version = "6.0", features = ["deflate"], default-features = false`)
+amtrak-gtfs-rt (git f3a83db0) has no direct zip dependency. It reaches zip only through
+gtfs-structures (`Gtfs::from_url_async`: `ZipArchive::new` plus `by_name`/`by_index`).
+
+$ cargo tree --locked -e features -i zip@6.0.0 | grep -o 'zip feature "[^"]*"' | sort -u
+zip feature "_deflate-any"
+zip feature "deflate"
+zip feature "deflate-flate2"
+zip feature "deflate-flate2-zlib-rs"
+zip feature "deflate-zopfli"
+zip feature "flate2"
+
+Not enabled: "aes-crypto" (GHSA-8HXF-QR8P-62X4 needs AE-x decryption) and "legacy-zip"
+(GHSA-9HJ8-73FH-9963 needs the Shrink decoder). Both consumers set default-features = false.
+Leaving the defaults on is the only way aes-crypto would be enabled.
+
+
+## zip-api-call-sites (zip 6.0.0)
+----------------------------------
+$ grep -rn "ZipStreamReader\|\.extract(\|read_zipfile_from_stream" \
+    src ~/.cargo/registry/src/index.crates.io-*/gtfs-structures-0.46.1/src \
+    ~/.cargo/git/checkouts/amtrak-gtfs-rt-*/f3a83db/src
+(no matches; grep exit status 1)
+
+This crate and gtfs-structures 0.46.1 use zip only through ZipArchive::new, by_name,
+by_index, by_index_raw, ZipWriter, and ZipWriter::raw_copy_file
+(src/static_addon.rs, src/static_augment.rs, src/static_repair.rs, src/static_gtfs.rs,
+gtfs-structures src/gtfs_reader.rs:255,447,461). Nothing extracts entries to the filesystem,
+creates symlinks, applies Unix permissions from an archive, or uses the streaming reader.
+
+That excludes the vulnerable surface of:
+  RUSTSEC-2026-0367  ZipArchive::extract / stream extraction keeps SUID/SGID bits
+  RUSTSEC-2026-0368  ZipArchive::extract symlink target escapes the destination
+  RUSTSEC-2026-0369  ZipStreamReader::extract applies permissions through symlinks
+  RUSTSEC-2026-0429  ZipArchive::extract sizes the symlink buffer from the declared size
+  GHSA-M665-V7PM-7GRJ  differential between ZipArchive (central directory) and
+                       ZipStreamReader (local header). Only ZipArchive runs in-process, so the
+                       crate's two readers never disagree inside the service.
+
+
+## residual (not excluded by this review)
+------------------------------------------
+- official-static.zip is published byte for byte. If the origin served a crafted archive, a
+  consumer that stream-reads it (local headers) could see different names than the service's
+  central-directory view. The origin is content.amtrak.com over HTTPS, and those exact bytes must
+  pass the MobilityData validator before they are published.
+- ZipArchive itself still parses attacker-influenced headers from the official download.
+  None of the seven zip records describes a flaw in a ZipArchive-only read path. A future
+  record could.
+- No fixed zip version is reachable. The fixes need zip >= 9.0.0 (>= 9.0.5 for
+  GHSA-M665-V7PM-7GRJ), and the newest gtfs-structures (0.52.0) requires zip ^8.6. Bumping only
+  the direct dependency would leave gtfs-structures' affected zip in the graph.
+- The rust-crypto exclusion depends on the catenary crate never calling `crypto::`. Re-check it
+  whenever the amtrak-gtfs-rt git revision moves.

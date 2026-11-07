@@ -1,0 +1,69 @@
+{
+  "schema_version": "1",
+  "acceptances": {
+    "RUSTSEC-2023-0089": {
+      "mitigation": "atomic-polyfill 1.0.3 is a Cargo.lock entry that no target or feature combination builds (cargo tree --target all --all-features -e all prints nothing). Controls and review triggers are in 2026-11-cargo-dependencies.md.",
+      "approval": ""
+    },
+    "RUSTSEC-2024-0388": {
+      "mitigation": "derivative 2.2.0 is a proc-macro of gtfs-structures 0.46.1 that runs inside rustc and is not linked. No maintained same-chain replacement exists. Controls and review triggers are in 2026-11-cargo-dependencies.md.",
+      "approval": ""
+    },
+    "RUSTSEC-2025-0057": {
+      "mitigation": "fxhash 0.2.1 is linked through scraper/selectors and is reachable from the notices, Hartford, ASM, and Surfliner HTML parsers. The advisory is an unmaintained notice with no vulnerability claim and no fix. Controls and review triggers are in 2026-11-cargo-dependencies.md.",
+      "approval": ""
+    },
+    "RUSTSEC-2025-0121": {
+      "mitigation": "gcc 0.3.55 is only a build-dependency of rust-crypto and is not linked into any image. Controls and review triggers are in 2026-11-cargo-dependencies.md.",
+      "approval": ""
+    },
+    "RUSTSEC-2016-0005": {
+      "mitigation": "rust-crypto 0.2.36 is declared by catenarytransit/amtrak-gtfs-rt but never referenced; Amtrak decryption uses amtk with RustCrypto aes/block-modes/pbkdf2. The release binary has zero rust-crypto symbols. No released safe version exists. Controls and review triggers are in 2026-11-cargo-dependencies.md.",
+      "approval": ""
+    },
+    "RUSTSEC-2022-0011": {
+      "mitigation": "No patched rust-crypto exists. The crate is never referenced by amtrak-gtfs-rt f3a83db0 or this service and has zero symbols in the release binary, so its AES code does not run. Controls and review triggers are in 2026-11-cargo-dependencies.md.",
+      "approval": ""
+    },
+    "RUSTSEC-2022-0004": {
+      "mitigation": "rustc-serialize 0.3.25 is reached only through unreferenced rust-crypto and has zero symbols in the release binary; the service parses JSON with serde_json. No patched release exists. Controls and review triggers are in 2026-11-cargo-dependencies.md.",
+      "approval": ""
+    },
+    "RUSTSEC-2025-0025": {
+      "mitigation": "rustc-serialize 0.3.25 is unmaintained and reached only through unreferenced rust-crypto, with zero symbols in the release binary. Controls and review triggers are in 2026-11-cargo-dependencies.md.",
+      "approval": ""
+    },
+    "RUSTSEC-2020-0071": {
+      "mitigation": "time 0.1.45 is reached only through unreferenced rust-crypto, and the service never calls set_var or remove_var. Removing it requires catenarytransit/amtrak-gtfs-rt to drop rust-crypto. Controls and review triggers are in 2026-11-cargo-dependencies.md.",
+      "approval": ""
+    },
+    "GHSA-8HXF-QR8P-62X4": {
+      "mitigation": "zip 6.0.0 is built without the aes-crypto feature by both consumers, so AE-x entries cannot be decrypted. The fix (zip 9.0.0) is not reachable while gtfs-structures requires zip 6 (0.46.1) or ^8.6 (0.52.0). Controls and review triggers are in 2026-11-cargo-dependencies.md.",
+      "approval": ""
+    },
+    "GHSA-9HJ8-73FH-9963": {
+      "mitigation": "zip 6.0.0 is built without legacy-zip, and nothing calls extract(). The fix (zip 9.0.0) is not reachable through gtfs-structures. Controls and review triggers are in 2026-11-cargo-dependencies.md.",
+      "approval": ""
+    },
+    "GHSA-M665-V7PM-7GRJ": {
+      "mitigation": "Only ZipArchive reads archives in-process; ZipStreamReader is never constructed, so the crate's two readers never disagree inside the service. official-static.zip is still served byte for byte to consumers. The fix (zip 9.0.5) is not reachable through gtfs-structures. Controls and review triggers are in 2026-11-cargo-dependencies.md.",
+      "approval": ""
+    },
+    "RUSTSEC-2026-0367": {
+      "mitigation": "No extract() or stream-extraction call site in this service, gtfs-structures 0.46.1, or amtrak-gtfs-rt f3a83db0, so archive permission bits are never applied to the filesystem. The fix (zip 9.0.0) is not reachable through gtfs-structures. Controls and review triggers are in 2026-11-cargo-dependencies.md.",
+      "approval": ""
+    },
+    "RUSTSEC-2026-0368": {
+      "mitigation": "No extract() call site, so symlinks from archives are never created. The fix (zip 9.0.0) is not reachable through gtfs-structures. Controls and review triggers are in 2026-11-cargo-dependencies.md.",
+      "approval": ""
+    },
+    "RUSTSEC-2026-0369": {
+      "mitigation": "ZipStreamReader::extract is never called. The fix (zip 9.0.0) is not reachable through gtfs-structures. Controls and review triggers are in 2026-11-cargo-dependencies.md.",
+      "approval": ""
+    },
+    "RUSTSEC-2026-0429": {
+      "mitigation": "No extract() call site, so the symlink-target allocation path never runs. The fix (zip 9.0.0) is not reachable through gtfs-structures. Controls and review triggers are in 2026-11-cargo-dependencies.md.",
+      "approval": ""
+    }
+  }
+}

