@@ -202,12 +202,9 @@ pub async fn run_vehicle_positions() -> Result<(), Box<dyn std::error::Error + S
 pub async fn run_trip_updates() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     tracing_subscriber::fmt::try_init().ok();
     embed_browser("8081");
-    let config = Config::from_env()?.validate()?;
+    let output_dir = Config::from_env()?.validate_contributor()?;
     let track_config = crate::config::TrackConfig::from_env()?;
-    let observed = config
-        .output_dir
-        .join("tracks")
-        .join("observed-platforms.txt");
+    let observed = output_dir.join("tracks").join("observed-platforms.txt");
     let platforms =
         crate::static_augment::SharedPlatforms::load(track_config.platforms.clone(), observed);
     let assignments = Arc::new(AssignmentStore::new());
@@ -215,28 +212,20 @@ pub async fn run_trip_updates() -> Result<(), Box<dyn std::error::Error + Send +
         tokio::spawn(run_board_refresher(
             assignments.clone(),
             track_config.clone(),
-            config.output_dir.join("tracks").join("raildata-token.json"),
+            output_dir.join("tracks").join("raildata-token.json"),
             platforms.clone(),
         ));
     }
     let mut seen = String::new();
     loop {
         tokio::time::sleep(Duration::from_secs(1)).await;
-        let Some(id) = cohort::current_fleet_id(&config.output_dir) else {
+        let Some(id) = cohort::current_fleet_id(&output_dir) else {
             continue;
         };
         if id == seen {
             continue;
         }
-        if stamp_trip_updates(
-            &config.output_dir,
-            &id,
-            &assignments,
-            &platforms,
-            &track_config,
-        )
-        .is_ok()
-        {
+        if stamp_trip_updates(&output_dir, &id, &assignments, &platforms, &track_config).is_ok() {
             seen = id;
         }
     }
@@ -250,21 +239,18 @@ pub async fn run_trip_updates() -> Result<(), Box<dyn std::error::Error + Send +
 pub async fn run_alerts() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     tracing_subscriber::fmt::try_init().ok();
     embed_browser("8080");
-    let config = Config::from_env()?.validate()?;
+    let output_dir = Config::from_env()?.validate_contributor()?;
     let advisory = crate::config::AdvisoryConfig::from_env()?;
     let mut seen = String::new();
     loop {
         tokio::time::sleep(Duration::from_secs(1)).await;
-        let Some(id) = cohort::current_fleet_id(&config.output_dir) else {
+        let Some(id) = cohort::current_fleet_id(&output_dir) else {
             continue;
         };
         if id == seen {
             continue;
         }
-        if write_alerts(&config.output_dir, &id, &advisory)
-            .await
-            .is_ok()
-        {
+        if write_alerts(&output_dir, &id, &advisory).await.is_ok() {
             seen = id;
         }
     }

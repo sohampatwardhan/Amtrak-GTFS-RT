@@ -89,6 +89,10 @@ RUN pip install --no-cache-dir \
     && useradd --create-home --uid 10001 fetcher \
     && chmod -R a+rX /ms-playwright
 
+# Shared feed volume. VehiclePositions writes the fleet snapshot here; this role writes
+# its contribution. Owning the mount point keeps a first-mounted empty volume writable.
+RUN mkdir -p /data && chown 10001:10001 /data
+
 WORKDIR /app
 COPY track-fetcher/fetcher/ /app/fetcher/
 
@@ -114,5 +118,6 @@ HEALTHCHECK --interval=60s --timeout=10s --start-period=120s --retries=3 \
     CMD ["python", "-c", "import os, urllib.request; urllib.request.urlopen('http://127.0.0.1:' + os.environ.get('LISTEN_PORT', '8081') + '/healthz', timeout=5)"]
 
 COPY --from=rustbin /out/amtrak-gtfs-rt-service /usr/local/bin/amtrak-gtfs-rt-service
-ENV AMTRAK_ROLE=trip-updates
+ENV AMTRAK_ROLE=trip-updates \
+    AMTRAK_OUTPUT_DIR=/data
 ENTRYPOINT ["/usr/local/bin/amtrak-gtfs-rt-service"]

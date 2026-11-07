@@ -98,6 +98,10 @@ RUN pip install --no-cache-dir "playwright==${PLAYWRIGHT_VERSION}" \
 RUN mkdir -p /snapshot && chown 10001:10001 /snapshot
 VOLUME ["/snapshot"]
 
+# Shared feed volume. VehiclePositions writes the fleet snapshot here; this role writes
+# its contribution. Owning the mount point keeps a first-mounted empty volume writable.
+RUN mkdir -p /data && chown 10001:10001 /data
+
 WORKDIR /app
 COPY advisory-fetcher/fetcher/ /app/fetcher/
 
@@ -118,5 +122,6 @@ EXPOSE 8080
 
 # The fetcher serves the snapshot on :8080 and runs the poll loop; SIGTERM shuts it down cleanly.
 COPY --from=rustbin /out/amtrak-gtfs-rt-service /usr/local/bin/amtrak-gtfs-rt-service
-ENV AMTRAK_ROLE=alerts
+ENV AMTRAK_ROLE=alerts \
+    AMTRAK_OUTPUT_DIR=/data
 ENTRYPOINT ["/usr/local/bin/amtrak-gtfs-rt-service"]
