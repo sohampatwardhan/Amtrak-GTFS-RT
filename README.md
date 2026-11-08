@@ -15,10 +15,11 @@ ready-made protobuf feeds. Complete static and realtime generations are persiste
 served by a small `axum` HTTP server. A neutral `RtSource` trait wraps the data source so fallback
 sources (TransitDocs, RailRat) can be added later without touching the core.
 
-Two optional features add data Amtrak's feed does not carry. Both are off by default and fail
-open, so turning them on never stops trip updates or vehicle positions from publishing:
+Two optional features add data Amtrak's feed does not carry. Both are on by default, each has an
+on/off flag, and both fail open, so a missing browser worker or a board outage never stops trip
+updates or vehicle positions from publishing:
 
-- **[Service Alerts & Notices](#service-alerts--notices)** (`AMTRAK_ADVISORIES`): station and
+- **[Service Alerts & Notices](#service-alerts--notices)** (`AMTRAK_ADVISORIES`, on by default): station and
   passenger advisories in `alerts.pb`.
 - **[Platform and track assignments](#platform-and-track-assignments)** (`AMTRAK_TRACKS`, on by
   default): the live track a train will use, and the boarding gate where Amtrak posts one, from
@@ -511,7 +512,7 @@ Restart=on-failure
 | `AMTRAK_OUTPUT_DIR` | `./out` | Where feed files are written and served from |
 | `AMTRAK_POLL_SECS` | `45` | Realtime poll interval (seconds) |
 | `AMTRAK_STATIC_REFRESH_SECS` | `86400` | Static feed refresh interval (seconds) |
-| `AMTRAK_FILTER_CAPITAL_CORRIDOR` | `false` | Drop Capital Corridor (route 84); a better feed exists via 511.org |
+| `AMTRAK_FILTER_CAPITAL_CORRIDOR` | off | Drop Capital Corridor (route 84); a better feed exists via 511.org. Accepts the same on/off words as `AMTRAK_TRACKS`; any other value is a startup error |
 | `AMTRAK_BIND_ADDR` | `127.0.0.1:8080` | HTTP bind address; non-loopback requires an allowlist |
 | `AMTRAK_ALLOWED_PEER_IPS` | empty | Comma-separated exact peer IPs; empty admits loopback only |
 | `AMTRAK_PUBLIC_URL` | empty | Base URL the startup banner prints, for a listener reached through a published port (Compose sets `http://127.0.0.1:8090`). Display only. Empty prints the bind address, with `0.0.0.0` shown as `127.0.0.1` |
@@ -520,8 +521,8 @@ Restart=on-failure
 | `AMTRAK_GENERATION_RETAIN_SECS` | `600` | Seconds a superseded generation stays addressable, measured from the newer generation's write time on disk. `0` deletes it as soon as it is superseded |
 | `AMTRAK_GENERATION_MAX` | `20` | Most generations kept on disk and in memory, current included. Must be at least `1`; wins over the retention window |
 | `AMTRAK_VALIDATOR_CACHE` | on | Skip the Java GTFS validator when the static ZIP's SHA-256 already has an accept or standards-reject result. `off` validates every fetch |
-| `AMTRAK_ADVISORIES` | off | Set to `on`, `true`, or `1` to merge Service Alerts & Notices into `alerts.pb`. Default off; fail-open |
-| `AMTRAK_ADVISORIES_URL` | `https://www.amtrak.com/service-alerts-and-notices` | HTML snapshot URL. Point this at the advisory-fetcher sidecar; plain HTTP to `www.amtrak.com` is Akamai-blocked |
+| `AMTRAK_ADVISORIES` | on | Merges Service Alerts & Notices into `alerts.pb`. Set `off`, `false`, `0`, or `no` to turn it off; any other value is a startup error. Fail-open: without a reachable browser worker, only the ASM and Surfliner alerts publish |
+| `AMTRAK_ADVISORIES_URL` | `http://127.0.0.1:8081/service-alerts-and-notices` (built-in browser worker) | Override for the notices snapshot, for example a separately run advisory-fetcher. Plain HTTP to `www.amtrak.com` is Akamai-blocked |
 | `AMTRAK_ADVISORIES_TTL_SECS` | `900` | Minimum seconds between advisory page fetches |
 | `AMTRAK_TRACKS` | on | Publishes live platform/track and gate assignments. Set `off`, `false`, `0`, or `no` to turn them off; any other value is a startup error. Fail-open |
 | `AMTRAK_TRACKS_PLATFORMS` | `NYP=1-21;NWK=A,1-5;NHV=1-4,8,10,12,14` | Covered stations and their real tracks (`STOP=labels`, ranges allowed, `track@gate` for a gated track). Each becomes a platform stop |
@@ -533,9 +534,11 @@ Restart=on-failure
 | `NJT_RAILDATA_PASSWORD` | empty | Registered RailData password. Never commit this |
 | `AMTRAK_TRACKS_NJT_STATIONS` | `NY,NP,NA,MP,NB,PJ,TR,PH` | RailData station codes to read. Each code needs a map entry |
 | `AMTRAK_TRACKS_STATION_MAP` | `NY=NYP,NP=NWK,NA=EWR,MP=MET,NB=NBK,PJ=PJC,TR=TRE,PH=PHL` | RailData code to Amtrak GTFS `stop_id`. Overrides or extends the default |
-| `AMTRAK_TRACKS_HARTFORD_URL` | `https://hartfordline.com/connecting-train-status/` | New Haven board. Set empty to skip it |
+| `AMTRAK_TRACKS_HARTFORD` | on | The Hartford Line board for New Haven. Set `off` to skip it |
+| `AMTRAK_TRACKS_HARTFORD_URL` | `https://hartfordline.com/connecting-train-status/` | New Haven board URL. Setting it empty also skips the board |
 | `AMTRAK_TRACKS_HARTFORD_STOP` | `NHV` | Amtrak `stop_id` for that board |
-| `AMTRAK_TRACKS_AMTRAK_URL` | empty (Compose: `http://track-fetcher:8081/tracks.json`) | Sidecar URL for Amtrak's own status JSON. Empty skips that source and logs a warning at startup when tracks are on. This is not `www.amtrak.com`; that host blocks plain HTTP |
+| `AMTRAK_TRACKS_AMTRAK` | on | Amtrak's own track and gate status documents, read through the browser worker. Set `off` to skip them |
+| `AMTRAK_TRACKS_AMTRAK_URL` | `http://127.0.0.1:8081/tracks.json` (built-in browser worker) | Override for Amtrak's status JSON. Setting it empty also skips that source and logs a warning at startup. This is not `www.amtrak.com`; that host blocks plain HTTP |
 | `AMTRAK_TRACKS_RETAIN_GRACE_SECS` | `900` | How long an Amtrak track stays published after the stop's latest time |
 
 > [!CAUTION]
@@ -593,7 +596,7 @@ AMTRAK_PUBLIC_URL=http://127.0.0.1:8090
 
 NJ Transit's tracks also need `NJT_RAILDATA_USERNAME` and `NJT_RAILDATA_PASSWORD`, for example in
 the `.env` file next to `docker-compose.yml`, which Compose reads; without them that board is
-skipped. Set `AMTRAK_TRACKS_AMTRAK_URL=` (empty) to keep the other boards without Amtrak's. To run
+skipped. Set `AMTRAK_TRACKS_AMTRAK=off` to keep the other boards without Amtrak's. To run
 with no tracks at all, and without the sidecar's Chromium:
 
 ```bash
@@ -661,8 +664,8 @@ flowchart TD
 ```
 
 > [!NOTE]
-> Advisories fail open. A list fetch or parse failure, a stopped fetcher, or unsetting
-> `AMTRAK_ADVISORIES` adds no advisory entities and still publishes trip updates and vehicle
+> Advisories fail open. A list fetch or parse failure, a stopped fetcher, or
+> `AMTRAK_ADVISORIES=off` adds no advisory entities and still publishes trip updates and vehicle
 > positions. A missing fetcher does not fail a generation.
 
 ## Platform and track assignments

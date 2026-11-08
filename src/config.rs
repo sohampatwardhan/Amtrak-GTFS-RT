@@ -28,8 +28,22 @@ const HARDENED_VALIDATOR_SHA256: &str =
     "30de704a8fbd0a81e119f3afa45eaa158fd224275659bc4d3685b3156c443b64";
 const MINIMUM_JAVA_MAJOR: u32 = 17;
 const PROBE_TIMEOUT: Duration = Duration::from_secs(10);
-const DEFAULT_ADVISORIES_URL: &str = "https://www.amtrak.com/service-alerts-and-notices";
+/// Base URL of the built-in browser worker. It listens on loopback inside the container, beside
+/// the service's own `:8080`, and serves Amtrak's status documents and the notices page.
+const WORKER_BASE_URL: &str = "http://127.0.0.1:8081";
+/// Default `AMTRAK_ADVISORIES_URL`: the notices page through the built-in worker. A plain HTTP
+/// client to `www.amtrak.com` is reset by Akamai, so the public URL is never the default.
+pub const DEFAULT_ADVISORIES_URL: &str = "http://127.0.0.1:8081/service-alerts-and-notices";
+/// Default `AMTRAK_TRACKS_AMTRAK_URL`: Amtrak's status documents through the built-in worker.
+pub const DEFAULT_AMTRAK_TRACKS_URL: &str = "http://127.0.0.1:8081/tracks.json";
 const DEFAULT_ADVISORIES_TTL_SECS: u64 = 900;
+
+/// Whether `url` is one of the built-in worker's endpoints, so the banner can say where a source
+/// reads from without printing the URL.
+pub fn is_worker_url(url: &str) -> bool {
+    url.strip_prefix(WORKER_BASE_URL)
+        .is_some_and(|path| path.starts_with('/'))
+}
 
 /// How many finalized generations the store keeps once a newer one is current.
 ///
@@ -61,14 +75,15 @@ impl Default for GenerationRetention {
 /// runs and whether it runs at all — it never affects whether a generation publishes.
 #[derive(Clone, Debug)]
 pub struct AdvisoryConfig {
-    /// Advisories page URL. Env `AMTRAK_ADVISORIES_URL` (default the public notices page).
+    /// Advisories page URL. Env `AMTRAK_ADVISORIES_URL` (default the built-in browser worker,
+    /// [`DEFAULT_ADVISORIES_URL`]).
     pub url: String,
     /// Minimum interval between page fetches. Env `AMTRAK_ADVISORIES_TTL_SECS` (default 900).
     pub ttl: Duration,
-    /// Whether the advisory scraper is wired in. Env `AMTRAK_ADVISORIES` (default **disabled**; set
-    /// `1`/`true`/`on` to enable). Disabled by default because Amtrak's `www` host blocks the
-    /// server-side fetch (Akamai bot management), so the direct scrape is inert until an operator
-    /// provides a reachable snapshot source; see the `advisory-fetcher` follow-up spec.
+    /// Whether the advisory scraper is wired in. Env `AMTRAK_ADVISORIES` (default **on**;
+    /// `0`/`false`/`off`/`no` turns it off, and any other unrecognised value is a startup error).
+    /// On by default because the browser worker ships in the image (`docs/one-container.md`, D2).
+    /// Without a reachable worker the scraper fails open and the base alerts still publish.
     pub enabled: bool,
 }
 
@@ -82,7 +97,8 @@ impl AdvisoryConfig {
     ///
     /// # Errors
     ///
-    /// Returns a string naming the malformed environment field (a non-numeric TTL).
+    /// Returns a [`ConfigError`] naming the malformed environment field: a non-numeric TTL, or an
+    /// `AMTRAK_ADVISORIES` value that is not a recognised on/off word.
     pub fn from_map<F: Fn(&str) -> Option<String>>(get: F) -> Result<AdvisoryConfig, ConfigError> {
         let url =
             get("AMTRAK_ADVISORIES_URL").unwrap_or_else(|| DEFAULT_ADVISORIES_URL.to_string());
@@ -91,13 +107,7 @@ impl AdvisoryConfig {
             "AMTRAK_ADVISORIES_TTL_SECS",
             DEFAULT_ADVISORIES_TTL_SECS,
         )?;
-        let enabled = get("AMTRAK_ADVISORIES")
-            .map(|value| {
-                value == "1"
-                    || value.eq_ignore_ascii_case("true")
-                    || value.eq_ignore_ascii_case("on")
-            })
-            .unwrap_or(false);
+        let enabled = parse_flag(&get, "AMTRAK_ADVISORIES", true)?;
         Ok(AdvisoryConfig {
             url,
             ttl: Duration::from_secs(ttl_secs),
@@ -154,15 +164,21 @@ pub struct TrackConfig {
     pub njt_stations: Vec<String>,
     /// NJT station code → Amtrak GTFS `stop_id`. Env `AMTRAK_TRACKS_STATION_MAP` overrides or extends.
     pub station_map: Vec<(String, String)>,
-    /// Hartford Line board URL. Empty env disables that source. Env `AMTRAK_TRACKS_HARTFORD_URL`.
+    /// Env `AMTRAK_TRACKS_HARTFORD` (default on). Off leaves `hartford_url` unset whatever the URL.
+    pub hartford_enabled: bool,
+    /// Hartford Line board URL, or `None` when the source is off. Env `AMTRAK_TRACKS_HARTFORD_URL`
+    /// (default the public board); an explicitly empty value also turns the source off.
     pub hartford_url: Option<String>,
     /// Amtrak `stop_id` for the Hartford board (New Haven Union). Env `AMTRAK_TRACKS_HARTFORD_STOP`.
     pub hartford_stop_id: String,
     /// Covered stations and their real tracks; each becomes a platform stop in the published
     /// static feed. Env `AMTRAK_TRACKS_PLATFORMS`. Tracks Amtrak later reports are added on top.
     pub platforms: crate::static_augment::PlatformTable,
-    /// Sidecar URL serving Amtrak train-status JSON. Empty or unset skips that source.
-    /// Env `AMTRAK_TRACKS_AMTRAK_URL`.
+    /// Env `AMTRAK_TRACKS_AMTRAK` (default on). Off leaves `amtrak_url` unset whatever the URL.
+    pub amtrak_enabled: bool,
+    /// Browser-worker URL serving Amtrak train-status JSON, or `None` when the source is off.
+    /// Env `AMTRAK_TRACKS_AMTRAK_URL` (default the built-in worker, [`DEFAULT_AMTRAK_TRACKS_URL`]);
+    /// an explicitly empty value also turns the source off.
     pub amtrak_url: Option<String>,
     /// How long to keep an Amtrak track after the stop's latest time.
     /// Env `AMTRAK_TRACKS_RETAIN_GRACE_SECS` (default 900).
@@ -182,9 +198,11 @@ impl fmt::Debug for TrackConfig {
             .field("njt_password_set", &self.njt_password.is_some())
             .field("njt_stations", &self.njt_stations)
             .field("station_map", &self.station_map)
+            .field("hartford_enabled", &self.hartford_enabled)
             .field("hartford_url", &self.hartford_url)
             .field("hartford_stop_id", &self.hartford_stop_id)
             .field("platforms", &self.platforms)
+            .field("amtrak_enabled", &self.amtrak_enabled)
             .field("amtrak_url", &self.amtrak_url)
             .field("retain_grace", &self.retain_grace)
             .finish()
@@ -259,20 +277,18 @@ impl TrackConfig {
                 "must not be empty",
             ));
         }
-        let hartford_url = match get("AMTRAK_TRACKS_HARTFORD_URL") {
-            Some(value) if value.trim().is_empty() => None,
-            Some(value) => Some(value),
-            None => Some(DEFAULT_HARTFORD_URL.to_string()),
-        };
+        let hartford_enabled = parse_flag(&get, "AMTRAK_TRACKS_HARTFORD", true)?;
+        let hartford_url = hartford_enabled
+            .then(|| source_url(&get, "AMTRAK_TRACKS_HARTFORD_URL", DEFAULT_HARTFORD_URL))
+            .flatten();
         let platforms = crate::static_augment::PlatformTable::parse(
             &get("AMTRAK_TRACKS_PLATFORMS").unwrap_or_else(|| DEFAULT_TRACK_PLATFORMS.to_string()),
         )
         .map_err(|reason| ConfigError::new("AMTRAK_TRACKS_PLATFORMS", reason))?;
-        let amtrak_url = match get("AMTRAK_TRACKS_AMTRAK_URL") {
-            Some(value) if value.trim().is_empty() => None,
-            Some(value) => Some(value),
-            None => None,
-        };
+        let amtrak_enabled = parse_flag(&get, "AMTRAK_TRACKS_AMTRAK", true)?;
+        let amtrak_url = amtrak_enabled
+            .then(|| source_url(&get, "AMTRAK_TRACKS_AMTRAK_URL", DEFAULT_AMTRAK_TRACKS_URL))
+            .flatten();
         let retain_grace = positive_secs(
             &get,
             "AMTRAK_TRACKS_RETAIN_GRACE_SECS",
@@ -288,9 +304,11 @@ impl TrackConfig {
             njt_password,
             njt_stations,
             station_map,
+            hartford_enabled,
             hartford_url,
             hartford_stop_id,
             platforms,
+            amtrak_enabled,
             amtrak_url,
             retain_grace,
         })
@@ -299,6 +317,20 @@ impl TrackConfig {
     /// Registered RailData credentials, when both are configured.
     pub fn raildata_credentials(&self) -> Option<(&str, &str)> {
         Some((self.njt_username.as_deref()?, self.njt_password.as_deref()?))
+    }
+}
+
+/// A source URL: `default` when unset, `None` when explicitly empty (the pre-flag way to turn a
+/// source off, kept so existing Compose overrides behave the same), otherwise the value.
+fn source_url<F: Fn(&str) -> Option<String>>(
+    get: &F,
+    field: &str,
+    default: &str,
+) -> Option<String> {
+    match get(field) {
+        Some(value) if value.trim().is_empty() => None,
+        Some(value) => Some(value),
+        None => Some(default.to_string()),
     }
 }
 
@@ -593,9 +625,7 @@ impl Config {
             .into();
         let poll_secs = parse_u64(&get, "AMTRAK_POLL_SECS", 45)?;
         let static_refresh_secs = parse_u64(&get, "AMTRAK_STATIC_REFRESH_SECS", 86_400)?;
-        let filter_capital_corridor = get("AMTRAK_FILTER_CAPITAL_CORRIDOR")
-            .map(|value| value == "1" || value.eq_ignore_ascii_case("true"))
-            .unwrap_or(false);
+        let filter_capital_corridor = parse_flag(&get, "AMTRAK_FILTER_CAPITAL_CORRIDOR", false)?;
         let bind_addr = get("AMTRAK_BIND_ADDR")
             .unwrap_or_else(|| "127.0.0.1:8080".to_string())
             .parse::<SocketAddr>()
@@ -941,10 +971,21 @@ mod tests {
         let defaults = AdvisoryConfig::from_map(|_| None).unwrap();
         assert_eq!(
             defaults.url,
-            "https://www.amtrak.com/service-alerts-and-notices"
+            "http://127.0.0.1:8081/service-alerts-and-notices"
         );
+        assert_eq!(defaults.url, DEFAULT_ADVISORIES_URL);
         assert_eq!(defaults.ttl, Duration::from_secs(900));
-        assert!(!defaults.enabled); // default OFF
+        assert!(defaults.enabled); // default ON: the browser worker ships in the image
+        for (raw, enabled) in [("", true), ("yes", true), ("off", false), ("0", false)] {
+            let config =
+                AdvisoryConfig::from_map(|key| (key == "AMTRAK_ADVISORIES").then(|| raw.into()))
+                    .unwrap();
+            assert_eq!(config.enabled, enabled, "{raw:?}");
+        }
+        let error =
+            AdvisoryConfig::from_map(|key| (key == "AMTRAK_ADVISORIES").then(|| "maybe".into()))
+                .unwrap_err();
+        assert_eq!(error.field(), "AMTRAK_ADVISORIES");
 
         let overridden = AdvisoryConfig::from_map(|key| match key {
             "AMTRAK_ADVISORIES_URL" => Some("http://svc/adv".to_string()),
@@ -1012,7 +1053,12 @@ mod tests {
         assert!(defaults.platforms.contains("NHV", "14"));
         assert!(!defaults.platforms.contains("NHV", "6"));
         assert!(!defaults.platforms.contains("TRE", "1"));
-        assert!(defaults.amtrak_url.is_none());
+        assert_eq!(
+            defaults.amtrak_url.as_deref(),
+            Some("http://127.0.0.1:8081/tracks.json")
+        );
+        assert!(defaults.amtrak_enabled);
+        assert!(defaults.hartford_enabled);
         assert_eq!(defaults.retain_grace, Duration::from_secs(900));
         assert_eq!(
             TrackConfig::from_map(
@@ -1078,6 +1124,60 @@ mod tests {
                 TrackConfig::from_map(|key| (key == field).then(|| "0".into())).unwrap_err();
             assert_eq!(error.field(), field);
         }
+    }
+
+    #[test]
+    fn track_source_flags_turn_each_source_off_and_urls_override() {
+        // The flag wins over a URL: off means the source is never configured.
+        let off = TrackConfig::from_map(map(&[
+            ("AMTRAK_TRACKS_AMTRAK", "off"),
+            ("AMTRAK_TRACKS_AMTRAK_URL", "http://worker/tracks.json"),
+            ("AMTRAK_TRACKS_HARTFORD", "no"),
+            ("AMTRAK_TRACKS_HARTFORD_URL", "http://board/"),
+        ]))
+        .unwrap();
+        assert!(!off.amtrak_enabled);
+        assert!(off.amtrak_url.is_none());
+        assert!(!off.hartford_enabled);
+        assert!(off.hartford_url.is_none());
+
+        // With the flag on (the default), a URL override wins over the built-in worker.
+        let custom = TrackConfig::from_map(map(&[
+            ("AMTRAK_TRACKS_AMTRAK_URL", "http://worker/tracks.json"),
+            ("AMTRAK_TRACKS_HARTFORD_URL", "http://board/"),
+        ]))
+        .unwrap();
+        assert_eq!(
+            custom.amtrak_url.as_deref(),
+            Some("http://worker/tracks.json")
+        );
+        assert_eq!(custom.hartford_url.as_deref(), Some("http://board/"));
+
+        // An explicitly empty URL still skips the source, as before the flags existed.
+        let empty = TrackConfig::from_map(map(&[
+            ("AMTRAK_TRACKS_AMTRAK_URL", ""),
+            ("AMTRAK_TRACKS_HARTFORD_URL", " "),
+        ]))
+        .unwrap();
+        assert!(empty.amtrak_enabled);
+        assert!(empty.amtrak_url.is_none());
+        assert!(empty.hartford_url.is_none());
+
+        for field in ["AMTRAK_TRACKS_AMTRAK", "AMTRAK_TRACKS_HARTFORD"] {
+            let error = TrackConfig::from_map(map(&[(field, "sometimes")])).unwrap_err();
+            assert_eq!(error.field(), field);
+        }
+    }
+
+    #[test]
+    fn capital_corridor_filter_is_a_strict_flag() {
+        for (raw, filter) in [("on", true), ("1", true), ("off", false), ("", false)] {
+            let config = Config::from_map(map(&[("AMTRAK_FILTER_CAPITAL_CORRIDOR", raw)])).unwrap();
+            assert_eq!(config.filter_capital_corridor, filter, "{raw:?}");
+        }
+        let error =
+            Config::from_map(map(&[("AMTRAK_FILTER_CAPITAL_CORRIDOR", "maybe")])).unwrap_err();
+        assert_eq!(error.field(), "AMTRAK_FILTER_CAPITAL_CORRIDOR");
     }
     use std::collections::HashMap;
 

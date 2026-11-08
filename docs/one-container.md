@@ -1,6 +1,6 @@
 # Design: one container
 
-- **Status:** accepted by the owner on 2026-11-07. Decisions D1 and D2 below are proposals that the owner confirms when reviewing the PR that adds this document.
+- **Status:** accepted by the owner on 2026-11-07, including decisions D1 and D2 below (approved on #69).
 - **Supersedes:** [`docs/rearchitecture.md`](rearchitecture.md) (three containers, one per feed) and `.kiro/specs/three-feed-containers/`.
 - **Goal:** Amtrak GTFS-RT is one container image, and it just works. One `docker run`, or one Compose service, publishes the manifest, the static ZIPs, and all three GTFS-Realtime feeds. The image includes every helper the service needs. Each optional source can be turned on or off with an environment flag.
 
@@ -75,7 +75,7 @@ Every optional source has an on/off flag. The defaults are chosen so a bare `doc
 | `AMTRAK_TRACKS_AMTRAK` (new) | on | Amtrak's own track and gate status documents | yes |
 | `AMTRAK_TRACKS_HARTFORD` (new) | on | The Hartford Line board for New Haven. Replaces "set `AMTRAK_TRACKS_HARTFORD_URL` empty". | no |
 | NJ Transit RailData | on when `NJT_RAILDATA_USERNAME` and `NJT_RAILDATA_PASSWORD` are both set | NJ Transit tracks. No credentials means the source is skipped, as today. | no |
-| `AMTRAK_ADVISORIES` | **on** (proposed, D2) | Amtrak station and passenger notices merged into `alerts.pb` | yes |
+| `AMTRAK_ADVISORIES` | **on** (D2) | Amtrak station and passenger notices merged into `alerts.pb` | yes |
 | `AMTRAK_FILTER_CAPITAL_CORRIDOR` | off | Drops Capital Corridor (route 84) | no |
 
 The TransitDocs ASM and Pacific Surfliner alerts come from the main poll and have no flag. The other variables in the README configuration table (poll intervals, retention, the track tuning knobs) stay as they are.

@@ -5,7 +5,7 @@
 //! protobuf without composing the manifest lookup by hand. Only local endpoints and source names
 //! are printed: no upstream URL, credential, or response text.
 
-use crate::config::{AccessPolicy, TrackConfig};
+use crate::config::{is_worker_url, AccessPolicy, AdvisoryConfig, TrackConfig};
 use crate::orchestrator::{GenerationCommitter, ValidatedGeneration};
 use crate::writer::{PublishError, PublishedGeneration};
 use async_trait::async_trait;
@@ -28,12 +28,16 @@ pub fn base_url(bind: SocketAddr, public_url: Option<&str>) -> String {
 }
 
 /// The startup banner: endpoints, who may read them, and which optional sources are on.
+///
+/// Each source line says whether it is on and, when off, which flag or empty URL turned it off.
+/// Source URLs are never printed; a source reading the built-in browser worker says so.
 pub fn startup_banner(
     base: &str,
     bind: SocketAddr,
     access: &AccessPolicy,
-    advisories: bool,
+    advisories: Option<&AdvisoryConfig>,
     tracks: Option<&TrackConfig>,
+    filter_capital_corridor: bool,
 ) -> String {
     let mut lines = vec![
         format!("amtrak-gtfs-rt listening on {bind}"),
@@ -47,7 +51,18 @@ pub fn startup_banner(
         format!("  Access                 {}", access.describe()),
         format!(
             "  Advisories             {}",
-            if advisories { "on" } else { "off" }
+            match advisories {
+                Some(notices) => on_from(&notices.url, "AMTRAK_ADVISORIES_URL"),
+                None => "off".to_string(),
+            }
+        ),
+        format!(
+            "  Capital Corridor       {}",
+            if filter_capital_corridor {
+                "filtered out"
+            } else {
+                "kept"
+            }
         ),
     ];
     match tracks {
@@ -60,11 +75,20 @@ pub fn startup_banner(
     lines.join("\n")
 }
 
-fn track_sources(tracks: &TrackConfig) -> Vec<String> {
-    let amtrak = if tracks.amtrak_url.is_some() {
-        "on (track-fetcher sidecar)"
+/// "on" plus where the source reads from, naming the override variable instead of its URL.
+fn on_from(url: &str, override_var: &str) -> String {
+    if is_worker_url(url) {
+        "on (built-in browser worker)".to_string()
     } else {
-        "off: AMTRAK_TRACKS_AMTRAK_URL is empty"
+        format!("on ({override_var})")
+    }
+}
+
+fn track_sources(tracks: &TrackConfig) -> Vec<String> {
+    let amtrak = match (&tracks.amtrak_url, tracks.amtrak_enabled) {
+        (Some(url), _) => on_from(url, "AMTRAK_TRACKS_AMTRAK_URL"),
+        (None, false) => "off: AMTRAK_TRACKS_AMTRAK=off".to_string(),
+        (None, true) => "off: AMTRAK_TRACKS_AMTRAK_URL is empty".to_string(),
     };
     let raildata = match (
         tracks.njt_stations.is_empty(),
@@ -74,10 +98,10 @@ fn track_sources(tracks: &TrackConfig) -> Vec<String> {
         (false, false) => "off: no NJT_RAILDATA credentials".to_string(),
         (false, true) => format!("on ({} stations)", tracks.njt_stations.len()),
     };
-    let hartford = if tracks.hartford_url.is_some() {
-        format!("on ({})", tracks.hartford_stop_id)
-    } else {
-        "off".to_string()
+    let hartford = match (&tracks.hartford_url, tracks.hartford_enabled) {
+        (Some(_), _) => format!("on ({})", tracks.hartford_stop_id),
+        (None, false) => "off: AMTRAK_TRACKS_HARTFORD=off".to_string(),
+        (None, true) => "off: AMTRAK_TRACKS_HARTFORD_URL is empty".to_string(),
     };
     vec![
         format!("    Amtrak status        {amtrak}"),
@@ -186,7 +210,7 @@ mod tests {
     fn the_banner_lists_endpoints_and_sources() {
         let bind = "127.0.0.1:8080".parse().unwrap();
         let access = AccessPolicy::from_allowed_ips_for_test(BTreeSet::new());
-        let off = startup_banner("http://127.0.0.1:8080", bind, &access, false, None);
+        let off = startup_banner("http://127.0.0.1:8080", bind, &access, None, None, false);
         assert!(off.contains("http://127.0.0.1:8080/v1/feed-set.json"));
         assert!(off.contains(
             "http://127.0.0.1:8080/v1/generations/{id}/\
@@ -195,26 +219,55 @@ mod tests {
         assert!(off.contains("http://127.0.0.1:8080/readyz"));
         assert!(off.contains("loopback clients only"));
         assert!(off.contains("Tracks                 off"));
+        assert!(off.contains("Advisories             off"));
+        assert!(off.contains("Capital Corridor       kept"));
 
-        let wired = tracks(&[
-            ("AMTRAK_TRACKS", "on"),
-            (
-                "AMTRAK_TRACKS_AMTRAK_URL",
-                "http://track-fetcher:8081/tracks.json",
-            ),
+        // Defaults: every source points at the built-in browser worker.
+        let worker = tracks(&[
             ("NJT_RAILDATA_USERNAME", "user"),
             ("NJT_RAILDATA_PASSWORD", "secret-pw"),
         ]);
-        let on = startup_banner("http://x", bind, &access, true, Some(&wired));
-        assert!(on.contains("Amtrak status        on (track-fetcher sidecar)"));
+        let notices = crate::config::AdvisoryConfig::from_map(|_| None).unwrap();
+        let on = startup_banner(
+            "http://x",
+            bind,
+            &access,
+            Some(&notices),
+            Some(&worker),
+            true,
+        );
+        assert!(on.contains("Advisories             on (built-in browser worker)"));
+        assert!(on.contains("Amtrak status        on (built-in browser worker)"));
         assert!(on.contains("NJ Transit RailData  on (8 stations)"));
         assert!(on.contains("Hartford Line board  on (NHV)"));
+        assert!(on.contains("Capital Corridor       filtered out"));
         assert!(!on.contains("secret-pw"));
-        assert!(!on.contains("track-fetcher:8081"));
+        assert!(!on.contains("127.0.0.1:8081"));
 
-        let bare = tracks(&[("AMTRAK_TRACKS", "on")]);
-        let bare = startup_banner("http://x", bind, &access, true, Some(&bare));
-        assert!(bare.contains("Amtrak status        off: AMTRAK_TRACKS_AMTRAK_URL is empty"));
-        assert!(bare.contains("NJ Transit RailData  off: no NJT_RAILDATA credentials"));
+        let custom = tracks(&[(
+            "AMTRAK_TRACKS_AMTRAK_URL",
+            "http://track-fetcher:8081/tracks.json",
+        )]);
+        let custom = startup_banner("http://x", bind, &access, None, Some(&custom), false);
+        assert!(custom.contains("Amtrak status        on (AMTRAK_TRACKS_AMTRAK_URL)"));
+        assert!(!custom.contains("track-fetcher:8081"));
+
+        let flagged_off = tracks(&[
+            ("AMTRAK_TRACKS_AMTRAK", "off"),
+            ("AMTRAK_TRACKS_HARTFORD", "off"),
+        ]);
+        let flagged_off =
+            startup_banner("http://x", bind, &access, None, Some(&flagged_off), false);
+        assert!(flagged_off.contains("Amtrak status        off: AMTRAK_TRACKS_AMTRAK=off"));
+        assert!(flagged_off.contains("Hartford Line board  off: AMTRAK_TRACKS_HARTFORD=off"));
+        assert!(flagged_off.contains("NJ Transit RailData  off: no NJT_RAILDATA credentials"));
+
+        let emptied = tracks(&[
+            ("AMTRAK_TRACKS_AMTRAK_URL", ""),
+            ("AMTRAK_TRACKS_HARTFORD_URL", ""),
+        ]);
+        let emptied = startup_banner("http://x", bind, &access, None, Some(&emptied), false);
+        assert!(emptied.contains("Amtrak status        off: AMTRAK_TRACKS_AMTRAK_URL is empty"));
+        assert!(emptied.contains("Hartford Line board  off: AMTRAK_TRACKS_HARTFORD_URL is empty"));
     }
 }
