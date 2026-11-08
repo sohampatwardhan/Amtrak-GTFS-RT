@@ -1,5 +1,7 @@
 # Implementation Plan
 
+> **Superseded on 2026-11-07** by [`docs/one-container.md`](../../../docs/one-container.md). The owner chose one container with every helper inside it. This spec records how the three-container roles were built, and the one-container plan removes them.
+
 - [x] 1. Shared library and role entry
   - Move the service into `src/lib.rs` and select `AMTRAK_ROLE` in `run_service`.
   - _Requirements: 1.3_

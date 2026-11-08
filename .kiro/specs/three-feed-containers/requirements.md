@@ -1,5 +1,7 @@
 # Requirements Document
 
+> **Superseded on 2026-11-07** by [`docs/one-container.md`](../../../docs/one-container.md). The owner chose one container with every helper inside it. This spec records how the three-container roles were built, and the one-container plan removes them.
+
 ## Introduction
 
 The feed is three containers that share one library and one `getTrainsData` poll. VehiclePositions serves the existing public URLs from memory. TripUpdates stamps tracks and gates. Alerts merges notices. A request never waits on a browser or an upstream fetch. Track checks run every 15 minutes, with debounced early refreshes and per-station lead-time profiles in the `amtrak-station-lead-time/v1` shape.

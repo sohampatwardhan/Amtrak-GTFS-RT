@@ -1,6 +1,6 @@
 # Re-architecture proposal: one container per GTFS-Realtime feed
 
-- **Status:** proposal only. This document does not change the running service, the images, or the Raspberry Pi.
+- **Status:** superseded on 2026-11-07 by [`one-container.md`](one-container.md). The owner chose one container that includes every helper, so the three-container layout below is no longer the target. The research sections (current architecture, `piemadd/amtrak`, Track Your Train sources, credit rules) remain accurate and are still referenced.
 - **Date:** 2026-11-01
 - **Owner intent:** Amtrak already publishes the static GTFS. This project should keep producing the three GTFS-Realtime feeds and stay feature-rich. The target shape is three containers, one per feed: Alerts, TripUpdates, and VehiclePositions.
 - **What this proposal does:** splits today's publisher-plus-sidecars stack along those three feeds, keeps every current user-facing feature and public URL, and treats `https://content.amtrak.com/content/gtfs/GTFS.zip` as the schedule. One process polls `getTrainsData`. The other two read that snapshot. A Caddy proxy is optional and off by default. The deployment does not assume nginx or Tailscale Serve in front.
