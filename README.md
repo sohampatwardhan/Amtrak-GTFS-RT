@@ -32,9 +32,8 @@ flowchart LR
     maps["maps.amtrak.com getTrainsData"]
     www["www.amtrak.com notices and train status"]
   end
-  subgraph optional["Optional sidecars and boards"]
-    adv["advisory-fetcher"]
-    trk["track-fetcher"]
+  subgraph optional["Optional browser worker and boards"]
+    worker["browser worker (one Chromium)"]
     njt["NJ Transit RailData"]
     hart["Hartford Line board"]
   end
@@ -42,10 +41,9 @@ flowchart LR
   validator --> orch["Orchestrator"]
   maps --> crate["catenary amtrak-gtfs-rt crate"]
   crate --> orch
-  www --> adv
-  www --> trk
-  adv -->|"AMTRAK_ADVISORIES"| orch
-  trk -->|"AMTRAK_TRACKS"| orch
+  www --> worker
+  worker -->|"AMTRAK_ADVISORIES"| orch
+  worker -->|"AMTRAK_TRACKS"| orch
   njt --> orch
   hart --> orch
   orch --> store["Immutable generations in /data"]
@@ -219,8 +217,8 @@ same tags (`0.7.1`, `0.7`, and `latest`) and OCI labels:
 | Image | Built from |
 |-------|------------|
 | `ghcr.io/sohampatwardhan/amtrak-gtfs-rt` | root `Dockerfile`, `runtime` stage (scratch) |
-| `ghcr.io/sohampatwardhan/amtrak-gtfs-rt-track-fetcher` | [`track-fetcher/`](track-fetcher/README.md) |
-| `ghcr.io/sohampatwardhan/amtrak-gtfs-rt-advisory-fetcher` | [`advisory-fetcher/`](advisory-fetcher/README.md) |
+| `ghcr.io/sohampatwardhan/amtrak-gtfs-rt-track-fetcher` | [`browser-worker/`](browser-worker/README.md), target `track-fetcher` |
+| `ghcr.io/sohampatwardhan/amtrak-gtfs-rt-advisory-fetcher` | [`browser-worker/`](browser-worker/README.md), target `advisory-fetcher` |
 
 Pull all three, on a Raspberry Pi or any other host; Docker picks the native architecture:
 
@@ -545,9 +543,10 @@ Restart=on-failure
 > Pass `NJT_RAILDATA_USERNAME` and `NJT_RAILDATA_PASSWORD` through the environment only. Never put
 > them in the repository, a Compose file, or an image.
 
-The browser sidecars have their own settings, documented in
-[`advisory-fetcher/README.md`](advisory-fetcher/README.md) and
-[`track-fetcher/README.md`](track-fetcher/README.md).
+The browser worker has its own settings, documented in
+[`browser-worker/README.md`](browser-worker/README.md). Its notices settings carry a `NOTICES_`
+prefix so they do not collide with the track source's `POLL_INTERVAL_SECS` and
+`MAX_STALE_SECS`.
 
 ## Compose stack
 
@@ -600,7 +599,7 @@ skipped. Set `AMTRAK_TRACKS_AMTRAK=off` to keep the other boards without Amtrak'
 with no tracks at all, and without the sidecar's Chromium:
 
 ```bash
-AMTRAK_TRACKS=off docker compose up -d --scale track-fetcher=0
+AMTRAK_TRACKS=off docker compose up -d
 ```
 
 The feed is published on host loopback port 8090 (`http://127.0.0.1:8090`), leaving host port 8080
@@ -639,23 +638,24 @@ docker run --rm --network host -v amtrak-data:/data amtrak-gtfs-rt:local
 Station Advisories and Passenger Advisories from Amtrak's notices page are merged into the
 published `alerts.pb` only when an operator turns them on. The Rust service does not run a
 browser. `www.amtrak.com` resets plain HTTP clients (Akamai), so the supported source is the
-Playwright sidecar in [`advisory-fetcher/`](advisory-fetcher/README.md). The sidecar snapshots the
-notices list and each linked `/alert/...` detail page. The service GETs those pages on the fetcher
+notices source of the [browser worker](browser-worker/README.md). The worker snapshots the
+notices list and each linked `/alert/...` detail page. The service GETs those pages on the worker
 origin: `header_text` is the list title, and `description_text` is the detail body (effective
 date, paragraphs, and PSN). A missing detail page keeps that alert's title and effective date.
 
-The fetcher re-renders the notices list on `POLL_INTERVAL_SECS` (default 15 minutes). It samples
+The worker re-renders the notices list on `NOTICES_POLL_INTERVAL_SECS` (default 15 minutes), in a
+fresh browser context in its one Chromium. It samples
 the page HTML until the size is stable and the advisory markup is present, then closes the
 renderer instead of waiting out the page's ~20 second timers. Detail pages already stored within
-`DETAIL_TTL_SECS` (default 24 hours) are not rendered again; the HTTP server keeps serving them for
-`DETAIL_MAX_STALE_SECS` (default 24 hours, and it must be at least the TTL). The list snapshot
-still uses `MAX_STALE_SECS`.
+`NOTICES_DETAIL_TTL_SECS` (default 24 hours) are not rendered again; the HTTP server keeps serving
+them for `NOTICES_DETAIL_MAX_STALE_SECS` (default 24 hours, and it must be at least the TTL). The
+list snapshot uses `NOTICES_MAX_STALE_SECS`.
 
 ```mermaid
 flowchart TD
-  tick["Every POLL_INTERVAL_SECS"] --> list["Render notices list until HTML size is stable"]
-  list --> kill["Close the page and kill the renderer if it lingers"]
-  kill --> due{"Detail younger than DETAIL_TTL_SECS?"}
+  tick["Every NOTICES_POLL_INTERVAL_SECS"] --> list["Render notices list until HTML size is stable"]
+  list --> kill["Close the page; close the context at the end of the cycle"]
+  kill --> due{"Detail younger than NOTICES_DETAIL_TTL_SECS?"}
   due -->|yes| cache["Keep the cached detail page"]
   due -->|no| detail["Render that detail until its size is stable, then close it"]
   cache --> http["HTTP snapshot"]
@@ -766,7 +766,7 @@ track change.
 
 ```mermaid
 flowchart TD
-  maps["maps.amtrak.com getTrainsData"] --> dec["Decrypt in the sidecar"]
+  maps["maps.amtrak.com getTrainsData"] --> dec["Decrypt in the browser worker"]
   dec --> win["Stops from 10 min past to 30 min ahead"]
   win --> hot["Next stop within 12 min, no track yet: every cycle"]
   win --> outer["Otherwise: 90s cooldown, 24 fetches max"]
@@ -790,16 +790,17 @@ flowchart TD
 #### Amtrak's train-status API
 
 Amtrak's own status covers every station where Amtrak posts a track. The service does not call
-`www.amtrak.com` itself: it reads the [`track-fetcher`](track-fetcher/README.md) sidecar, which
-serves `GET /tracks.json`, at `AMTRAK_TRACKS_AMTRAK_URL`. The Compose stack starts the sidecar and
-points that URL at it by default. Run directly, the URL defaults to empty, which leaves this source
-off; the startup banner and a warning say so.
+`www.amtrak.com` itself: it reads the track source of the
+[browser worker](browser-worker/README.md), which serves `GET /tracks.json`, at
+`AMTRAK_TRACKS_AMTRAK_URL` (default `http://127.0.0.1:8081/tracks.json`). The trip-updates image
+starts the worker in its own container. Run directly on a host, nothing listens there until the
+worker is started too; the source fails open, and `AMTRAK_TRACKS_AMTRAK=off` silences it.
 
 Where Amtrak posts a boarding gate beside the track (`departure.gate.number`), the gate from that
 same arrival or departure is kept with the track. On 2026-10-19 train 66 left Washington from track
 24, gate `H`; its trip update gets `assigned_stop_id=WAS:track:24:gate:H`, a platform stop
 whose `platform_code` is `24 (Gate H)`. Gates also appeared at New Carrollton, Minot, and Cary
-(gate `A`). [`python -m fetcher.dump`](track-fetcher/README.md#one-shot-track-dump) prints what
+(gate `A`). [`python -m worker.tracks.dump`](browser-worker/README.md#one-shot-track-dump) prints what
 Amtrak posts for any train.
 
 A track Amtrak shows at a station outside `AMTRAK_TRACKS_PLATFORMS` (Providence, for example) is
@@ -841,9 +842,9 @@ Stations where Amtrak's status documents carried a track on 2026-10-17:
 > [!NOTE]
 > Amtrak publishes no list of the stations it posts tracks for. This table is a one-day sample: a
 > twelve-train sample, the Lake Shore Limited (train 49), and the New York–Washington board. The
-> sidecar reads whatever Amtrak posts, so a station not listed here is picked up as soon as Amtrak
+> worker reads whatever Amtrak posts, so a station not listed here is picked up as soon as Amtrak
 > shows a track for it.
-> [`python -m fetcher.coverage`](track-fetcher/README.md#station-coverage) surveys the active fleet
+> [`python -m worker.tracks.coverage`](browser-worker/README.md#station-coverage) surveys the active fleet
 > and writes an `amtrak-station-lead-time/v1` profile. `AMTRAK_TRACKS_LEAD_TIME_FILE` loads it:
 > `observed` stations marked `wider` use their suggested windows, and every other station keeps
 > the global window.
@@ -854,7 +855,7 @@ Hartford board and Princeton Junction from NJ Transit RailData. A track posted m
 stop is why trains near a stop are polled every cycle; one posted hours ahead is already on the
 document when the train enters the window.
 
-The sidecar keeps a single `chromium-headless-shell` between polls and blocks image, font,
+The worker keeps a single `chromium-headless-shell` between polls and blocks image, font,
 stylesheet, and media requests, and every host outside `amtrak.com`. The maps feed, which has no
 track field, is decrypted without a browser and only decides who is near a stop. A browser failure
 ends that cycle's fetches, and relaunches back off from 1 to 15 minutes. If every fetch in a cycle
@@ -981,8 +982,7 @@ stateDiagram-v2
 | `src/serve.rs` | Controlled immutable HTTP delivery and freshness health |
 | `src/writer.rs` | Durable immutable generation persistence and recovery |
 | `src/bin/amtrak_status.rs`, `src/bin/status/` | `amtrak-status` CLI (`--features status`) |
-| `advisory-fetcher/` | Optional browser sidecar that snapshots Amtrak's notices pages |
-| `track-fetcher/` | Optional browser sidecar (`AMTRAK_TRACKS_AMTRAK_URL`): decrypts the maps feed, polls trains near a stop, serves `/tracks.json` |
+| `browser-worker/` | Python browser worker with one Chromium: Amtrak's train-status documents at `/tracks.json` and the notices pages at `/service-alerts-and-notices`, on `127.0.0.1:8081` |
 | `scripts/` | Container smoke test, feed validation gate, release tooling |
 | `docs/` | Design specs, implementation plans, and research notes |
 
@@ -993,8 +993,7 @@ cargo test                          # unit + integration (offline)
 cargo test --features status        # also the amtrak-status CLI
 cargo test -- --include-ignored     # also runs live tests against Amtrak's endpoints
 
-(cd advisory-fetcher && python -m pytest tests -q)   # sidecar tests, no browser or network
-(cd track-fetcher && python -m pytest tests -q)
+(cd browser-worker && python -m pytest tests -q)   # worker tests, no browser or network
 ```
 
 Pull requests and pushes to `main` build and test all Rust targets and features with
@@ -1020,7 +1019,8 @@ smoke test.
 
 The feeds are verified two ways in the suite: RT protobuf round-trips through the decoder, and a
 live end-to-end test fetches real Amtrak data and asserts non-empty, statically-bound output.
-CI also builds both sidecar images, in both browser bundles, natively on amd64 and arm64.
+CI also builds both standalone browser-worker images, in both browser bundles, natively on amd64
+and arm64.
 
 The [release gates](.github/workflows/release-gates.yml) workflow runs the release's per-platform
 image checks on pull requests before a tag is pushed: it builds the linux/amd64 service image, runs

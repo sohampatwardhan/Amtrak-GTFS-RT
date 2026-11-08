@@ -415,7 +415,9 @@ jobs:
         if: fromJSON(needs.release-context.outputs.sidecar_manifests)[matrix.image].state == 'absent'
         uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
         with:
-          context: source/${{ matrix.image }}
+          context: source
+          file: source/browser-worker/Dockerfile
+          target: ${{ matrix.image }}
           platforms: ${{ matrix.platform }}
           tags: ${{ env.SIDECAR_IMAGE }}
           outputs: type=image,name=${{ env.SIDECAR_IMAGE }},push-by-digest=true,name-canonical=true,push=true

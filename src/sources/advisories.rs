@@ -10,7 +10,7 @@
 //!
 //! `header_text` is the list-page title. `description_text` is the detail-page body (effective
 //! date, paragraphs, and PSN reference) when that page can be fetched from the same origin as the
-//! notices list — the advisory-fetcher serves those `/alert/...` snapshots. A missing or unreadable
+//! notices list — the browser worker serves those `/alert/...` snapshots. A missing or unreadable
 //! detail page keeps the title-and-effective description for that one alert.
 //!
 //! Everything here is **fail-open**: a fetch failure, an unexpected DOM, an unmappable station or

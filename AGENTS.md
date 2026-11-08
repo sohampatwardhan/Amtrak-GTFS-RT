@@ -13,7 +13,7 @@ Decrypt, trip matching, and protobuf encoding stay in the git dependency [`caten
 Both optional features fail open. A notices failure or a track failure never stops the other feeds from publishing.
 
 - **Alerts.** TransitDocs ASM and Pacific Surfliner advisories come from the one fleet poll. Amtrak station and passenger notices (`AMTRAK_ADVISORIES`, default on) are merged in. `www.amtrak.com` blocks plain HTTP (Akamai). The notices browser runs in the background. Do not spoof a browser fingerprint, copy Akamai cookies, or use curl-impersonate.
-- **TripUpdates.** Platform, track, and gate assignments (`AMTRAK_TRACKS`, default on) stamp `assigned_stop_id` and `platform_code`. The track browser is embedded when `/app/fetcher` exists. Full polls run every `AMTRAK_TRACKS_BASE_INTERVAL_SECS` (default 900). Hot stations, including a profile such as PVD, are still checked on `POLL_INTERVAL_SECS` between those runs. `AMTRAK_TRACKS_LEAD_TIME_FILE` is an `amtrak-station-lead-time/v1` JSON file. Only `confidence=observed` and `compared_to_default=wider` change that station's lookahead and hot window. `sparse`, `no_track`, `none`, `covered`, and missing stations keep the global window. A `train` or `station` query on trip updates is debounced (`AMTRAK_TRACKS_DEBOUNCE_SECS`, default 5), coalesced per train, and capped (`AMTRAK_TRACKS_MAX_EARLY`, default 24) with `AMTRAK_TRACKS_MIN_GAP_SECS` (default 90). The HTTP response does not wait for that refresh.
+- **TripUpdates.** Platform, track, and gate assignments (`AMTRAK_TRACKS`, default on) stamp `assigned_stop_id` and `platform_code`. The browser worker is embedded when `/app/worker` exists. Full polls run every `AMTRAK_TRACKS_BASE_INTERVAL_SECS` (default 900). Hot stations, including a profile such as PVD, are still checked on `POLL_INTERVAL_SECS` between those runs. `AMTRAK_TRACKS_LEAD_TIME_FILE` is an `amtrak-station-lead-time/v1` JSON file. Only `confidence=observed` and `compared_to_default=wider` change that station's lookahead and hot window. `sparse`, `no_track`, `none`, `covered`, and missing stations keep the global window. A `train` or `station` query on trip updates is debounced (`AMTRAK_TRACKS_DEBOUNCE_SECS`, default 5), coalesced per train, and capped (`AMTRAK_TRACKS_MAX_EARLY`, default 24) with `AMTRAK_TRACKS_MIN_GAP_SECS` (default 90). The HTTP response does not wait for that refresh.
 - **VehiclePositions.** One `getTrainsData` poll per cycle feeds all three products. Trains are matched to Amtrak's official static GTFS, and the same process serves the public HTTP API.
 
 `cargo run` starts the current single service (`default-run` is `amtrak-gtfs-rt-service`). The `amtrak-status` station and train CLI is a second binary behind the `status` feature and is not in the released container. HTTP handlers serve the last good generation from memory. They must not wait on Chromium or on an upstream fetch. Responses carry `Last-Modified` and `ETag`, and honor `If-None-Match` / `If-Modified-Since` with `304`.
@@ -49,7 +49,7 @@ Checked-in paths, until the split replaces them:
 | `src/serve.rs` | axum HTTP API, peer check, and readiness |
 | `src/bin/amtrak_status.rs`, `src/bin/status/` | `amtrak-status` CLI (`--features status`) |
 | `src/roles.rs`, `src/cohort.rs` | Three-container roles and their shared-volume snapshots. To be removed (`docs/one-container.md`). |
-| `advisory-fetcher/`, `track-fetcher/` | Python/Playwright browsers. Target: one browser worker package inside the one image. |
+| `browser-worker/` | The one Python/Playwright browser worker (`python -m worker`): the track source (`worker/tracks/`) and the notices source (`worker/notices/`) share one Chromium (`worker/browser.py`) and one listener on `127.0.0.1:8081`. Notices-only settings carry `NOTICES_`. `browser-worker/Dockerfile` builds the two standalone images (targets `track-fetcher`, `advisory-fetcher`) until #74 retires them. |
 | `scripts/` | Feed validation, container smoke, release controls |
 | `Dockerfile`, `trip-updates.Dockerfile`, `alerts.Dockerfile`, `docker-compose.yml` | Today's scratch service image, the two browser role images, and the three-service Compose stack. Target: one root `Dockerfile` and one Compose service. |
 | `docs/one-container.md` | The one-container design and the PR plan. Follow it. |
@@ -80,7 +80,7 @@ Host defaults are bind `127.0.0.1:8080`, output `./out`, and validator JAR `./to
 - **Rust** stable, 1.85 or newer. The catenary crate uses edition 2024. This repo is developed against 1.96; CI uses `stable`; the release image pins `rust:1.96-alpine`.
 - **`protoc`** (`protobuf-compiler` on Debian/Ubuntu).
 - **`libssl-dev` and `pkg-config`**. `gtfs-structures` 0.46.1 pulls `reqwest` 0.12 with native TLS, so the build compiles `openssl-sys`. The service's own `reqwest` 0.13 uses rustls.
-- **Python 3.12** for the sidecar unit tests. Pins are `advisory-fetcher/requirements.txt` (pytest, playwright) and `track-fetcher/requirements.txt` (pytest, cryptography). Playwright is imported lazily; unit tests do not download or launch a browser.
+- **Python 3.12** for the browser worker's unit tests. Pins are `browser-worker/requirements.txt` (pytest, playwright, cryptography). Playwright is imported lazily; unit tests do not download or launch a browser.
 - **Java 17+** and the official MobilityData GTFS validator CLI 8.0.1 to run the service. Startup checks SHA-256 `19293ddd9b6f954f216d4f12054bd8a3232921751c4484339e339764a91000e2`. The container's repository-hardened JAR is a different digest and is not a substitute on the host. Unit tests do not start the JVM.
 - **`jq`** for `scripts/check-release-metadata.sh`.
 
@@ -90,15 +90,14 @@ sudo apt-get install -y protobuf-compiler libssl-dev pkg-config python3 python-i
 rustup toolchain install stable --profile minimal --component rustfmt,clippy
 rustup default stable
 python3 -m pip install --break-system-packages \
-  --requirement advisory-fetcher/requirements.txt \
-  --requirement track-fetcher/requirements.txt
+  --requirement browser-worker/requirements.txt
 ```
 
 Download the official JAR from the MobilityData v8.0.1 release to `tools/gtfs-validator-v8.0.1-cli.jar` and check the digest above before `cargo run`. That path is gitignored.
 
 ## Build, test, and lint
 
-CI (`.github/workflows/ci.yml`) builds and tests the Rust crate without ignored tests, runs both sidecar suites, runs `scripts/test-release-controls.sh`, and checks Compose/Bake config. Release-quality Rust changes also pass fmt and clippy.
+CI (`.github/workflows/ci.yml`) builds and tests the Rust crate without ignored tests, runs the browser worker suite, runs `scripts/test-release-controls.sh`, and checks Compose/Bake config. Release-quality Rust changes also pass fmt and clippy.
 
 ```bash
 cargo build --locked
@@ -107,8 +106,7 @@ cargo test --locked --features status       # also the amtrak-status CLI
 cargo fmt --all -- --check
 cargo clippy --locked --all-targets --all-features -- -D warnings   # see the note below
 
-(cd advisory-fetcher && python -m pytest tests -q)
-(cd track-fetcher && python -m pytest tests -q)
+(cd browser-worker && python -m pytest tests -q)
 scripts/test-release-controls.sh
 ```
 
@@ -155,14 +153,14 @@ Rust in this crate is edition 2021. Format with rustfmt defaults; there is no `r
 - Document public items, including `# Errors` on fallible public functions. Non-trivial modules open with a `//!` comment that states the invariant.
 - Silence a lint with `#[expect(clippy::..., reason = "...")]`, not a blanket `allow`.
 - The `status` feature stays off the default build. `cargo build --locked --release` must not compile `amtrak-status`.
-- Sidecar Python uses `from __future__ import annotations`, the stdlib HTTP server, and pytest functions named `test_*`. There is no ruff or black config; match the surrounding module. Keep Playwright imports inside the functions that launch a browser.
+- Browser worker Python uses `from __future__ import annotations`, the stdlib HTTP server, and pytest functions named `test_*`. There is no ruff or black config; match the surrounding module. Keep Playwright imports inside the functions that launch a browser.
 
 ## Testing expectations
 
 - New behavior needs an offline test. Config goes through `from_map`. HTTP tests drive the axum router with an injected peer and clock. Source tests use `sources::mock`.
 - Tests that hit the network stay `#[ignore]` with a reason. Run them with `cargo test -- --ignored` or `--include-ignored`. Do not un-ignore them to make CI call Amtrak.
 - Ignored today: `sources::amtrak::live_fetch_returns_batch`, the orchestrator live candidate, `sources::advisories_live_tests`, `status::live_tests` (both need live Amtrak), and the manual `static_augment::augment_file` (needs `AUGMENT_IN`).
-- Sidecar tests stay offline: no browser, no Amtrak, no RailData.
+- Browser worker tests stay offline: no browser, no Amtrak, no RailData. `tests/test_browser.py` drives the shared browser against fakes.
 - `scripts/test-release-controls.sh` is the deterministic release-control suite. It uses local git fixtures only.
 - A feed change that can produce a new MobilityData ERROR code needs a real fix or a `validation/baseline.json` entry that records the cause. Do not gate on occurrence counts; those follow how many trains are running. Amtrak's static GTFS is gated at zero ERROR notices.
 
@@ -221,9 +219,9 @@ Release workflow:
 
 ## Cursor Cloud specific instructions
 
-Cloud Agent setup is `bash .cursor/install.sh`, from `.cursor/environment.json`. The script is idempotent and uses Cursor's default image. There is no `.cursor/Dockerfile`, and there is no `start` or `terminals` entry: unit tests do not need the HTTP server, the sidecars, or Docker.
+Cloud Agent setup is `bash .cursor/install.sh`, from `.cursor/environment.json`. The script is idempotent and uses Cursor's default image. There is no `.cursor/Dockerfile`, and there is no `start` or `terminals` entry: unit tests do not need the HTTP server, the browser worker, or Docker.
 
-The script installs `protoc`, `libssl-dev`, `pkg-config`, `python`, `jq`, and CA certificates when they are missing; installs Rust stable with `rustfmt` and `clippy` (the image's preinstalled 1.83 cannot compile the edition 2024 dependency); installs both sidecar requirement files; runs `cargo fetch --locked`; and downloads the official GTFS validator JAR to `tools/gtfs-validator-v8.0.1-cli.jar` after the SHA-256 check. It installs OpenJDK 17 only when `java` is missing or older than 17. The default image already has a newer JDK, which satisfies the service's Java 17 minimum.
+The script installs `protoc`, `libssl-dev`, `pkg-config`, `python`, `jq`, and CA certificates when they are missing; installs Rust stable with `rustfmt` and `clippy` (the image's preinstalled 1.83 cannot compile the edition 2024 dependency); installs the browser worker's requirement file; runs `cargo fetch --locked`; and downloads the official GTFS validator JAR to `tools/gtfs-validator-v8.0.1-cli.jar` after the SHA-256 check. It installs OpenJDK 17 only when `java` is missing or older than 17. The default image already has a newer JDK, which satisfies the service's Java 17 minimum.
 
 After install, the commands in "Build, test, and lint" are the verification set. `cargo test --locked` does not run the ignored live tests.
 

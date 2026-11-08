@@ -8,8 +8,8 @@
 # from the pinned MobilityData v8.0.1 source with reviewed dependency fixes.
 #
 # This file's last stage is `runtime`, so `docker build .` stays the scratch service image.
-# The advisory-fetcher browser image is a separate image (advisory-fetcher/Dockerfile). It is
-# not a stage here: Chromium must not be copied into `runtime`. From the repo root, build and
+# The browser worker's images are built from browser-worker/Dockerfile. They are not stages
+# here: Chromium must not be copied into `runtime`. From the repo root, build and
 # run both images with `docker compose up -d --build`, or build them without starting them
 # with `docker buildx bake`. See docker-compose.yml and docker-bake.hcl.
 

@@ -22,12 +22,9 @@ on:
       - "scripts/release-vulnerability-policy.sh"
       - "scripts/install-release-scanners.sh"
       - "scripts/test-fetcher-image.sh"
-      - "track-fetcher/Dockerfile"
-      - "track-fetcher/requirements.txt"
-      - "track-fetcher/fetcher/**"
-      - "advisory-fetcher/Dockerfile"
-      - "advisory-fetcher/requirements.txt"
-      - "advisory-fetcher/fetcher/**"
+      - "browser-worker/Dockerfile"
+      - "browser-worker/requirements.txt"
+      - "browser-worker/worker/**"
       - "src/**"
       - "docker-compose.yml"
       - "trip-updates.Dockerfile"
@@ -164,7 +161,7 @@ jobs:
       # Not cached: the base image and apt packages are not digest-pinned, so a fresh build
       # scans what a release built today would contain.
       - name: Build the sidecar image
-        run: docker build --tag "$LOCAL_IMAGE" ${{ matrix.image }}
+        run: docker build --file browser-worker/Dockerfile --target ${{ matrix.image }} --tag "$LOCAL_IMAGE" .
 
       - name: Prepare report directory
         run: mkdir -p release-gates
