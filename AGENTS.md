@@ -6,27 +6,28 @@ Instructions for coding agents working in this repository.
 
 Amtrak GTFS-RT (AGPL-3.0-only) publishes live GTFS-Realtime for Amtrak — TripUpdates, VehiclePositions, and Alerts — plus the static GTFS those feeds bind to. Consumers start at `GET /v1/feed-set.json` and then fetch only the four immutable URLs in that manifest.
 
-The target architecture is **three containers, one per feed**, specified in [docs/rearchitecture.md](docs/rearchitecture.md). They share one Rust library. Only VehiclePositions polls Amtrak's fleet feed. The checked-in tree is still the single `amtrak-gtfs-rt-service` binary plus the `advisory-fetcher/` and `track-fetcher/` sidecars. New work implements that document. Do not add a fourth reverse proxy unless the owner asks for one.
+The target is **one container**, specified in [docs/one-container.md](docs/one-container.md). One image, `ghcr.io/sohampatwardhan/amtrak-gtfs-rt`, serves the manifest, the static ZIPs, and all three GTFS-Realtime feeds. It includes the helpers they need: one browser worker and the Java validator. Each optional source has an on/off environment flag. That document supersedes the three-container design in `docs/rearchitecture.md`. The checked-in tree still has the three-container roles (`AMTRAK_ROLE`, `src/roles.rs`, `src/cohort.rs`, `trip-updates.Dockerfile`, `alerts.Dockerfile`) next to the combined mode (`run_combined`, the default with `AMTRAK_ROLE` unset). New work follows the implementation plan in `docs/one-container.md`, which removes the roles. Do not add a reverse proxy beyond the optional Caddy profile unless the owner asks for one.
 
 Decrypt, trip matching, and protobuf encoding stay in the git dependency [`catenarytransit/amtrak-gtfs-rt`](https://github.com/catenarytransit/amtrak-gtfs-rt), pinned in `Cargo.lock`, called from the shared library. A neutral `RtSource` trait wraps that source so another provider can be added without changing the orchestrator. Do not copy code from Piero Maddaleni's repositories. If an approach of his is reused, credit him in `README.md` and add the license notice that `docs/rearchitecture.md` describes. Repositories of his with no `LICENSE` file are not copied.
 
 Both optional features fail open. A notices failure or a track failure never stops the other feeds from publishing.
 
-- **Alerts.** TransitDocs ASM and Pacific Surfliner advisories come from the one fleet poll. Amtrak station and passenger notices (`AMTRAK_ADVISORIES`, default off) are merged in the Alerts container. `www.amtrak.com` blocks plain HTTP (Akamai). The notices browser runs in the background inside that container. Do not spoof a browser fingerprint, copy Akamai cookies, or use curl-impersonate.
-- **TripUpdates.** `AMTRAK_ROLE=trip-updates`. Platform, track, and gate assignments (`AMTRAK_TRACKS`, default on) stamp `assigned_stop_id` and `platform_code`. The track browser is embedded when `/app/fetcher` exists. Full polls run every `AMTRAK_TRACKS_BASE_INTERVAL_SECS` (default 900). Hot stations, including a profile such as PVD, are still checked on `POLL_INTERVAL_SECS` between those runs. `AMTRAK_TRACKS_LEAD_TIME_FILE` is an `amtrak-station-lead-time/v1` JSON file. Only `confidence=observed` and `compared_to_default=wider` change that station's lookahead and hot window. `sparse`, `no_track`, `none`, `covered`, and missing stations keep the global window. A `train` or `station` query on trip updates is debounced (`AMTRAK_TRACKS_DEBOUNCE_SECS`, default 5), coalesced per train, and capped (`AMTRAK_TRACKS_MAX_EARLY`, default 24) with `AMTRAK_TRACKS_MIN_GAP_SECS` (default 90). The HTTP response does not wait for that refresh.
-- **VehiclePositions.** The only process that GETs `getTrainsData`. It matches trains to Amtrak's official static GTFS, writes the vehicle protobuf and an internal fleet snapshot, and serves the public HTTP API.
+- **Alerts.** TransitDocs ASM and Pacific Surfliner advisories come from the one fleet poll. Amtrak station and passenger notices (`AMTRAK_ADVISORIES`, default off today, proposed on in `docs/one-container.md`) are merged in. `www.amtrak.com` blocks plain HTTP (Akamai). The notices browser runs in the background. Do not spoof a browser fingerprint, copy Akamai cookies, or use curl-impersonate.
+- **TripUpdates.** Platform, track, and gate assignments (`AMTRAK_TRACKS`, default on) stamp `assigned_stop_id` and `platform_code`. The track browser is embedded when `/app/fetcher` exists. Full polls run every `AMTRAK_TRACKS_BASE_INTERVAL_SECS` (default 900). Hot stations, including a profile such as PVD, are still checked on `POLL_INTERVAL_SECS` between those runs. `AMTRAK_TRACKS_LEAD_TIME_FILE` is an `amtrak-station-lead-time/v1` JSON file. Only `confidence=observed` and `compared_to_default=wider` change that station's lookahead and hot window. `sparse`, `no_track`, `none`, `covered`, and missing stations keep the global window. A `train` or `station` query on trip updates is debounced (`AMTRAK_TRACKS_DEBOUNCE_SECS`, default 5), coalesced per train, and capped (`AMTRAK_TRACKS_MAX_EARLY`, default 24) with `AMTRAK_TRACKS_MIN_GAP_SECS` (default 90). The HTTP response does not wait for that refresh.
+- **VehiclePositions.** One `getTrainsData` poll per cycle feeds all three products. Trains are matched to Amtrak's official static GTFS, and the same process serves the public HTTP API.
 
 `cargo run` starts the current single service (`default-run` is `amtrak-gtfs-rt-service`). The `amtrak-status` station and train CLI is a second binary behind the `status` feature and is not in the released container. HTTP handlers serve the last good generation from memory. They must not wait on Chromium or on an upstream fetch. Responses carry `Last-Modified` and `ETag`, and honor `If-None-Match` / `If-Modified-Since` with `304`.
 
 ## Architecture
 
-Target containers, from `docs/rearchitecture.md`:
+Target image, from `docs/one-container.md`:
 
-| Container | Fetches and polls | Writes | Serves |
-| --- | --- | --- | --- |
-| VehiclePositions | One `getTrainsData` poll per cycle, plus the ASM and Surfliner reads inside that same crate call. Parses the static ZIP from the shared volume. Does not download `GTFS.zip` itself. | `vehicle-positions.pb` and the internal fleet snapshot (matched trip updates before track stamping, base alerts, generation id, timestamp, `static_version`) | Public `/livez`, `/readyz`, `/v1/feed-set.json`, and all four generation files. Advances the manifest only when `static.zip` and the three `.pb` files share that generation id, timestamp, and static version. |
-| TripUpdates | Amtrak status documents (background Chromium), NJ Transit RailData, Hartford board. Official `GTFS.zip` on the daily refresh, and on a platform rebuild at most every 10 minutes. Near-stop selection reads the fleet snapshot. It does not GET `getTrainsData` again. | `trip-updates.pb`, the served `static.zip` (official schedule, dangling-stop repair, platform stops while tracks are on), `observed-platforms.txt`, the RailData token | Nothing on the host. No public port. |
-| Alerts | Amtrak notices HTML, background Chromium that exits between cycles. ASM and Surfliner entities are read from the snapshot, not fetched again. | `alerts.pb` | Nothing on the host. No public port. |
+| Process | Runs when | Does |
+| --- | --- | --- |
+| `tini` | always | PID 1. Reaps zombies and forwards signals. |
+| `amtrak-gtfs-rt-service`, combined mode | always | One `getTrainsData` poll per cycle (including ASM and Surfliner), the daily `GTFS.zip` download, NJ Transit RailData, the Hartford board, generation assembly, and the public HTTP API on `:8080` |
+| Browser worker (Python, one headless Chromium) | `AMTRAK_TRACKS_AMTRAK` or `AMTRAK_ADVISORIES` is on | Amtrak status documents and the notices HTML, on `127.0.0.1` only. Started, restarted, and stopped by the service. |
+| Java validator | on each new static ZIP | MobilityData validator 8.0.1 (hardened JAR) on a glibc Java 17 runtime |
 
 `feed-set.json` stays on `127.0.0.1:8090` in Compose. A generation that is missing any of the four files is not current. The previous complete generation keeps being served.
 
@@ -47,10 +48,12 @@ Checked-in paths, until the split replaces them:
 | `src/writer.rs` | Immutable generations on disk |
 | `src/serve.rs` | axum HTTP API, peer check, and readiness |
 | `src/bin/amtrak_status.rs`, `src/bin/status/` | `amtrak-status` CLI (`--features status`) |
-| `advisory-fetcher/`, `track-fetcher/` | Python/Playwright browsers. Target: notices move into Alerts, status documents into TripUpdates. |
+| `src/roles.rs`, `src/cohort.rs` | Three-container roles and their shared-volume snapshots. To be removed (`docs/one-container.md`). |
+| `advisory-fetcher/`, `track-fetcher/` | Python/Playwright browsers. Target: one browser worker package inside the one image. |
 | `scripts/` | Feed validation, container smoke, release controls |
-| `Dockerfile`, `docker-compose.yml` | Today's scratch service image and the Compose stack (service plus both sidecars) |
-| `docs/rearchitecture.md` | The three-container design. Follow it for the split. |
+| `Dockerfile`, `trip-updates.Dockerfile`, `alerts.Dockerfile`, `docker-compose.yml` | Today's scratch service image, the two browser role images, and the three-service Compose stack. Target: one root `Dockerfile` and one Compose service. |
+| `docs/one-container.md` | The one-container design and the PR plan. Follow it. |
+| `docs/rearchitecture.md` | Superseded three-container design. Kept for its research sections. |
 
 There is no checked-in protobuf codegen step. The `gtfs-realtime` crate's build script compiles its `.proto` files with `protoc` at `cargo build` time.
 
@@ -122,13 +125,13 @@ cargo run --features status --bin amtrak-status -- station NYP --limit 10
 cargo run --features status --bin amtrak-status -- train 167
 ```
 
-Today's Compose file builds the scratch service and both browser sidecars, turns advisories and tracks on, and publishes the feed on `127.0.0.1:8090`:
+Today's Compose file builds the three role containers (`vehicle-positions`, `trip-updates`, `alerts`), turns advisories and tracks on, and publishes only `vehicle-positions` on `127.0.0.1:8090`:
 
 ```bash
 docker compose up -d --build
 ```
 
-`AMTRAK_TRACKS=off docker compose up -d --build --scale track-fetcher=0` runs without tracks and without the track sidecar's Chromium. The service image alone, advisories off, is `docker build --tag amtrak-gtfs-rt:local .`. After the split, Compose runs VehiclePositions, TripUpdates, and Alerts, and only VehiclePositions is published on that same host port.
+The service image alone, advisories off, is `docker build --tag amtrak-gtfs-rt:local .`. Once the one-container plan lands, Compose runs a single `amtrak-gtfs-rt` service on that same host port, and flags such as `AMTRAK_TRACKS=off` and `AMTRAK_ADVISORIES=off` turn sources off inside it.
 
 Do not start Compose or the HTTP server in order to run the unit tests. They are offline.
 
@@ -167,9 +170,9 @@ Rust in this crate is edition 2021. Format with rustfmt defaults; there is no `r
 
 Sources. One caller per upstream. Do not triplicate `getTrainsData`.
 
-- Static GTFS: `https://content.amtrak.com/content/gtfs/GTFS.zip` (`AMTRAK_STATIC_URL`). TripUpdates is the only downloader. The other containers read the ZIP on the shared volume.
-- Realtime trains: VehiclePositions is the only process that fetches and decrypts `getTrainsData` on `maps.amtrak.com`, through the catenary crate. TripUpdates selects trains near a stop from that snapshot. It does not GET the map feed again.
-- Notices: background browser inside Alerts. Track and gate documents: background browser inside TripUpdates. Until those containers exist, the Playwright sidecars are the supported source. Point `AMTRAK_ADVISORIES_URL` and `AMTRAK_TRACKS_AMTRAK_URL` at them. An empty Amtrak track URL skips that source and logs a warning when tracks are on. A plain HTTP client to `www.amtrak.com` is reset by Akamai. Do not bypass that. No fingerprint spoofing, no curl-impersonate, no copied cookies, no login.
+- Static GTFS: `https://content.amtrak.com/content/gtfs/GTFS.zip` (`AMTRAK_STATIC_URL`). One downloader per deployment. In the three-role tree that is TripUpdates. In the one container it is the service process.
+- Realtime trains: exactly one process fetches and decrypts `getTrainsData` on `maps.amtrak.com`, through the catenary crate: VehiclePositions in the three-role tree, the service process in the one container. Track selection reads that same poll. It does not GET the map feed again.
+- Notices and track and gate documents: the background browser worker. Today the worker is embedded in the `trip-updates` and `alerts` images. In the one container it is a single worker supervised by the service. `AMTRAK_ADVISORIES_URL` and `AMTRAK_TRACKS_AMTRAK_URL` point at it. An empty Amtrak track URL skips that source and logs a warning when tracks are on. A plain HTTP client to `www.amtrak.com` is reset by Akamai. Do not bypass that. No fingerprint spoofing, no curl-impersonate, no copied cookies, no login.
 - Hartford Line board: `AMTRAK_TRACKS_HARTFORD_URL` (default the public connecting-train page). Set it empty to skip.
 - NJ Transit RailData (`AMTRAK_TRACKS_RAILDATA_BASE`, default `https://raildata.njtransit.com/api/TrainData`) needs `NJT_RAILDATA_USERNAME` and `NJT_RAILDATA_PASSWORD` set together. Without them, NJ stations are skipped. One token is cached at `{AMTRAK_OUTPUT_DIR}/tracks/raildata-token.json` (mode `0600`, never served). A token is requested only when that cache is empty or older than 23 hours, and never more than 10 times in 24 hours. Any failed token request pauses NJ Transit for an hour. Do not point exploratory runs, including `scripts/validate-feeds.sh`, at production RailData credentials: a cold cache spends that daily budget. The `--tracks` flag of the validation script deliberately omits those credentials.
 
@@ -185,7 +188,7 @@ Release workflow:
 
 - User-visible feed, config, or image changes go under `## [Unreleased]` in `CHANGELOG.md` (Keep a Changelog, semver).
 - `Cargo.toml` `version` is the released version. A release commit moves Unreleased into `## [X.Y.Z] - YYYY-MM-DD` and must pass `scripts/check-release-metadata.sh` (version, tag form `vX.Y.Z`, changelog heading, `AGPL-3.0-only`, and `THIRD_PARTY_LICENSES.html`).
-- Pushing a `v*.*.*` tag starts `.github/workflows/release.yml`. It publishes only the scratch service image, `linux/amd64` and `linux/arm64`, to `ghcr.io/sohampatwardhan/amtrak-gtfs-rt`. It does not publish the browser sidecars; build those from this repo.
+- Pushing a `v*.*.*` tag starts `.github/workflows/release.yml`. It publishes the scratch service image, `linux/amd64` and `linux/arm64`, to `ghcr.io/sohampatwardhan/amtrak-gtfs-rt`. It also publishes the `amtrak-gtfs-rt-track-fetcher` and `amtrak-gtfs-rt-advisory-fetcher` images. `docs/one-container.md` retires those, so that `amtrak-gtfs-rt` is the only package.
 - A release is complete only when the GitHub Release carries `image-release.txt` with the tag, revisions, manifest digest, and both platform digests. Until then the previous complete release stays the stable image. Current complete release is `v0.6.2`. Tags `v0.3.0`, `v0.6.0`, and `v0.6.1` never finished publication; do not deploy them or their partial images.
 - Pull requests that touch image inputs (`Dockerfile`, `.dockerignore`, `container/`, any file in `src/`, `Cargo.toml`, `Cargo.lock`, or the smoke, scanner, and policy scripts) run `.github/workflows/release-gates.yml`: a linux/amd64 image build, `scripts/test-container.sh` (live Amtrak fetch), and the pinned Grype zero-match policy. arm64 is still checked only by the release itself.
 - `./scripts/validate-feeds.sh` runs on a schedule and on pushes that touch the pipeline, not on every pull request, so an Amtrak outage does not block unrelated work.
@@ -198,7 +201,8 @@ Release workflow:
 - Do not serve the generation directory with a generic file server. That bypasses peer checks, readiness, and manifest-first discovery.
 - Do not treat `X-Forwarded-For` or `Forwarded` as the client.
 - Do not make a missing notices browser, a RailData outage, or a Hartford failure fail the generation. VehiclePositions still publishes the last complete generation.
-- Do not put Chromium in the VehiclePositions image. That image stays scratch and shell-free, as today's root `Dockerfile` runtime stage does. Chromium belongs only in TripUpdates (resident, for status documents) and Alerts (one notices cycle, then exit).
+- Do not add container images or GHCR packages. `amtrak-gtfs-rt` is the one package. Its browser worker and Chromium start only when `AMTRAK_TRACKS_AMTRAK` or `AMTRAK_ADVISORIES` is on, and they listen on `127.0.0.1` only.
+- Do not run more than one Chromium in the container. Notices open a browser context in the worker's resident browser.
 - Do not let an HTTP handler wait on a browser, a map poll, or any other upstream call. Serve the warm cache. A cold browser launch is a scheduler concern, not a request-path concern.
 - Do not advance `/v1/feed-set.json` until `static.zip`, `trip-updates.pb`, `vehicle-positions.pb`, and `alerts.pb` for that generation id are all present and the three protobuf headers share its timestamp and static version.
 - Do not poll `getTrainsData` from more than one process.
@@ -223,7 +227,7 @@ The script installs `protoc`, `libssl-dev`, `pkg-config`, `python`, `jq`, and CA
 
 After install, the commands in "Build, test, and lint" are the verification set. `cargo test --locked` does not run the ignored live tests.
 
-`cargo run` listens on `127.0.0.1:8080` and needs outbound HTTPS to `content.amtrak.com` and `maps.amtrak.com`. With tracks left on and the Hartford URL left at its default, it also calls `hartfordline.com`. It does not call `www.amtrak.com` unless an advisory or Amtrak-track URL points there, and that call will fail closed at Akamai without the sidecars. Advisories stay off unless `AMTRAK_ADVISORIES` is set. That single process is the current tree. The three-container split in `docs/rearchitecture.md` is what new container work implements.
+`cargo run` listens on `127.0.0.1:8080` and needs outbound HTTPS to `content.amtrak.com` and `maps.amtrak.com`. With tracks left on and the Hartford URL left at its default, it also calls `hartfordline.com`. It does not call `www.amtrak.com` unless an advisory or Amtrak-track URL points there, and that call will fail closed at Akamai without the sidecars. Advisories stay off unless `AMTRAK_ADVISORIES` is set. That single process is the combined mode that the one container in `docs/one-container.md` builds on.
 
 Secrets, only for NJ Transit tracks. Add them in Cursor's Secrets tab. Do not put them in the repo, Compose, or this file.
 

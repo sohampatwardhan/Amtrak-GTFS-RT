@@ -1,5 +1,7 @@
 # Design Document
 
+> **Superseded on 2026-11-07** by [`docs/one-container.md`](../../../docs/one-container.md). The owner chose one container with every helper inside it. This spec records how the three-container roles were built, and the one-container plan removes them.
+
 ## Overview
 
 Three processes link `amtrak-gtfs-rt-service`. `AMTRAK_ROLE` selects the role. Unset means the combined process, so `cargo run` and the existing image smoke test stay valid. Compose runs the three roles. VehiclePositions polls once, writes `fleet/{id}`, and publishes a generation only when `contrib/{id}/trip-updates.pb` and `contrib/{id}/alerts.pb` exist. HTTP reads that generation from memory.
