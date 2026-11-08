@@ -7,6 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- **Patched Rust TLS and transport crates.** The lockfile moves h2 to 0.4.16, quinn-proto to 0.11.18 (RUSTSEC-2026-0338, high), rustls to 0.23.46, rustls-webpki to 0.103.16, tokio to 1.53.3, and webpki-root-certs to 1.0.10, which are the advisories' fixed releases. A new Cargo risk acceptance, pending owner approval, replaces the v0.2.0 record that expires 2026-11-12.
 - **gtfs-mcp and Trackside are the named consumers.** Both read `feed-set.json`, the untouched official zip, the platform add-on, and the three protobufs. Public URLs, content types, manifest fields, and protobuf header meanings stay. New names are additions. A contract test pins the URL list and the artifact cache headers.
 - **Optional Caddy proxy.** `docker compose --profile proxy up` adds gzip, a per-IP rate limit, access logs, and TLS when `AMTRAK_PROXY_TLS` is set. It is off by default. Vehicle-positions still serves `127.0.0.1:8090`. The image is built from digest-pinned Caddy tags and scanned by the release gate.
 - **Validator JSON report is the static gate.** OGNL 3.4.13 removes `DefaultMemberAccess`, so Thymeleaf's HTML export exits non-zero after `report.json` is written. A report with no `ERROR` notices is accepted.
