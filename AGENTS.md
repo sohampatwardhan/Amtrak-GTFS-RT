@@ -210,6 +210,7 @@ Release workflow:
 
 - Branch from `main`. Commit subjects are imperative sentences with a period, specific enough to stand alone (`Publish Amtrak's boarding gates and turn tracks on by default.`).
 - `main` is merged with merge commits (`Merge pull request #N`). Do not rewrite published history.
+- `main` and the `v*.*.*` release tags are protected by repository rulesets, versioned in `.github/rulesets/`. Every change to `main` goes through a pull request that passes all ten `ci.yml` jobs, has its review threads resolved, and is merged with a merge commit. Admins can bypass only inside a pull request. Release tags cannot be deleted or moved. After you rename, add, or remove a `ci.yml` job, update `.github/rulesets/main.json` in the same PR. `scripts/test-release-controls.sh` fails when a required check is not a job. After that PR merges, an admin runs `scripts/apply-rulesets.sh`, and `scripts/apply-rulesets.sh --check` reports drift. Do not edit rulesets in the GitHub UI without updating these files.
 - Update `CHANGELOG.md` for user-visible changes. Leave the `Cargo.toml` version and git tags to an intentional release.
 - Run the offline commands in "Build, test, and lint" before pushing. Say which ignored live tests you did not run.
 - A PR that changes image inputs should expect the release-gates workflow, which needs network access to Amtrak and can fail when Amtrak is down.

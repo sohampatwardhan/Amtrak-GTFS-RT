@@ -268,4 +268,27 @@ test "$always_status" -eq 255 || fail "persistent silent inspect should exit 255
 grep -q 'with no message' "$TMP/assemble.err" || fail 'persistent silent inspect should say it had no message'
 test "$(create_count)" = 0 || fail 'unreadable tag must not be created'
 
+# Every check the main ruleset requires must still be a ci.yml job name. A renamed job
+# would otherwise leave a required check that never reports, which blocks every PR.
+CI="$ROOT/.github/workflows/ci.yml"
+while IFS= read -r check; do
+  grep -Fqx "    name: $check" "$CI" && continue
+  if [[ "$check" =~ ^([a-z-]+)\ image\ \(([a-z0-9]+)\)$ ]]; then
+    # shellcheck disable=SC2016 # literal workflow expression, not a shell expansion
+    grep -Fqx '    name: ${{ matrix.image }} image (${{ matrix.arch }})' "$CI" \
+      && grep -Eq "^        image: \[.*\b${BASH_REMATCH[1]}\b.*\]$" "$CI" \
+      && grep -Eq "^        arch: \[.*\b${BASH_REMATCH[2]}\b.*\]$" "$CI" \
+      && continue
+  fi
+  fail "required check '$check' in .github/rulesets/main.json is not a ci.yml job"
+done < <(jq -r '.rules[] | select(.type == "required_status_checks")
+  | .parameters.required_status_checks[].context' "$ROOT/.github/rulesets/main.json")
+
+# The immutable-tag ruleset must cover the tags that start a release.
+grep -Fqx "      - 'v*.*.*'" "$ROOT/.github/workflows/release.yml" \
+  || fail 'release.yml no longer triggers on v*.*.* tags'
+jq -e '.conditions.ref_name.include == ["refs/tags/v*.*.*"]' \
+  "$ROOT/.github/rulesets/release-tags.json" >/dev/null \
+  || fail 'release-tags ruleset does not cover refs/tags/v*.*.*'
+
 printf 'release-control tests passed\n'
