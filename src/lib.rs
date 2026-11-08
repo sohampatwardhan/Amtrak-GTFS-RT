@@ -313,13 +313,14 @@ pub async fn run_combined() -> Result<(), Box<dyn std::error::Error + Send + Syn
         platforms.set_known_stations(active.parsed.stops.keys().map(String::as_str));
     }
 
-    // The Amtrak source (optionally Capital Corridor-filtered) is optionally wrapped with the
-    // best-effort advisory scraper and the track board. Both wrappers are fail-open and stay off
-    // unless their env flags are set, so enabling either never risks generation publication.
+    // The Amtrak source (optionally Capital Corridor-filtered) is wrapped with the best-effort
+    // advisory scraper and the track board. Both are on by default, read the built-in browser
+    // worker, and fail open, so a missing worker never risks generation publication. Their
+    // flags (`AMTRAK_ADVISORIES`, `AMTRAK_TRACKS`, `AMTRAK_TRACKS_AMTRAK`, ...) turn them off.
     let advisory_config = crate::config::AdvisoryConfig::from_env()?;
-    let advisories_on = advisory_config.enabled;
     let advisories = advisory_config.enabled.then_some(advisory_config);
-    if track_config.enabled && track_config.amtrak_url.is_none() {
+    let banner_advisories = advisories.clone();
+    if track_config.enabled && track_config.amtrak_enabled && track_config.amtrak_url.is_none() {
         tracing::warn!(
             source = "amtrak",
             "AMTRAK_TRACKS_AMTRAK_URL is empty; Amtrak's own track numbers are not published"
@@ -362,8 +363,9 @@ pub async fn run_combined() -> Result<(), Box<dyn std::error::Error + Send + Syn
         &base_url,
         config.bind_addr,
         &config.access_policy,
-        advisories_on,
+        banner_advisories.as_ref(),
         track_config.enabled.then_some(&track_config),
+        config.filter_capital_corridor,
     );
     let app = serve::router(serve::AppState::new(
         store,

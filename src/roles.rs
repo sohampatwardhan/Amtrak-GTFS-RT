@@ -151,7 +151,14 @@ pub async fn run_vehicle_positions() -> Result<(), Box<dyn std::error::Error + S
     let base = base_url(config.bind_addr, config.public_url.as_deref());
     println!(
         "{}",
-        startup_banner(&base, config.bind_addr, &config.access_policy, false, None,)
+        startup_banner(
+            &base,
+            config.bind_addr,
+            &config.access_policy,
+            None,
+            None,
+            config.filter_capital_corridor,
+        )
     );
     let assembler_store = store.clone();
     let assembler_dir = config.output_dir.clone();
