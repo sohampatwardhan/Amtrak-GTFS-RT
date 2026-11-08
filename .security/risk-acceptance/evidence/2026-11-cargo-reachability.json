@@ -1,0 +1,149 @@
+{
+  "schema_version": "1",
+  "annotations": {
+    "pkg:cargo/atomic-polyfill@1.0.3|RUSTSEC-2023-0089": {
+      "status": "unreachable",
+      "method": "delivered_artifact_exclusion",
+      "evidence": [
+        ".security/risk-acceptance/evidence/2026-11-cargo-reachability.txt#locked-not-built (cargo tree --target all --all-features -e all prints nothing)"
+      ],
+      "producer": "manual review for issue #58 (cargo tree, grep, nm at 088104119f86)",
+      "timestamp": "2026-11-07T22:30:00Z"
+    },
+    "pkg:cargo/derivative@2.2.0|RUSTSEC-2024-0388": {
+      "status": "unreachable",
+      "method": "delivered_artifact_exclusion",
+      "evidence": [
+        ".security/risk-acceptance/evidence/2026-11-cargo-reachability.txt#build-time-only (proc-macro; runs inside rustc, not linked)"
+      ],
+      "producer": "manual review for issue #58 (cargo tree, grep, nm at 088104119f86)",
+      "timestamp": "2026-11-07T22:30:00Z"
+    },
+    "pkg:cargo/gcc@0.3.55|RUSTSEC-2025-0121": {
+      "status": "unreachable",
+      "method": "delivered_artifact_exclusion",
+      "evidence": [
+        ".security/risk-acceptance/evidence/2026-11-cargo-reachability.txt#build-time-only (build-dependency of rust-crypto only; cargo tree -e normal prints nothing)"
+      ],
+      "producer": "manual review for issue #58 (cargo tree, grep, nm at 088104119f86)",
+      "timestamp": "2026-11-07T22:30:00Z"
+    },
+    "pkg:cargo/fxhash@0.2.1|RUSTSEC-2025-0057": {
+      "status": "reachable",
+      "method": "direct_call",
+      "evidence": [
+        ".security/risk-acceptance/evidence/2026-11-cargo-reachability.txt#fxhash-reachable (scraper -> selectors in src/sources/advisories.rs and src/sources/tracks/hartford.rs)"
+      ],
+      "producer": "manual review for issue #58 (cargo tree, grep, nm at 088104119f86)",
+      "timestamp": "2026-11-07T22:30:00Z"
+    },
+    "pkg:cargo/rust-crypto@0.2.36|RUSTSEC-2016-0005": {
+      "status": "unreachable",
+      "method": "call_graph_exclusion",
+      "evidence": [
+        ".security/risk-acceptance/evidence/2026-11-cargo-reachability.txt#rust-crypto-unreferenced (no crypto:: reference in amtrak-gtfs-rt f3a83db0 or this crate; zero crypto/rust_crypto_util symbols in the release binary)"
+      ],
+      "producer": "manual review for issue #58 (cargo tree, grep, nm at 088104119f86)",
+      "timestamp": "2026-11-07T22:30:00Z"
+    },
+    "pkg:cargo/rust-crypto@0.2.36|RUSTSEC-2022-0011": {
+      "status": "unreachable",
+      "method": "call_graph_exclusion",
+      "evidence": [
+        ".security/risk-acceptance/evidence/2026-11-cargo-reachability.txt#rust-crypto-unreferenced (Amtrak decryption is amtk with RustCrypto aes/block-modes/pbkdf2; zero rust-crypto symbols in the release binary)"
+      ],
+      "producer": "manual review for issue #58 (cargo tree, grep, nm at 088104119f86)",
+      "timestamp": "2026-11-07T22:30:00Z"
+    },
+    "pkg:cargo/rustc-serialize@0.3.25|RUSTSEC-2022-0004": {
+      "status": "unreachable",
+      "method": "call_graph_exclusion",
+      "evidence": [
+        ".security/risk-acceptance/evidence/2026-11-cargo-reachability.txt#rust-crypto-unreferenced (only dependent is unreferenced rust-crypto; zero rustc_serialize symbols in the release binary)"
+      ],
+      "producer": "manual review for issue #58 (cargo tree, grep, nm at 088104119f86)",
+      "timestamp": "2026-11-07T22:30:00Z"
+    },
+    "pkg:cargo/rustc-serialize@0.3.25|RUSTSEC-2025-0025": {
+      "status": "unreachable",
+      "method": "call_graph_exclusion",
+      "evidence": [
+        ".security/risk-acceptance/evidence/2026-11-cargo-reachability.txt#rust-crypto-unreferenced (only dependent is unreferenced rust-crypto; zero rustc_serialize symbols in the release binary)"
+      ],
+      "producer": "manual review for issue #58 (cargo tree, grep, nm at 088104119f86)",
+      "timestamp": "2026-11-07T22:30:00Z"
+    },
+    "pkg:cargo/time@0.1.45|RUSTSEC-2020-0071": {
+      "status": "unreachable",
+      "method": "call_graph_exclusion",
+      "evidence": [
+        ".security/risk-acceptance/evidence/2026-11-cargo-reachability.txt#rust-crypto-unreferenced (only dependent is unreferenced rust-crypto; the service never calls set_var/remove_var)"
+      ],
+      "producer": "manual review for issue #58 (cargo tree, grep, nm at 088104119f86)",
+      "timestamp": "2026-11-07T22:30:00Z"
+    },
+    "pkg:cargo/zip@6.0.0|GHSA-8HXF-QR8P-62X4": {
+      "status": "unreachable",
+      "method": "configuration_exclusion",
+      "evidence": [
+        ".security/risk-acceptance/evidence/2026-11-cargo-reachability.txt#enabled-zip-features (aes-crypto is not enabled by either consumer)"
+      ],
+      "producer": "manual review for issue #58 (cargo tree, grep, nm at 088104119f86)",
+      "timestamp": "2026-11-07T22:30:00Z"
+    },
+    "pkg:cargo/zip@6.0.0|GHSA-9HJ8-73FH-9963": {
+      "status": "unreachable",
+      "method": "configuration_exclusion",
+      "evidence": [
+        ".security/risk-acceptance/evidence/2026-11-cargo-reachability.txt#enabled-zip-features (legacy-zip is not enabled; no extract() call site)"
+      ],
+      "producer": "manual review for issue #58 (cargo tree, grep, nm at 088104119f86)",
+      "timestamp": "2026-11-07T22:30:00Z"
+    },
+    "pkg:cargo/zip@6.0.0|GHSA-M665-V7PM-7GRJ": {
+      "status": "unreachable",
+      "method": "call_graph_exclusion",
+      "evidence": [
+        ".security/risk-acceptance/evidence/2026-11-cargo-reachability.txt#zip-api-call-sites (ZipStreamReader is never constructed; only ZipArchive reads archives)"
+      ],
+      "producer": "manual review for issue #58 (cargo tree, grep, nm at 088104119f86)",
+      "timestamp": "2026-11-07T22:30:00Z"
+    },
+    "pkg:cargo/zip@6.0.0|RUSTSEC-2026-0367": {
+      "status": "unreachable",
+      "method": "call_graph_exclusion",
+      "evidence": [
+        ".security/risk-acceptance/evidence/2026-11-cargo-reachability.txt#zip-api-call-sites (no extract() or stream extraction call site)"
+      ],
+      "producer": "manual review for issue #58 (cargo tree, grep, nm at 088104119f86)",
+      "timestamp": "2026-11-07T22:30:00Z"
+    },
+    "pkg:cargo/zip@6.0.0|RUSTSEC-2026-0368": {
+      "status": "unreachable",
+      "method": "call_graph_exclusion",
+      "evidence": [
+        ".security/risk-acceptance/evidence/2026-11-cargo-reachability.txt#zip-api-call-sites (no extract() call site)"
+      ],
+      "producer": "manual review for issue #58 (cargo tree, grep, nm at 088104119f86)",
+      "timestamp": "2026-11-07T22:30:00Z"
+    },
+    "pkg:cargo/zip@6.0.0|RUSTSEC-2026-0369": {
+      "status": "unreachable",
+      "method": "call_graph_exclusion",
+      "evidence": [
+        ".security/risk-acceptance/evidence/2026-11-cargo-reachability.txt#zip-api-call-sites (ZipStreamReader::extract is never called)"
+      ],
+      "producer": "manual review for issue #58 (cargo tree, grep, nm at 088104119f86)",
+      "timestamp": "2026-11-07T22:30:00Z"
+    },
+    "pkg:cargo/zip@6.0.0|RUSTSEC-2026-0429": {
+      "status": "unreachable",
+      "method": "call_graph_exclusion",
+      "evidence": [
+        ".security/risk-acceptance/evidence/2026-11-cargo-reachability.txt#zip-api-call-sites (no extract() call site)"
+      ],
+      "producer": "manual review for issue #58 (cargo tree, grep, nm at 088104119f86)",
+      "timestamp": "2026-11-07T22:30:00Z"
+    }
+  }
+}

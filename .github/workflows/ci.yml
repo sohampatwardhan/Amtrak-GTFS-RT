@@ -164,6 +164,9 @@ jobs:
       - name: Run deterministic release-control fixtures
         run: scripts/test-release-controls.sh
 
+      - name: Fail on expired approved risk acceptances
+        run: python3 scripts/check-risk-acceptance-expiry.py
+
   packaging:
     name: Compose and bake config
     runs-on: ubuntu-24.04
