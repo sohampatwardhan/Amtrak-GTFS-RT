@@ -113,7 +113,31 @@ def load_trains(cfg: Config) -> dict:
     return parsed
 
 
+def load_fleet_trains(root: str) -> dict:
+    """The ``amtrak-fleet-trains/v1`` list VehiclePositions wrote for the current fleet snapshot.
+
+    Raises ``OSError`` until VehiclePositions has written a snapshot; the cycle is retried.
+    """
+    fleet = os.path.join(root, "fleet")
+    with open(os.path.join(fleet, "CURRENT"), encoding="utf-8") as handle:
+        current = handle.read().strip()
+    if not current or os.sep in current or current.startswith("."):
+        raise FileNotFoundError("fleet/CURRENT names no snapshot")
+    with open(os.path.join(fleet, current, "trains.json"), encoding="utf-8") as handle:
+        parsed = json.loads(handle.read())
+    if not isinstance(parsed, dict):
+        raise ValueError("fleet train list is not an object")
+    return parsed
+
+
 async def _default_trains(cfg: Config) -> dict:
+    """Inside TripUpdates, read the fleet snapshot. VehiclePositions is the only map poller.
+
+    Without ``AMTRAK_OUTPUT_DIR`` (the standalone sidecar), fall back to polling the map.
+    """
+    root = os.environ.get("AMTRAK_OUTPUT_DIR", "")
+    if root:
+        return await asyncio.to_thread(load_fleet_trains, root)
     return await asyncio.to_thread(load_trains, cfg)
 
 
@@ -281,12 +305,14 @@ async def poll_once(
         lead=profile,
         hot=timedelta(seconds=cfg.hot_window_secs),
     )
-    early = _early_train_numbers()
+    early, early_stations = take_early_hints()
     if not full:
         due = [
             train
             for train in due
-            if train.train_number in early or is_hot(train, store.tracked(), cfg.hot_window_secs)
+            if train.train_number in early
+            or train.upcoming & early_stations
+            or is_hot(train, store.tracked(), cfg.hot_window_secs)
         ]
     due_keys = {train.key for train in due}
     for key in [key for key in last_fetched if key not in due_keys]:
@@ -332,20 +358,43 @@ async def poll_once(
     return succeeded
 
 
-def _early_train_numbers() -> set[str]:
-    """Train numbers written by the HTTP hint flusher. Missing file means none."""
+def take_early_hints() -> tuple[set[str], set[str]]:
+    """Consume queued early-refresh hints: ``(train numbers, station codes)``.
+
+    VehiclePositions renames each flush into ``tracks/early-refresh/``. Every complete file
+    is read and deleted, so a hint is acted on once; dot-prefixed files are still being
+    written and are left alone. No output directory means no hints.
+    """
     root = os.environ.get("AMTRAK_OUTPUT_DIR", "")
+    trains: set[str] = set()
+    stations: set[str] = set()
     if not root:
-        return set()
-    path = os.path.join(root, "tracks", "early-refresh.json")
+        return trains, stations
+    queue = os.path.join(root, "tracks", "early-refresh")
     try:
-        body = json.loads(open(path, encoding="utf-8").read())
-    except (OSError, json.JSONDecodeError):
-        return set()
-    trains = body.get("trains") if isinstance(body, dict) else None
-    if not isinstance(trains, list):
-        return set()
-    return {str(train) for train in trains if str(train).isdigit()}
+        names = sorted(name for name in os.listdir(queue) if not name.startswith("."))
+    except OSError:
+        return trains, stations
+    for name in names:
+        path = os.path.join(queue, name)
+        try:
+            with open(path, encoding="utf-8") as handle:
+                body = json.loads(handle.read())
+        except (OSError, json.JSONDecodeError):
+            body = None
+        try:
+            os.remove(path)
+        except OSError:
+            pass
+        if not isinstance(body, dict):
+            continue
+        for train in body.get("trains") or []:
+            if str(train).isdigit():
+                trains.add(str(train))
+        for station in body.get("stations") or []:
+            if isinstance(station, str) and station.strip():
+                stations.add(station.strip().upper())
+    return trains, stations
 
 
 async def run_forever(

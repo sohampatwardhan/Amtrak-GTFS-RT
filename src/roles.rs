@@ -123,10 +123,9 @@ pub async fn run_vehicle_positions() -> Result<(), Box<dyn std::error::Error + S
             if trains.is_empty() && stations.is_empty() {
                 continue;
             }
-            let path = hint_dir.join("tracks").join("early-refresh.json");
-            let body = serde_json::json!({"trains": trains, "stations": stations}).to_string();
-            let _ = std::fs::create_dir_all(hint_dir.join("tracks"));
-            let _ = std::fs::write(path, body);
+            if let Err(error) = write_early_hint(&hint_dir, &trains, &stations) {
+                tracing::warn!(%error, "early track-refresh hint not written");
+            }
         }
     });
     let enqueue = scheduler.clone();
@@ -256,6 +255,46 @@ pub async fn run_alerts() -> Result<(), Box<dyn std::error::Error + Send + Sync>
     }
 }
 
+/// Queues one batch of early track-refresh hints for the TripUpdates poller.
+///
+/// Each flush is its own file under `tracks/early-refresh/`, written to a dot-prefixed
+/// temporary name and renamed into place. The poller reads and deletes every queued
+/// file, so a hint is acted on once and a later flush never overwrites an unread one.
+///
+/// # Errors
+///
+/// Returns an I/O error when the queue directory or file cannot be written.
+pub fn write_early_hint(
+    output_dir: &std::path::Path,
+    trains: &[String],
+    stations: &[String],
+) -> std::io::Result<std::path::PathBuf> {
+    static SEQUENCE: AtomicU64 = AtomicU64::new(0);
+    let queue = output_dir.join("tracks").join("early-refresh");
+    std::fs::create_dir_all(&queue)?;
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|elapsed| elapsed.as_nanos())
+        .unwrap_or_default();
+    let name = format!("{nanos}-{}.json", SEQUENCE.fetch_add(1, Ordering::Relaxed));
+    let body = serde_json::json!({"trains": trains, "stations": stations}).to_string();
+    let temporary = queue.join(format!(".{name}"));
+    std::fs::write(&temporary, body)?;
+    let path = queue.join(name);
+    std::fs::rename(&temporary, &path)?;
+    Ok(path)
+}
+
+/// `trains.json` for the track poller, so TripUpdates never polls `getTrainsData`.
+fn fleet_train_list(candidate: &ValidatedGeneration) -> Vec<u8> {
+    let trip_updates = FeedMessage::decode(candidate.trip_updates.as_ref()).unwrap_or_default();
+    let gtfs = &candidate.static_snapshot.parsed;
+    let list = crate::fleet_trains::train_list(&trip_updates, |trip_id| {
+        gtfs.trips.get(trip_id)?.trip_short_name.clone()
+    });
+    list.to_string().into_bytes()
+}
+
 struct FleetCommitter {
     output_dir: PathBuf,
 }
@@ -277,12 +316,14 @@ impl GenerationCommitter for FleetCommitter {
             static_version: candidate.static_snapshot.version.clone(),
             addon_version: candidate.static_snapshot.addon_version.clone(),
         };
+        let trains = fleet_train_list(&candidate);
         cohort::write_fleet(
             &self.output_dir,
             &meta,
             &candidate.trip_updates,
             &candidate.vehicle_positions,
             &candidate.alerts,
+            &trains,
             &candidate.static_snapshot.zip,
             &candidate.static_snapshot.official_zip,
             &candidate.static_snapshot.addon_zip,
@@ -474,5 +515,30 @@ fn embed_browser(port: &str) {
         .env("LISTEN_PORT", port);
     if let Err(error) = command.spawn() {
         tracing::warn!(%error, "browser worker did not start");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn early_hints_queue_one_file_per_flush_without_temporaries() {
+        let dir = std::env::temp_dir().join(format!("early-hints-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let first = write_early_hint(&dir, &["163".into()], &[]).unwrap();
+        let second = write_early_hint(&dir, &[], &["NYP".into()]).unwrap();
+        assert_ne!(first, second);
+        let mut names: Vec<String> = std::fs::read_dir(dir.join("tracks/early-refresh"))
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        names.sort();
+        assert_eq!(names.len(), 2, "{names:?}");
+        assert!(names.iter().all(|name| !name.starts_with('.')));
+        let body: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&second).unwrap()).unwrap();
+        assert_eq!(body, serde_json::json!({"trains": [], "stations": ["NYP"]}));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

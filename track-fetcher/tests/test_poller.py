@@ -1,6 +1,7 @@
 """One poll cycle with injected train data and status responses. No browser, no network."""
 
 import asyncio
+import json
 import threading
 from datetime import datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -12,6 +13,7 @@ import pytest
 from fetcher.config import Config
 from fetcher.poller import (
     TRAINS_ACCEPT,
+    _default_trains,
     BrowserUnavailable,
     ResidentBrowser,
     StatusMiss,
@@ -22,6 +24,7 @@ from fetcher.poller import (
     should_abort,
     should_block,
     status_url,
+    take_early_hints,
 )
 from fetcher.select import DueTrain
 from fetcher.store import TrackStore
@@ -382,3 +385,78 @@ def test_the_browser_is_recycled_after_its_maximum_age():
     clock[0] = 100
     asyncio.run(browser.fetch(cfg, train))
     assert launches == [0.0, 100]
+
+
+def _write_fleet(root, fleet_id, document):
+    fleet = root / "fleet"
+    (fleet / fleet_id).mkdir(parents=True)
+    (fleet / fleet_id / "trains.json").write_text(json.dumps(document), encoding="utf-8")
+    (fleet / "CURRENT").write_text(fleet_id + "\n", encoding="utf-8")
+
+
+def test_embedded_poller_reads_trains_from_the_fleet_snapshot_not_the_map(tmp_path, monkeypatch):
+    document = {"schema": "amtrak-fleet-trains/v1", "trains": []}
+    _write_fleet(tmp_path, "10-1", document)
+    monkeypatch.setenv("AMTRAK_OUTPUT_DIR", str(tmp_path))
+
+    def no_network(*_args, **_kwargs):
+        raise AssertionError("the embedded poller must not GET getTrainsData")
+
+    monkeypatch.setattr("urllib.request.urlopen", no_network)
+    assert asyncio.run(_default_trains(Config())) == document
+
+
+def test_missing_fleet_snapshot_fails_the_cycle_without_polling(tmp_path, monkeypatch):
+    monkeypatch.setenv("AMTRAK_OUTPUT_DIR", str(tmp_path))
+
+    def no_network(*_args, **_kwargs):
+        raise AssertionError("the embedded poller must not GET getTrainsData")
+
+    monkeypatch.setattr("urllib.request.urlopen", no_network)
+    with pytest.raises(OSError):
+        asyncio.run(_default_trains(Config()))
+
+
+def _queue_hint(root, name, trains=(), stations=()):
+    queue = root / "tracks" / "early-refresh"
+    queue.mkdir(parents=True, exist_ok=True)
+    (queue / name).write_text(json.dumps({"trains": list(trains), "stations": list(stations)}))
+
+
+def test_early_hints_are_consumed_once(tmp_path, monkeypatch):
+    monkeypatch.setenv("AMTRAK_OUTPUT_DIR", str(tmp_path))
+    _queue_hint(tmp_path, "1-0.json", trains=["163"])
+    _queue_hint(tmp_path, "2-1.json", trains=["66"], stations=["nyp"])
+    (tmp_path / "tracks" / "early-refresh" / ".3-2.json").write_text("partial")
+    assert take_early_hints() == ({"163", "66"}, {"NYP"})
+    assert take_early_hints() == (set(), set())
+    assert [p.name for p in (tmp_path / "tracks" / "early-refresh").iterdir()] == [".3-2.json"]
+
+
+def test_station_hint_picks_due_trains_stopping_there(tmp_path, monkeypatch):
+    monkeypatch.setenv("AMTRAK_OUTPUT_DIR", str(tmp_path))
+    _queue_hint(tmp_path, "1-0.json", stations=["NYP"])
+    soon = int((NOW + timedelta(minutes=20)).timestamp())  # due, not hot
+    document = {
+        "schema": "amtrak-fleet-trains/v1",
+        "trains": [
+            {"train_number": "163", "service_date": "2026-10-17",
+             "stops": [{"code": "NYP", "times_unix": [soon]}]},
+            {"train_number": "66", "service_date": "2026-10-17",
+             "stops": [{"code": "BOS", "times_unix": [soon]}]},
+        ],
+    }
+    fetched: list[str] = []
+
+    async def trains(_cfg):
+        return document
+
+    async def status(_cfg, train):
+        fetched.append(train.train_number)
+        raise StatusMiss("no document in this test")
+
+    asyncio.run(
+        poll_once(TrackStore(), Config(), {}, now=NOW, trains_fetcher=trains,
+                  status_fetcher=status, full=False)
+    )
+    assert fetched == ["163"]

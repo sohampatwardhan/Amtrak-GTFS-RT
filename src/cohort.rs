@@ -32,6 +32,7 @@ pub struct FleetMeta {
 /// * `trip_updates` - Trip updates before track stamping.
 /// * `vehicle_positions` - Vehicle positions for this poll.
 /// * `alerts` - Alerts from the fleet poll, before notice merging.
+/// * `trains` - `trains.json` from [`crate::fleet_trains::train_list`], read by the track poller.
 /// * `static_zip` - Combined static GTFS the poll was matched against.
 /// * `official_zip` - Untouched official GTFS download.
 /// * `addon_zip` - Overlay that rebuilds the combined zip.
@@ -56,7 +57,7 @@ pub struct FleetMeta {
 ///         static_version: "v".into(),
 ///         addon_version: "amtrak-platform-addon/v1".into(),
 ///     },
-///     b"tu", b"vp", b"al", b"zip", b"official", b"addon",
+///     b"tu", b"vp", b"al", b"{}", b"zip", b"official", b"addon",
 /// ).unwrap();
 /// assert_eq!(std::fs::read(dir.join("fleet/CURRENT")).unwrap(), b"10-1\n");
 /// let _ = std::fs::remove_dir_all(&dir);
@@ -67,6 +68,7 @@ pub fn write_fleet(
     trip_updates: &[u8],
     vehicle_positions: &[u8],
     alerts: &[u8],
+    trains: &[u8],
     static_zip: &[u8],
     official_zip: &[u8],
     addon_zip: &[u8],
@@ -81,6 +83,7 @@ pub fn write_fleet(
     write_file(&temporary.join("trip-updates.pb"), trip_updates)?;
     write_file(&temporary.join("vehicle-positions.pb"), vehicle_positions)?;
     write_file(&temporary.join("alerts.pb"), alerts)?;
+    write_file(&temporary.join("trains.json"), trains)?;
     write_file(&temporary.join("static.zip"), static_zip)?;
     write_file(&temporary.join("official-static.zip"), official_zip)?;
     write_file(&temporary.join("platform-addon.zip"), addon_zip)?;
@@ -268,6 +271,7 @@ mod tests {
             b"tu",
             b"vp",
             b"al",
+            b"{}",
             b"zip",
             b"official",
             b"addon",

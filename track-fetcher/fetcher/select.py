@@ -62,8 +62,9 @@ def due_trains(
 ) -> list[DueTrain]:
     """Trains with a rail stop whose ETA is between ``now - after`` and ``now + before``.
 
-    An estimated time replaces the scheduled time for that arrival or departure. Bus stops are
-    ignored. ``soonest_secs`` is the absolute distance from ``now`` to the closest such event.
+    ``geojson`` is Amtrak's decrypted train feed, or the ``amtrak-fleet-trains/v1`` document
+    VehiclePositions writes next to each fleet snapshot. An estimated time replaces the
+    scheduled time for that arrival or departure. Bus stops are ignored. ``soonest_secs`` is the absolute distance from ``now`` to the closest such event.
     When ``lead`` is set, each stop uses that station's lookahead and hot window from an
     ``amtrak-station-lead-time/v1`` profile, and ``hot`` is the global hot window those
     per-station values fall back to.
@@ -74,24 +75,16 @@ def due_trains(
     after_secs = after.total_seconds()
     default_hot = hot.total_seconds() if hot is not None else None
     found: dict[tuple[str, str], DueTrain] = {}
-    for feature in geojson.get("features") or []:
-        properties = feature.get("properties") or {}
-        number = _train_number(properties.get("TrainNum"))
-        service_date = _service_date(properties)
-        if number is None or service_date is None:
-            continue
+    for number, service_date, stops in _train_events(geojson):
         distances: list[float] = []
         ahead: list[float] = []
         upcoming: set[str] = set()
         hot_limits: list[float] = []
-        for station in _stations(properties):
-            if station.get("bus") is True:
-                continue
-            code = _station_code(station)
+        for code, moments in stops:
             station_before = (
                 lead.before_secs(code, before_secs) if lead is not None else before_secs
             )
-            for moment in _event_times(station):
+            for moment in moments:
                 delta = (moment - now).total_seconds()
                 if -after_secs <= delta <= station_before:
                     distances.append(abs(delta))
@@ -115,6 +108,53 @@ def due_trains(
         if current is None or train.soonest_secs < current.soonest_secs:
             found[train.key] = train
     return list(found.values())
+
+
+FLEET_TRAINS_SCHEMA = "amtrak-fleet-trains/v1"
+
+StopEvents = list[tuple[str | None, list[datetime]]]
+
+
+def _train_events(document: dict):
+    """Yield ``(train_number, service_date, [(station_code, [instant])])`` per train-day."""
+    if document.get("schema") == FLEET_TRAINS_SCHEMA:
+        yield from _fleet_train_events(document)
+        return
+    for feature in document.get("features") or []:
+        properties = feature.get("properties") or {}
+        number = _train_number(properties.get("TrainNum"))
+        service_date = _service_date(properties)
+        if number is None or service_date is None:
+            continue
+        stops: StopEvents = [
+            (_station_code(station), _event_times(station))
+            for station in _stations(properties)
+            if station.get("bus") is not True
+        ]
+        yield number, service_date, stops
+
+
+def _fleet_train_events(document: dict):
+    for train in document.get("trains") or []:
+        if not isinstance(train, dict):
+            continue
+        number = _train_number(train.get("train_number"))
+        service_date = train.get("service_date")
+        if number is None or not isinstance(service_date, str):
+            continue
+        stops: StopEvents = []
+        for stop in train.get("stops") or []:
+            if not isinstance(stop, dict):
+                continue
+            code = _station_code(stop)
+            times = stop.get("times_unix") or []
+            moments = [
+                datetime.fromtimestamp(value, tz=_ZONES["E"])
+                for value in times
+                if isinstance(value, int) and not isinstance(value, bool)
+            ]
+            stops.append((code, moments))
+        yield number, service_date, stops
 
 
 def is_hot(train: DueTrain, tracked: Mapping[tuple[str, str], frozenset[str]], hot_secs: float) -> bool:
