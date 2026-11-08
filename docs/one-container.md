@@ -145,15 +145,15 @@ Each step is one PR. They are stacked in this order and merged into `main` with 
 | --- | --- | --- |
 | 0 | Approve the 2026-11 Cargo risk acceptance and mark the v0.2.0 record superseded before it expires on 2026-11-12 | #58 |
 | 1 | This document. Retarget AGENTS.md and mark the three-container design superseded | #63 |
-| 2 | Feature flags: add `AMTRAK_TRACKS_AMTRAK` and `AMTRAK_TRACKS_HARTFORD`, default the worker URLs, default `AMTRAK_ADVISORIES` on, add the startup source line | ISSUE_FLAGS |
-| 3 | The one image: browser worker inside, glibc Java runtime, `tini`, supervision, `SIGTERM`, the `127.0.0.1` worker bind, hardening, healthcheck, one Compose service, D1 network default | ISSUE_IMAGE, #52 |
-| 4 | Remove the split: roles, cohort snapshots, `AMTRAK_ROLE`, per-role Dockerfiles, and the fetcher-image CI jobs. `.github/rulesets/main.json` is updated in the same PR. | ISSUE_SPLIT (closes #49, #51, #54) |
-| 5 | One browser worker package from both fetchers, built on the shared harness | ISSUE_WORKER, #59 |
+| 2 | Feature flags: add `AMTRAK_TRACKS_AMTRAK` and `AMTRAK_TRACKS_HARTFORD`, default the worker URLs, default `AMTRAK_ADVISORIES` on, add the startup source line | #70 |
+| 3 | The one image: browser worker inside, glibc Java runtime, `tini`, supervision, `SIGTERM`, the `127.0.0.1` worker bind, hardening, healthcheck, one Compose service, D1 network default | #71, #52 |
+| 4 | Remove the split: roles, cohort snapshots, `AMTRAK_ROLE`, per-role Dockerfiles, and the fetcher-image CI jobs. `.github/rulesets/main.json` is updated in the same PR. | #72 (closes #49, #51, #54) |
+| 5 | One browser worker package from both fetchers, built on the shared harness | #73, #59 |
 | 6 | One track scheduler | #66 |
 | 7 | Combined-mode tests, including all browser features off and one poll per cycle, and validation of both static ZIPs | #55 |
 | 8 | Precomputed ETags, zero-copy serving, and RFC 9110 conditional-request precedence | #56 |
 | 9 | Conditional requests for the daily `GTFS.zip` refresh | #60 |
-| 10 | Release the one image with license notices for everything in it. Retire the other package names. | ISSUE_RELEASE (supersedes #50) |
+| 10 | Release the one image with license notices for everything in it. Retire the other package names. | #74 (supersedes #50) |
 | 11 | README, Compose comments, CHANGELOG, and the upgrade notes above | #57 |
 
 Later: #61 (train match rate) and #62 (fallback source, v1.1).
