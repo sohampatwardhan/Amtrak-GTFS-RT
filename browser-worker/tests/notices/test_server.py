@@ -1,0 +1,73 @@
+"""Tests for the notices snapshot routes (task 3.3, Requirements 2.1/2.3/3.1/8.1)."""
+
+from worker.notices.server import HEALTH_PATH, route
+from worker.notices.store import SnapshotStore
+
+SERVE_PATH = "/service-alerts-and-notices"
+MAX_STALE = 3600
+
+
+def test_healthz_ok(tmp_path):
+    store = SnapshotStore(tmp_path)
+    status, ctype, body = route(store, SERVE_PATH, MAX_STALE, HEALTH_PATH, now=1000.0)
+    assert status == 200 and body == b"ok" and ctype == "text/plain"
+
+
+def test_503_when_no_snapshot(tmp_path):
+    store = SnapshotStore(tmp_path)
+    status, _, _ = route(store, SERVE_PATH, MAX_STALE, SERVE_PATH, now=1000.0)
+    assert status == 503
+
+
+def test_200_when_fresh(tmp_path):
+    store = SnapshotStore(tmp_path)
+    store.update("<html>fresh na-service-alert</html>")
+    _, last_success = store.read()
+    status, ctype, body = route(store, SERVE_PATH, MAX_STALE, SERVE_PATH, now=last_success + 10)
+    assert status == 200 and ctype == "text/html"
+    assert b"na-service-alert" in body
+
+
+def test_503_when_stale(tmp_path):
+    store = SnapshotStore(tmp_path)
+    store.update("<html>old</html>")
+    _, last_success = store.read()
+    status, _, _ = route(store, SERVE_PATH, MAX_STALE, SERVE_PATH, now=last_success + MAX_STALE + 1)
+    assert status == 503
+
+
+def test_detail_freshness_outlives_the_list_window(tmp_path):
+    store = SnapshotStore(tmp_path)
+    path = "/alert/ok.html"
+    store.update("<html>list</html>")
+    store.update_detail(path, "<p>body</p>")
+    _, list_time = store.read()
+    now = list_time + 7200
+    list_status, _, _ = route(store, SERVE_PATH, MAX_STALE, SERVE_PATH, now=now, detail_max_stale_secs=86400)
+    assert list_status == 503
+    detail_status, _, body = route(
+        store, SERVE_PATH, MAX_STALE, path, now=now, detail_max_stale_secs=86400
+    )
+    assert detail_status == 200 and b"body" in body
+    assert store.detail_is_fresh(path, 86400, now) is True
+    assert store.detail_is_fresh(path, 3600, now) is False
+
+
+def test_404_for_unknown_path(tmp_path):
+    store = SnapshotStore(tmp_path)
+    status, _, _ = route(store, SERVE_PATH, MAX_STALE, "/nope", now=1000.0)
+    assert status == 404
+
+
+def test_detail_snapshot_is_served_when_fresh_and_missing_is_404(tmp_path):
+    store = SnapshotStore(tmp_path)
+    path = "/alert/boston-south-station-restroom-improvement-project.html"
+    store.update_detail(path, "<p>Atlantic Avenue</p>")
+    _, last_success = store.read_detail(path)
+    status, ctype, body = route(store, SERVE_PATH, MAX_STALE, path, now=last_success + 10)
+    assert status == 200 and ctype == "text/html" and b"Atlantic Avenue" in body
+    missing, _, _ = route(store, SERVE_PATH, MAX_STALE, "/alert/missing.html", now=last_success)
+    assert missing == 404
+    unsafe, _, _ = route(store, SERVE_PATH, MAX_STALE, "/alert/../../etc/passwd", now=last_success)
+    assert unsafe == 404
+

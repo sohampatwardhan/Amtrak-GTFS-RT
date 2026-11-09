@@ -58,3 +58,10 @@ id_ed25519
 .vscode
 *.swp
 *~
+
+# Browser worker: only browser-worker/worker/ is copied into an image
+/browser-worker/tests
+/browser-worker/spike
+**/__pycache__
+**/*.pyc
+**/.pytest_cache

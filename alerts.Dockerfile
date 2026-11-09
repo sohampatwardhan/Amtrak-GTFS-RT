@@ -11,7 +11,9 @@ RUN OPENSSL_STATIC=1 \
     && mkdir -p /out \
     && cp /build/target/release/amtrak-gtfs-rt-service /out/amtrak-gtfs-rt-service
 
-# Advisory-fetcher image (linux/amd64 and linux/arm64, including Raspberry Pi).
+# Alerts role image (linux/amd64 and linux/arm64, including Raspberry Pi): the service plus the
+# browser worker with only its notices source on (the service starts it with
+# AMTRAK_TRACKS_AMTRAK=off).
 #
 # Slim Debian Python plus Playwright's chromium-headless-shell only. `playwright install --with-deps`
 # also pulls xvfb and the large font packs (Noto emoji, Unifont, CJK) and is what made this image
@@ -30,6 +32,8 @@ ARG PLAYWRIGHT_VERSION=1.64.1
 # It makes the image larger, so build it only when that mode is needed:
 #   docker build --build-arg BROWSER_BUNDLE=full .
 ARG BROWSER_BUNDLE=headless-shell
+# The worker package imports the track source too, which decrypts the maps feed.
+ARG CRYPTOGRAPHY_VERSION=50.0.2
 
 ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright \
     PIP_NO_CACHE_DIR=1 \
@@ -77,7 +81,9 @@ RUN apt-get update \
 # `--only-shell` installs chromium-headless-shell and skips full Chromium; the `full` bundle installs
 # both and checks full Chromium's libraries too. Dependencies were installed above, so
 # `--with-deps` is intentionally not used.
-RUN pip install --no-cache-dir "playwright==${PLAYWRIGHT_VERSION}" \
+RUN pip install --no-cache-dir \
+        "playwright==${PLAYWRIGHT_VERSION}" \
+        "cryptography==${CRYPTOGRAPHY_VERSION}" \
     && if [ "${BROWSER_BUNDLE}" = "full" ]; then \
         python -m playwright install chromium \
         && full="$(find /ms-playwright -type f -name chrome -path '*chrome-linux*' -print -quit)" \
@@ -94,16 +100,13 @@ RUN pip install --no-cache-dir "playwright==${PLAYWRIGHT_VERSION}" \
     && useradd --create-home --uid 10001 fetcher \
     && chmod -R a+rX /ms-playwright
 
-# Snapshot directory, writable by the non-root user (default SNAPSHOT_DIR=/snapshot).
-RUN mkdir -p /snapshot && chown 10001:10001 /snapshot
-VOLUME ["/snapshot"]
-
 # Shared feed volume. VehiclePositions writes the fleet snapshot here; this role writes
-# its contribution. Owning the mount point keeps a first-mounted empty volume writable.
+# its contribution, and the worker keeps its notices snapshots under /data/notices. Owning the
+# mount point keeps a first-mounted empty volume writable.
 RUN mkdir -p /data && chown 10001:10001 /data
 
 WORKDIR /app
-COPY advisory-fetcher/fetcher/ /app/fetcher/
+COPY browser-worker/worker/ /app/worker/
 
 # Set by the release workflow; local builds keep the defaults.
 ARG OCI_VERSION=dev
@@ -112,15 +115,13 @@ ARG OCI_REVISION=unknown
 LABEL org.opencontainers.image.title="Amtrak GTFS-RT advisory-fetcher" \
       org.opencontainers.image.description="Amtrak service-alerts sidecar for Amtrak GTFS-RT" \
       org.opencontainers.image.source="https://github.com/sohampatwardhan/Amtrak-GTFS-RT" \
-      org.opencontainers.image.documentation="https://github.com/sohampatwardhan/Amtrak-GTFS-RT/tree/main/advisory-fetcher" \
+      org.opencontainers.image.documentation="https://github.com/sohampatwardhan/Amtrak-GTFS-RT/tree/main/browser-worker" \
       org.opencontainers.image.licenses="AGPL-3.0-only" \
       org.opencontainers.image.version="$OCI_VERSION" \
       org.opencontainers.image.revision="$OCI_REVISION"
 
 USER fetcher
-EXPOSE 8080
-
-# The fetcher serves the snapshot on :8080 and runs the poll loop; SIGTERM shuts it down cleanly.
+# The service starts the worker on 127.0.0.1:8081 (its default) and reads the notices there.
 COPY --from=rustbin /out/amtrak-gtfs-rt-service /usr/local/bin/amtrak-gtfs-rt-service
 ENV AMTRAK_ROLE=alerts \
     AMTRAK_OUTPUT_DIR=/data

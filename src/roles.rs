@@ -207,7 +207,7 @@ pub async fn run_vehicle_positions() -> Result<(), Box<dyn std::error::Error + S
 /// loop continues.
 pub async fn run_trip_updates() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     tracing_subscriber::fmt::try_init().ok();
-    embed_browser("8081");
+    embed_browser("AMTRAK_ADVISORIES");
     let output_dir = Config::from_env()?.validate_contributor()?;
     let track_config = crate::config::TrackConfig::from_env()?;
     let observed = output_dir.join("tracks").join("observed-platforms.txt");
@@ -244,7 +244,7 @@ pub async fn run_trip_updates() -> Result<(), Box<dyn std::error::Error + Send +
 /// Returns a configuration error. A notice failure still writes the base alerts.
 pub async fn run_alerts() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     tracing_subscriber::fmt::try_init().ok();
-    embed_browser("8080");
+    embed_browser("AMTRAK_TRACKS_AMTRAK");
     let output_dir = Config::from_env()?.validate_contributor()?;
     let advisory = crate::config::AdvisoryConfig::from_env()?;
     let mut seen = String::new();
@@ -511,15 +511,17 @@ fn decode_feed(path: &std::path::Path) -> Result<FeedMessage, String> {
     FeedMessage::decode(bytes.as_slice()).map_err(|error| error.to_string())
 }
 
-fn embed_browser(port: &str) {
-    if !std::path::Path::new("/app/fetcher").is_dir() {
+/// Starts the browser worker on its default `127.0.0.1:8081`, with `other_source` turned off so
+/// this role's container runs only its own browser source.
+fn embed_browser(other_source: &str) {
+    if !std::path::Path::new("/app/worker").is_dir() {
         return;
     }
     let mut command = std::process::Command::new("python");
     command
-        .args(["-m", "fetcher"])
+        .args(["-m", "worker"])
         .current_dir("/app")
-        .env("LISTEN_PORT", port);
+        .env(other_source, "off");
     if let Err(error) = command.spawn() {
         tracing::warn!(%error, "browser worker did not start");
     }

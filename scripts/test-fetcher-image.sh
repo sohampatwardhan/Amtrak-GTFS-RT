@@ -2,9 +2,10 @@
 
 set -euo pipefail
 
-# Offline smoke test for a browser-sidecar image (track-fetcher or advisory-fetcher). It needs no
-# network: Chromium renders a local page, and the server is checked on loopback inside a container
-# started with --network none. Amtrak is never contacted, so a blocked runner cannot fail a release.
+# Offline smoke test for a standalone browser-worker image (track-fetcher or advisory-fetcher, the
+# two targets of browser-worker/Dockerfile). It needs no network: Chromium renders a local page,
+# and the server is checked on loopback inside a container started with --network none. Amtrak is
+# never contacted, so a blocked runner cannot fail a release.
 #
 #   scripts/test-fetcher-image.sh IMAGE KIND [VERSION REVISION ARCH]
 #
@@ -73,7 +74,7 @@ asyncio.run(main())
 
 # The long-running process serves liveness, and its endpoint is 503 before any poll succeeds.
 docker run --detach --name "$CONTAINER" --network none "${HARDENING[@]}" \
-  -e POLL_INTERVAL_SECS=3600 "$IMAGE" >/dev/null
+  -e POLL_INTERVAL_SECS=3600 -e NOTICES_POLL_INTERVAL_SECS=3600 "$IMAGE" >/dev/null
 
 probe() {
   docker exec "$CONTAINER" python -c '

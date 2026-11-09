@@ -11,11 +11,12 @@ RUN OPENSSL_STATIC=1 \
     && mkdir -p /out \
     && cp /build/target/release/amtrak-gtfs-rt-service /out/amtrak-gtfs-rt-service
 
-# Track-fetcher image (linux/amd64 and linux/arm64, including Raspberry Pi).
+# Trip-updates role image (linux/amd64 and linux/arm64, including Raspberry Pi): the service plus
+# the browser worker with only its track source on (the service starts it with
+# AMTRAK_ADVISORIES=off).
 #
-# Same browser shape as advisory-fetcher: slim Debian Python plus Playwright's
-# chromium-headless-shell, or full Chromium and Xvfb too with BROWSER_BUNDLE=full. One process
-# stays up between polls. The maps train feed is decrypted in Python; only www.amtrak.com status
+# Slim Debian Python plus Playwright's chromium-headless-shell, or full Chromium and Xvfb too with
+# BROWSER_BUNDLE=full. One browser stays up between polls. The maps train feed is decrypted in Python; only www.amtrak.com status
 # calls go through the browser.
 FROM python:3.12-slim-bookworm
 
@@ -94,7 +95,7 @@ RUN pip install --no-cache-dir \
 RUN mkdir -p /data && chown 10001:10001 /data
 
 WORKDIR /app
-COPY track-fetcher/fetcher/ /app/fetcher/
+COPY browser-worker/worker/ /app/worker/
 
 # Set by the release workflow; local builds keep the defaults.
 ARG OCI_VERSION=dev
@@ -103,19 +104,18 @@ ARG OCI_REVISION=unknown
 LABEL org.opencontainers.image.title="Amtrak GTFS-RT track-fetcher" \
       org.opencontainers.image.description="Amtrak train-status sidecar (tracks and boarding gates) for Amtrak GTFS-RT" \
       org.opencontainers.image.source="https://github.com/sohampatwardhan/Amtrak-GTFS-RT" \
-      org.opencontainers.image.documentation="https://github.com/sohampatwardhan/Amtrak-GTFS-RT/tree/main/track-fetcher" \
+      org.opencontainers.image.documentation="https://github.com/sohampatwardhan/Amtrak-GTFS-RT/tree/main/browser-worker" \
       org.opencontainers.image.licenses="AGPL-3.0-only" \
       org.opencontainers.image.version="$OCI_VERSION" \
       org.opencontainers.image.revision="$OCI_REVISION"
 
 USER fetcher
-EXPOSE 8081
 
-# /healthz turns 503 when no poll has finished within LIVENESS_SECS, or after three polls in a
-# row fail. A wedged loop and a feed Amtrak keeps rejecting are both restarted. It probes
-# loopback, so LISTEN_HOST must stay 0.0.0.0 or 127.0.0.1.
+# The worker's /healthz turns 503 when no poll has finished within LIVENESS_SECS, or after three
+# polls in a row fail. A wedged loop and a feed Amtrak keeps rejecting are both restarted. With
+# AMTRAK_TRACKS or AMTRAK_TRACKS_AMTRAK off the worker does not run, and the check passes.
 HEALTHCHECK --interval=60s --timeout=10s --start-period=120s --retries=3 \
-    CMD ["python", "-c", "import os, urllib.request; urllib.request.urlopen('http://127.0.0.1:' + os.environ.get('LISTEN_PORT', '8081') + '/healthz', timeout=5)"]
+    CMD ["python", "-c", "import os, urllib.request; off = any(os.environ.get(k, '').strip().lower() in ('0', 'false', 'off', 'no') for k in ('AMTRAK_TRACKS', 'AMTRAK_TRACKS_AMTRAK')); off or urllib.request.urlopen('http://127.0.0.1:' + os.environ.get('LISTEN_PORT', '8081') + '/healthz', timeout=5)"]
 
 COPY --from=rustbin /out/amtrak-gtfs-rt-service /usr/local/bin/amtrak-gtfs-rt-service
 ENV AMTRAK_ROLE=trip-updates \

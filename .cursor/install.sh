@@ -66,8 +66,7 @@ fi
 # System site-packages are not writable by the agent user. sudo keeps pytest
 # importable as `python -m pytest` without relying on ~/.local or a shell profile.
 sudo python3 -m pip install --disable-pip-version-check --break-system-packages \
-  --requirement advisory-fetcher/requirements.txt \
-  --requirement track-fetcher/requirements.txt
+  --requirement browser-worker/requirements.txt
 
 cargo fetch --locked
 

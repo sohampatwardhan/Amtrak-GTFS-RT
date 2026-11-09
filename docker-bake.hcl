@@ -6,8 +6,9 @@
 #   docker buildx bake track-fetcher   # not in the default group
 #   docker buildx bake default track-fetcher   # everything the root compose file runs
 #
-# The service target is the `runtime` stage of the root Dockerfile. The fetcher target
-# is advisory-fetcher/Dockerfile. Nothing in the service target copies a fetcher image.
+# The service target is the `runtime` stage of the root Dockerfile. The two fetcher targets
+# are targets of browser-worker/Dockerfile, built from the repository root. Nothing in the
+# service target copies a fetcher image.
 # track-fetcher is built only when named, so the default bake and the scratch release
 # stay the same.
 #
@@ -45,8 +46,9 @@ target "service" {
 }
 
 target "advisory-fetcher" {
-  context    = "advisory-fetcher"
-  dockerfile = "Dockerfile"
+  context    = "."
+  dockerfile = "browser-worker/Dockerfile"
+  target     = "advisory-fetcher"
   tags       = ["advisory-fetcher:local", "${REGISTRY}/amtrak-gtfs-rt-advisory-fetcher:${AMTRAK_IMAGE_TAG}"]
   args       = { BROWSER_BUNDLE = FETCHER_BROWSER_BUNDLE }
 }
@@ -66,8 +68,9 @@ target "alerts" {
 }
 
 target "track-fetcher" {
-  context    = "track-fetcher"
-  dockerfile = "Dockerfile"
+  context    = "."
+  dockerfile = "browser-worker/Dockerfile"
+  target     = "track-fetcher"
   tags       = ["track-fetcher:local", "${REGISTRY}/amtrak-gtfs-rt-track-fetcher:${AMTRAK_IMAGE_TAG}"]
   args       = { BROWSER_BUNDLE = FETCHER_BROWSER_BUNDLE }
 }

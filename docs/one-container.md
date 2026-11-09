@@ -118,7 +118,7 @@ Only `amtrak-gtfs-rt` remains as a published package. Everything else that dupli
 | `-trip-updates`, `-alerts` (named in `docker-compose.yml`) | Never published. The names are dropped. | With the split removal |
 | `trip-updates.Dockerfile`, `alerts.Dockerfile`, `track-fetcher/Dockerfile`, `advisory-fetcher/Dockerfile`, their `docker-bake.hcl` targets | Deleted. The root `Dockerfile` builds the one image. | Split removal and release PRs |
 | `src/roles.rs`, `src/cohort.rs`, `AMTRAK_ROLE`, fleet and contribution snapshots | Deleted. Combined mode is the only mode. | Split removal |
-| `track-fetcher/` and `advisory-fetcher/` as separate packages, and the vendored harness copies | Merged into one worker package (#59) | Worker PR |
+| `track-fetcher/` and `advisory-fetcher/` as separate packages, and the vendored harness copies | Merged into one worker package, `browser-worker/`. One package needs no vendored harness (#59) | Worker PR (#73) |
 | Rust `lead_time.rs`/`schedule.rs` vs Python `schedule.py` | Python stays, Rust copy deleted (#66) | Scheduler PR |
 | `scripts/test-compose-stack.sh`, `scripts/test-fetcher-image.sh`, CI's fetcher-image matrix | Replaced by one image smoke test on amd64 and arm64 | Split removal |
 | Compose services `vehicle-positions`, `trip-updates`, `alerts` | One service, `amtrak-gtfs-rt`, the same name v0.7.1 used | Image PR |
@@ -148,7 +148,7 @@ Each step is one PR. They are stacked in this order and merged into `main` with 
 | 2 | Feature flags: add `AMTRAK_TRACKS_AMTRAK` and `AMTRAK_TRACKS_HARTFORD`, default the worker URLs, default `AMTRAK_ADVISORIES` on, add the startup source line | #70 |
 | 3 | The one image: browser worker inside, glibc Java runtime, `tini`, supervision, `SIGTERM`, the `127.0.0.1` worker bind, hardening, healthcheck, one Compose service, D1 network default | #71, #52 |
 | 4 | Remove the split: roles, cohort snapshots, `AMTRAK_ROLE`, per-role Dockerfiles, and the fetcher-image CI jobs. `.github/rulesets/main.json` is updated in the same PR. | #72 (closes #49, #51, #54) |
-| 5 | One browser worker package from both fetchers, built on the shared harness | #73, #59 |
+| 5 | One browser worker package from both fetchers. A single package replaces the shared-harness extraction | #73, #59 |
 | 6 | One track scheduler | #66 |
 | 7 | Combined-mode tests, including all browser features off and one poll per cycle, and validation of both static ZIPs | #55 |
 | 8 | Precomputed ETags, zero-copy serving, and RFC 9110 conditional-request precedence | #56 |
@@ -157,5 +157,8 @@ Each step is one PR. They are stacked in this order and merged into `main` with 
 | 11 | README, Compose comments, CHANGELOG, and the upgrade notes above | #57 |
 
 Later: #61 (train match rate) and #62 (fallback source, v1.1).
+
+PR 5 lands before PR 3 and PR 4, so the one image embeds a single worker that already serves both
+paths on `127.0.0.1:8081`, and no intermediate build runs two workers.
 
 PR 4 renames CI jobs that the main ruleset requires, so it can't pass its own required checks. Merge it through the admin pull-request bypass, then run `scripts/apply-rulesets.sh`.
